@@ -13,6 +13,11 @@ export default function Game() {
       if (gameRef.current) return;
 
       gameRef.current = new Phaser.Game(gameConfig);
+
+      // Focus the canvas so keyboard input works immediately
+      gameRef.current.events.once("ready", () => {
+        gameRef.current?.canvas?.focus();
+      });
     }
 
     initGame();
