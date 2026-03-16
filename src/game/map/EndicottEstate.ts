@@ -104,7 +104,7 @@ export const GATES = [
 ];
 
 // Willow tree positions
-const TREES = [
+export const TREES = [
   { x: MAP_WIDTH / 2 + 500, y: MAP_HEIGHT / 2 - 300, size: 80 },
   { x: MAP_WIDTH / 2 - 600, y: MAP_HEIGHT / 2 + 100, size: 90 },
   { x: MAP_WIDTH / 2 + 200, y: 400, size: 70 },

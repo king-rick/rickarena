@@ -47,6 +47,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private hasBiteAnim: boolean;
   private biting = false;
   private baseTint: number;
+  private stunTimer = 0; // ms remaining where enemy is slowed/stopped
 
   constructor(
     scene: Phaser.Scene,
@@ -70,9 +71,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     this.setScale(VARIANT_SCALES[type]);
 
-    // Collision body at feet
-    this.body.setSize(40, 30);
-    this.body.setOffset(44, 90);
+    // Collision body covering torso + feet for reliable hit detection
+    this.body.setSize(40, 55);
+    this.body.setOffset(44, 55);
 
     if (this.baseTint !== 0xffffff) {
       this.setTint(this.baseTint);
@@ -94,6 +95,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.hitFlashTimer = 100;
     this.setTint(0xffffff);
 
+    // Stun on hit — fast enemies stun longer (they're fragile)
+    this.stunTimer = this.enemyType === "fast" ? 400 : 200;
+
     if (this.health <= 0) {
       this.die();
       return true;
@@ -104,7 +108,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private die() {
     // Blood splat — stays on the ground
     const blood = this.scene.add.graphics();
-    blood.setDepth(1);
+    blood.setDepth(-1);
     for (let i = 0; i < 10; i++) {
       const angle = Math.random() * Math.PI * 2;
       const dist = 8 + Math.random() * 30;
@@ -117,6 +121,12 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     // Large center pool
     blood.fillStyle(0x660000, 0.5);
     blood.fillCircle(this.x, this.y, 8 + Math.random() * 4);
+
+    // Register blood for cleanup after 3 waves
+    const gameScene = this.scene as any;
+    if (gameScene.bloodSplats) {
+      gameScene.bloodSplats.push({ gfx: blood, spawnWave: gameScene.waveManager?.wave ?? 1 });
+    }
 
     this.healthBarGfx.destroy();
     this.destroy();
@@ -155,17 +165,25 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       | undefined;
     if (!player || !player.active) return;
 
-    // Chase player
+    // Stun countdown — don't chase while stunned (let knockback carry them)
+    if (this.stunTimer > 0) {
+      this.stunTimer -= delta;
+    }
+
     const angle = Phaser.Math.Angle.Between(
       this.x,
       this.y,
       player.x,
       player.y
     );
-    this.body.setVelocity(
-      Math.cos(angle) * this.speed,
-      Math.sin(angle) * this.speed
-    );
+
+    if (this.stunTimer <= 0) {
+      // Chase player
+      this.body.setVelocity(
+        Math.cos(angle) * this.speed,
+        Math.sin(angle) * this.speed
+      );
+    }
 
     // Update sprite direction (don't interrupt bite)
     const newDir = angleToDirection(angle) as Direction;

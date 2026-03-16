@@ -10,6 +10,12 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
   parent: "game-container",
   backgroundColor: "#0a0a0f",
   pixelArt: true,
+  disableContextMenu: true,
+  input: {
+    mouse: {
+      preventDefaultDown: true,
+    },
+  },
   physics: {
     default: "arcade",
     arcade: {

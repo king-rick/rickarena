@@ -81,9 +81,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     scene.add.existing(this);
     scene.physics.add.existing(this);
 
-    // Collision body: small box at feet of 128px sprite
-    this.body.setSize(32, 24);
-    this.body.setOffset(48, 96);
+    // Collision body: covers torso area for solid enemy separation
+    this.body.setSize(36, 40);
+    this.body.setOffset(46, 76);
     this.setScale(0.5);
 
     // Start with idle animation if available
@@ -252,7 +252,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   };
 
   playPunch(onImpact?: () => void) {
-    if (!this.hasPunchAnim || this.locked) {
+    if (!this.hasPunchAnim || this.locked || this.punching) {
       onImpact?.();
       return;
     }
