@@ -23,6 +23,26 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "walk", frames: 6 },
     { type: "breathing-idle", frames: 4 },
     { type: "cross-punch", frames: 6 },
+    { type: "taking-punch", frames: 6 },
+    { type: "falling-back-death", frames: 7 },
+  ],
+  pj: [
+    { type: "walk", frames: 6 },
+    { type: "breathing-idle", frames: 4 },
+    { type: "cross-punch", frames: 6 },
+    { type: "taking-punch", frames: 6 },
+    { type: "falling-back-death", frames: 7 },
+  ],
+  jason: [
+    { type: "walk", frames: 6 },
+    { type: "breathing-idle", frames: 4 },
+    { type: "cross-punch", frames: 6 },
+    { type: "taking-punch", frames: 6 },
+    { type: "falling-back-death", frames: 7 },
+  ],
+  pussy: [
+    { type: "walk", frames: 8 },
+    { type: "bite", frames: 4 },
   ],
 };
 

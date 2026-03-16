@@ -1,8 +1,9 @@
 import Phaser from "phaser";
 import { Player } from "../entities/Player";
-import { Enemy, EnemyType } from "../entities/Enemy";
+import { Enemy } from "../entities/Enemy";
 import { CHARACTERS, CharacterDef } from "../data/characters";
 import { BALANCE } from "../data/balance";
+import { WaveManager, WaveState } from "../systems/WaveManager";
 import {
   drawMap,
   drawLighting,
@@ -13,7 +14,6 @@ import {
   LIBRARY,
   GIANT_WILLOW,
   HIDING_GROVE,
-  GATES,
 } from "../map/EndicottEstate";
 
 export class GameScene extends Phaser.Scene {
@@ -27,19 +27,34 @@ export class GameScene extends Phaser.Scene {
   private currency = 0;
   private kills = 0;
   private gameOver = false;
+  private paused = false;
+  private damageBoostActive = false;
+  private baseDamage = 0;
 
-  // HUD
+  // Wave system
+  private waveManager!: WaveManager;
+
+  // Shop
+  private shopOpen = false;
+  private shopContainer!: Phaser.GameObjects.Container;
+
+  // HUD container — scrollFactor(0), scaled 1/zoom so it renders at screen-space
+  private hudContainer!: Phaser.GameObjects.Container;
+
+  // Pause UI (inside hudContainer)
+  private pauseOverlay!: Phaser.GameObjects.Graphics;
+  private pauseTitle!: Phaser.GameObjects.Text;
+  private pauseQuitBtn!: Phaser.GameObjects.Text;
+
+  // HUD elements (inside hudContainer)
   private healthBar!: Phaser.GameObjects.Graphics;
   private staminaBar!: Phaser.GameObjects.Graphics;
   private burnoutText!: Phaser.GameObjects.Text;
   private currencyText!: Phaser.GameObjects.Text;
   private killText!: Phaser.GameObjects.Text;
-
-  // Spawning (temporary — replaced by WaveManager in Phase 3)
-  private spawnTimer = 0;
-  private spawnInterval = 2000;
-  private enemiesSpawned = 0;
-  private maxEnemies = 30;
+  private waveText!: Phaser.GameObjects.Text;
+  private waveStatusText!: Phaser.GameObjects.Text;
+  private waveAnnouncement!: Phaser.GameObjects.Text;
 
   constructor() {
     super({ key: "Game" });
@@ -55,8 +70,6 @@ export class GameScene extends Phaser.Scene {
     this.currency = 0;
     this.kills = 0;
     this.lastDamageTime = 0;
-    this.spawnTimer = 0;
-    this.enemiesSpawned = 0;
 
     // Draw map
     drawMap(this);
@@ -130,7 +143,7 @@ export class GameScene extends Phaser.Scene {
 
     // Camera
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
-    this.cameras.main.setZoom(1);
+    this.cameras.main.setZoom(1.3);
     this.cameras.main.setBounds(0, 0, MAP_WIDTH, MAP_HEIGHT);
 
     // World bounds
@@ -163,112 +176,133 @@ export class GameScene extends Phaser.Scene {
         Phaser.Input.Keyboard.KeyCodes.SPACE
       );
       space.on("down", () => {
-        if (!this.gameOver) this.meleeAttack();
+        if (!this.gameOver && !this.paused) this.meleeAttack();
       });
     }
     this.input.on("pointerdown", () => {
-      if (!this.gameOver) this.meleeAttack();
+      if (!this.gameOver && !this.paused) this.meleeAttack();
     });
 
-    // HUD
+    // Pause input
+    if (this.input.keyboard) {
+      const pKey = this.input.keyboard.addKey(
+        Phaser.Input.Keyboard.KeyCodes.ESC
+      );
+      pKey.on("down", () => {
+        if (this.gameOver) return;
+        if (this.paused) this.resumeGame();
+        else this.pauseGame();
+      });
+    }
+
+    // HUD container — lives in world space, tracks camera position each frame
+    this.hudContainer = this.add.container(0, 0);
+    this.hudContainer.setDepth(150);
+
+    this.baseDamage = this.player.stats.damage;
+    this.damageBoostActive = false;
+
     this.createHUD();
+    this.createPauseUI();
+    this.createShopUI();
+
+    // Wave manager
+    this.waveManager = new WaveManager({
+      scene: this,
+      enemies: this.enemies,
+      playerCount: 1,
+      getPlayerPos: () => ({ x: this.player.x, y: this.player.y }),
+    });
+
+    this.waveManager.onWaveStart = (wave) => {
+      this.closeShop();
+      // Clear damage boost from previous wave
+      if (this.damageBoostActive) {
+        this.player.stats.damage = this.baseDamage;
+        this.damageBoostActive = false;
+      }
+      this.showWaveAnnouncement(wave);
+    };
+
+    this.waveManager.onIntermissionStart = () => {
+      this.showIntermissionAnnouncement();
+      // Open shop after "WAVE CLEAR" fades a bit
+      this.time.delayedCall(1000, () => {
+        if (this.waveManager.state === "intermission") {
+          this.openShop();
+        }
+      });
+    };
   }
 
   update(time: number, delta: number) {
-    if (this.gameOver) return;
+    // Always track HUD to camera, even when paused/game over
+    const cam = this.cameras.main;
+    this.hudContainer.setPosition(cam.worldView.x, cam.worldView.y);
+    this.hudContainer.setScale(1 / cam.zoom);
+
+    if (this.gameOver || this.paused) return;
 
     this.player.update();
+    this.waveManager.update(delta);
     this.updateHUD();
-
-    // Spawn enemies from gates (temporary system for Phase 2)
-    this.spawnTimer += delta;
-    if (
-      this.spawnTimer >= this.spawnInterval &&
-      this.enemiesSpawned < this.maxEnemies
-    ) {
-      this.spawnTimer = 0;
-      this.spawnEnemy();
-    }
   }
 
-  private spawnEnemy() {
-    // Pick a random gate
-    const gate = GATES[Math.floor(Math.random() * GATES.length)];
-    // Offset spawn slightly so they don't all stack
-    const ox = (Math.random() - 0.5) * 200;
-    const oy = (Math.random() - 0.5) * 200;
-
-    const enemy = new Enemy(
-      this,
-      gate.x + ox,
-      gate.y + oy,
-      "basic",
-      1
-    );
-    enemy.body.setCollideWorldBounds(true);
-    this.enemies.add(enemy);
-    this.enemiesSpawned++;
-  }
+  // ------- Combat -------
 
   private meleeAttack() {
     const cost = BALANCE.stamina.punchCost;
-    if (!this.player.useStamina(cost)) {
-      // No stamina — fizzled swing
-      this.showAttackArc(this.getFacingAngle(), 40, false);
-      return;
-    }
+    if (!this.player.useStamina(cost)) return;
 
-    const range = BALANCE.punch.range;
-    const arcHalf = Phaser.Math.DegToRad(BALANCE.punch.arc / 2);
-    const attackAngle = this.getFacingAngle();
-    const damage = this.player.burnedOut
-      ? Math.floor(this.player.stats.damage * BALANCE.burnout.damageMultiplier)
-      : this.player.stats.damage;
+    this.player.playPunch(() => {
+      // Damage applied when punch animation lands, not on button press
+      const range = this.characterDef.stats.punchRange;
+      const arcHalf = Phaser.Math.DegToRad(this.characterDef.stats.punchArc / 2);
+      const attackAngle = this.getFacingAngle();
+      const damage = this.player.burnedOut
+        ? Math.floor(this.player.stats.damage * BALANCE.burnout.damageMultiplier)
+        : this.player.stats.damage;
 
-    let hitCount = 0;
+      this.enemies.getChildren().forEach((obj) => {
+        const enemy = obj as Enemy;
+        if (!enemy.active) return;
 
-    this.enemies.getChildren().forEach((obj) => {
-      const enemy = obj as Enemy;
-      if (!enemy.active) return;
-
-      const dist = Phaser.Math.Distance.Between(
-        this.player.x,
-        this.player.y,
-        enemy.x,
-        enemy.y
-      );
-      if (dist > range) return;
-
-      const angleToEnemy = Phaser.Math.Angle.Between(
-        this.player.x,
-        this.player.y,
-        enemy.x,
-        enemy.y
-      );
-
-      let angleDiff = Math.abs(attackAngle - angleToEnemy);
-      if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
-
-      if (angleDiff <= arcHalf) {
-        const killed = enemy.takeDamage(damage);
-        if (killed) {
-          this.kills++;
-          this.currency += BALANCE.economy.killReward[enemy.enemyType];
-        }
-        hitCount++;
-
-        // Knockback
-        const kb = this.player.burnedOut
-          ? BALANCE.punch.knockback * 0.5
-          : BALANCE.punch.knockback;
-        enemy.body?.setVelocity(
-          Math.cos(angleToEnemy) * kb,
-          Math.sin(angleToEnemy) * kb
+        const dist = Phaser.Math.Distance.Between(
+          this.player.x,
+          this.player.y,
+          enemy.x,
+          enemy.y
         );
-      }
-    });
+        if (dist > range) return;
 
-    this.showAttackArc(attackAngle, range, hitCount > 0);
+        const angleToEnemy = Phaser.Math.Angle.Between(
+          this.player.x,
+          this.player.y,
+          enemy.x,
+          enemy.y
+        );
+
+        let angleDiff = Math.abs(attackAngle - angleToEnemy);
+        if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
+
+        if (angleDiff <= arcHalf) {
+          const killed = enemy.takeDamage(damage);
+          if (killed) {
+            this.kills++;
+            this.currency += BALANCE.economy.killReward[enemy.enemyType];
+            this.waveManager.onEnemyKilled();
+          }
+
+          const kb = this.player.burnedOut
+            ? BALANCE.punch.knockback * 0.5
+            : BALANCE.punch.knockback;
+          enemy.body?.setVelocity(
+            Math.cos(angleToEnemy) * kb,
+            Math.sin(angleToEnemy) * kb
+          );
+        }
+      });
+    });
   }
 
   private getFacingAngle(): number {
@@ -284,42 +318,7 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private showAttackArc(angle: number, range: number, hit: boolean) {
-    const g = this.add.graphics();
-    g.lineStyle(2, hit ? 0xffaa00 : 0x888888, 0.6);
-
-    const arcHalf = Math.PI / 4;
-    g.beginPath();
-    g.moveTo(this.player.x, this.player.y);
-    g.arc(
-      this.player.x,
-      this.player.y,
-      range,
-      angle - arcHalf,
-      angle + arcHalf,
-      false
-    );
-    g.closePath();
-    g.strokePath();
-
-    if (hit) {
-      g.fillStyle(0xffaa00, 0.15);
-      g.beginPath();
-      g.moveTo(this.player.x, this.player.y);
-      g.arc(
-        this.player.x,
-        this.player.y,
-        range,
-        angle - arcHalf,
-        angle + arcHalf,
-        false
-      );
-      g.closePath();
-      g.fillPath();
-    }
-
-    this.time.delayedCall(100, () => g.destroy());
-  }
+  // ------- Damage / Game Over -------
 
   private handleEnemyContact: Phaser.Types.Physics.Arcade.ArcadePhysicsCallback =
     (_player, enemyObj) => {
@@ -331,23 +330,24 @@ export class GameScene extends Phaser.Scene {
 
       const enemy = enemyObj as Enemy;
       this.player.stats.health -= enemy.damage;
+      enemy.playBite();
 
-      // Screen flash + shake
       this.cameras.main.flash(100, 255, 0, 0, false);
       this.cameras.main.shake(100, 0.005);
 
       if (this.player.stats.health <= 0) {
         this.player.stats.health = 0;
-        this.triggerGameOver();
+        this.gameOver = true; // Stop all damage immediately
+        this.player.body.setVelocity(0, 0);
+        this.player.playDeath(() => this.triggerGameOver());
+      } else {
+        this.player.playHurt();
       }
     };
 
   private triggerGameOver() {
-    this.gameOver = true;
-    this.player.body.setVelocity(0, 0);
     this.player.setTint(0x666666);
 
-    // Freeze enemies
     this.enemies.getChildren().forEach((obj) => {
       const e = obj as Enemy;
       e.body?.setVelocity(0, 0);
@@ -358,135 +358,439 @@ export class GameScene extends Phaser.Scene {
     const overlay = this.add.graphics();
     overlay.fillStyle(0x000000, 0.7);
     overlay.fillRect(0, 0, width, height);
-    overlay.setScrollFactor(0);
-    overlay.setDepth(200);
+    overlay.setAlpha(0);
+    this.hudContainer.add(overlay);
 
-    this.add
-      .text(width / 2, height / 2 - 60, "YOU DIED", {
+    const diedText = this.add
+      .text(width / 2, height / 2 - 40, "YOU DIED", {
         fontSize: "48px",
-        fontFamily: "monospace",
+        fontFamily: "Rajdhani, sans-serif",
         color: "#cc3333",
         fontStyle: "bold",
       })
       .setOrigin(0.5)
-      .setScrollFactor(0)
-      .setDepth(201);
+      .setAlpha(0);
+    this.hudContainer.add(diedText);
 
-    this.add
-      .text(width / 2, height / 2 + 10, `${this.kills} kills  |  $${this.currency}`, {
-        fontSize: "20px",
-        fontFamily: "monospace",
-        color: "#cccccc",
+    const waveReached = this.waveManager.wave;
+    const statsText = this.add
+      .text(
+        width / 2,
+        height / 2 + 20,
+        `Wave ${waveReached}  |  ${this.kills} kills`,
+        {
+          fontSize: "20px",
+          fontFamily: "Rajdhani, sans-serif",
+          color: "#cccccc",
+        }
+      )
+      .setOrigin(0.5)
+      .setAlpha(0);
+    this.hudContainer.add(statsText);
+
+    // Fade in death screen
+    this.tweens.add({
+      targets: [overlay, diedText, statsText],
+      alpha: 1,
+      duration: 800,
+      ease: "Cubic.easeIn",
+      onComplete: () => {
+        // Return to menu after showing stats
+        this.time.delayedCall(2500, () => {
+          this.scene.start("MainMenu");
+        });
+      },
+    });
+  }
+
+  // ------- Pause -------
+
+  private createPauseUI() {
+    const { width, height } = this.cameras.main;
+
+    this.pauseOverlay = this.add.graphics();
+    this.pauseOverlay.fillStyle(0x000000, 0.6);
+    this.pauseOverlay.fillRect(0, 0, width, height);
+    this.pauseOverlay.setVisible(false);
+    this.hudContainer.add(this.pauseOverlay);
+
+    this.pauseTitle = this.add
+      .text(width / 2, height / 2 - 40, "PAUSED", {
+        fontSize: "36px",
+        fontFamily: "Rajdhani, sans-serif",
+        color: "#d0c8e0",
+        fontStyle: "bold",
       })
       .setOrigin(0.5)
-      .setScrollFactor(0)
-      .setDepth(201);
+      .setVisible(false);
+    this.hudContainer.add(this.pauseTitle);
 
-    this.add
-      .text(width / 2, height / 2 + 50, "R — retry  |  Q — menu", {
-        fontSize: "14px",
-        fontFamily: "monospace",
-        color: "#888888",
+    this.pauseQuitBtn = this.add
+      .text(width / 2, height / 2 + 20, "[ Q ]  Quit to Menu", {
+        fontSize: "16px",
+        fontFamily: "Rajdhani, sans-serif",
+        color: "#8a82a0",
       })
       .setOrigin(0.5)
-      .setScrollFactor(0)
-      .setDepth(201);
+      .setVisible(false)
+      .setInteractive({ useHandCursor: true });
+    this.hudContainer.add(this.pauseQuitBtn);
+
+    this.pauseQuitBtn.on("pointerover", () => {
+      this.pauseQuitBtn.setColor("#d0c8e0");
+    });
+    this.pauseQuitBtn.on("pointerout", () => {
+      this.pauseQuitBtn.setColor("#8a82a0");
+    });
+    this.pauseQuitBtn.on("pointerdown", () => {
+      this.scene.start("MainMenu");
+    });
+  }
+
+  private pauseGame() {
+    this.paused = true;
+    this.physics.pause();
+
+    this.pauseOverlay.setVisible(true);
+    this.pauseTitle.setVisible(true);
+    this.pauseQuitBtn.setVisible(true);
 
     if (this.input.keyboard) {
-      const rKey = this.input.keyboard.addKey(
-        Phaser.Input.Keyboard.KeyCodes.R
-      );
-      rKey.once("down", () => {
-        this.scene.restart({ characterId: this.characterDef.id });
-      });
-
       const qKey = this.input.keyboard.addKey(
         Phaser.Input.Keyboard.KeyCodes.Q
       );
       qKey.once("down", () => {
-        this.scene.start("MainMenu");
+        if (this.paused) this.scene.start("MainMenu");
       });
     }
   }
 
+  private resumeGame() {
+    this.paused = false;
+    this.physics.resume();
+
+    this.pauseOverlay.setVisible(false);
+    this.pauseTitle.setVisible(false);
+    this.pauseQuitBtn.setVisible(false);
+
+    if (this.input.keyboard) {
+      this.input.keyboard.removeKey(Phaser.Input.Keyboard.KeyCodes.Q);
+    }
+  }
+
+  // ------- Shop -------
+
+  private createShopUI() {
+    const { width, height } = this.cameras.main;
+    this.shopContainer = this.add.container(0, 0);
+    this.shopContainer.setDepth(160);
+    this.shopContainer.setVisible(false);
+    this.hudContainer.add(this.shopContainer);
+
+    // Semi-transparent backdrop
+    const bg = this.add.graphics();
+    bg.fillStyle(0x0a0a14, 0.85);
+    bg.fillRoundedRect(width / 2 - 160, height / 2 - 100, 320, 200, 12);
+    bg.lineStyle(1, 0x4a4565, 0.6);
+    bg.strokeRoundedRect(width / 2 - 160, height / 2 - 100, 320, 200, 12);
+    this.shopContainer.add(bg);
+
+    // Title
+    const title = this.add
+      .text(width / 2, height / 2 - 80, "SHOP", {
+        fontSize: "22px",
+        fontFamily: "Rajdhani, sans-serif",
+        color: "#e8c840",
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5);
+    this.shopContainer.add(title);
+
+    // Item rows
+    const items = BALANCE.shop.items;
+    items.forEach((item, i) => {
+      const y = height / 2 - 40 + i * 40;
+      const keyLabel = this.add
+        .text(width / 2 - 140, y, `[${i + 1}]`, {
+          fontSize: "14px",
+          fontFamily: "Rajdhani, sans-serif",
+          color: "#4a90d9",
+          fontStyle: "bold",
+        })
+        .setOrigin(0, 0.5);
+      this.shopContainer.add(keyLabel);
+
+      const nameLabel = this.add
+        .text(width / 2 - 100, y, item.name, {
+          fontSize: "14px",
+          fontFamily: "Rajdhani, sans-serif",
+          color: "#d0c8e0",
+        })
+        .setOrigin(0, 0.5);
+      this.shopContainer.add(nameLabel);
+
+      const descLabel = this.add
+        .text(width / 2 - 100, y + 14, item.desc, {
+          fontSize: "10px",
+          fontFamily: "Rajdhani, sans-serif",
+          color: "#8a82a0",
+        })
+        .setOrigin(0, 0.5);
+      this.shopContainer.add(descLabel);
+
+      const priceLabel = this.add
+        .text(width / 2 + 140, y, `$${item.basePrice}`, {
+          fontSize: "14px",
+          fontFamily: "Rajdhani, sans-serif",
+          color: "#e8c840",
+          fontStyle: "bold",
+        })
+        .setOrigin(1, 0.5);
+      this.shopContainer.add(priceLabel);
+    });
+
+    // Key bindings for shop
+    if (this.input.keyboard) {
+      const one = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ONE);
+      const two = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.TWO);
+      const three = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.THREE);
+
+      one.on("down", () => { if (this.shopOpen) this.buyItem(0); });
+      two.on("down", () => { if (this.shopOpen) this.buyItem(1); });
+      three.on("down", () => { if (this.shopOpen) this.buyItem(2); });
+    }
+  }
+
+  private getItemPrice(index: number): number {
+    const item = BALANCE.shop.items[index];
+    const inflation = 1 + this.waveManager.wave * BALANCE.economy.priceInflationPerWave;
+    return Math.floor(item.basePrice * inflation);
+  }
+
+  private openShop() {
+    this.shopOpen = true;
+    this.shopContainer.setVisible(true);
+    this.updateShopPrices();
+  }
+
+  private closeShop() {
+    this.shopOpen = false;
+    this.shopContainer.setVisible(false);
+  }
+
+  private updateShopPrices() {
+    // Update price labels with inflation
+    const items = BALANCE.shop.items;
+    const priceLabels = this.shopContainer.list.filter(
+      (obj) => obj instanceof Phaser.GameObjects.Text && (obj as Phaser.GameObjects.Text).text.startsWith("$")
+    ) as Phaser.GameObjects.Text[];
+
+    // Price labels are the ones starting with $
+    let priceIdx = 0;
+    for (let i = 0; i < items.length; i++) {
+      const price = this.getItemPrice(i);
+      if (priceLabels[priceIdx]) {
+        priceLabels[priceIdx].setText(`$${price}`);
+        priceLabels[priceIdx].setColor(this.currency >= price ? "#e8c840" : "#663333");
+        priceIdx++;
+      }
+    }
+  }
+
+  private buyItem(index: number) {
+    const price = this.getItemPrice(index);
+    if (this.currency < price) return;
+
+    const itemId = BALANCE.shop.items[index].id;
+
+    switch (itemId) {
+      case "heal": {
+        if (this.player.stats.health >= this.player.stats.maxHealth) return;
+        this.currency -= price;
+        this.player.stats.health = Math.min(
+          this.player.stats.maxHealth,
+          this.player.stats.health + this.player.stats.maxHealth * 0.5
+        );
+        break;
+      }
+      case "fullHeal": {
+        if (this.player.stats.health >= this.player.stats.maxHealth) return;
+        this.currency -= price;
+        this.player.stats.health = this.player.stats.maxHealth;
+        break;
+      }
+      case "dmgBoost": {
+        if (this.damageBoostActive) return;
+        this.currency -= price;
+        this.damageBoostActive = true;
+        this.player.stats.damage = Math.floor(this.baseDamage * 1.25);
+        break;
+      }
+    }
+
+    this.updateShopPrices();
+    this.updateHUD();
+
+    // Flash feedback
+    const { width, height } = this.cameras.main;
+    const flash = this.add
+      .text(width / 2, height / 2 + 80, "PURCHASED", {
+        fontSize: "12px",
+        fontFamily: "Rajdhani, sans-serif",
+        color: "#44cc44",
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5);
+    this.shopContainer.add(flash);
+    this.tweens.add({
+      targets: flash,
+      alpha: 0,
+      y: height / 2 + 65,
+      duration: 800,
+      onComplete: () => flash.destroy(),
+    });
+  }
+
+  // ------- Wave Announcements -------
+
+  private showWaveAnnouncement(wave: number) {
+    const { width, height } = this.cameras.main;
+
+    this.waveAnnouncement.setText(`WAVE ${wave}`);
+    this.waveAnnouncement.setAlpha(1);
+    this.waveAnnouncement.setScale(0.5);
+    this.waveAnnouncement.setPosition(width / 2, height / 2 - 40);
+
+    this.tweens.add({
+      targets: this.waveAnnouncement,
+      scaleX: 1,
+      scaleY: 1,
+      alpha: 0,
+      duration: 1500,
+      ease: "Cubic.easeOut",
+    });
+  }
+
+  private showIntermissionAnnouncement() {
+    const { width, height } = this.cameras.main;
+
+    this.waveAnnouncement.setText("WAVE CLEAR");
+    this.waveAnnouncement.setAlpha(1);
+    this.waveAnnouncement.setScale(1);
+    this.waveAnnouncement.setPosition(width / 2, height / 2 - 40);
+
+    this.tweens.add({
+      targets: this.waveAnnouncement,
+      alpha: 0,
+      duration: 2000,
+      ease: "Cubic.easeOut",
+    });
+  }
+
+  // ------- HUD -------
+
   private createHUD() {
-    const depth = 150;
     const { width, height } = this.cameras.main;
 
     // Health bar
     this.healthBar = this.add.graphics();
-    this.healthBar.setScrollFactor(0).setDepth(depth);
+    this.hudContainer.add(this.healthBar);
 
     // Stamina bar
     this.staminaBar = this.add.graphics();
-    this.staminaBar.setScrollFactor(0).setDepth(depth);
+    this.hudContainer.add(this.staminaBar);
 
     // Labels
-    this.add
-      .text(16, 14, "HP", {
-        fontSize: "11px",
-        fontFamily: "monospace",
-        color: "#9a8fb5",
-        fontStyle: "bold",
-      })
-      .setScrollFactor(0)
-      .setDepth(depth);
+    const hpLabel = this.add.text(16, 14, "HP", {
+      fontSize: "11px",
+      fontFamily: "Rajdhani, sans-serif",
+      color: "#9a8fb5",
+      fontStyle: "bold",
+    });
+    this.hudContainer.add(hpLabel);
 
-    this.add
-      .text(16, 32, "STA", {
-        fontSize: "11px",
-        fontFamily: "monospace",
-        color: "#9a8fb5",
-        fontStyle: "bold",
-      })
-      .setScrollFactor(0)
-      .setDepth(depth);
+    const staLabel = this.add.text(16, 32, "STA", {
+      fontSize: "11px",
+      fontFamily: "Rajdhani, sans-serif",
+      color: "#9a8fb5",
+      fontStyle: "bold",
+    });
+    this.hudContainer.add(staLabel);
 
     // Burnout
     this.burnoutText = this.add
       .text(16, 50, "BURNED OUT", {
         fontSize: "11px",
-        fontFamily: "monospace",
+        fontFamily: "Rajdhani, sans-serif",
         color: "#ff4444",
         fontStyle: "bold",
       })
-      .setScrollFactor(0)
-      .setDepth(depth)
       .setVisible(false);
+    this.hudContainer.add(this.burnoutText);
 
     // Currency (top right)
     this.currencyText = this.add
       .text(width - 16, 14, "$0", {
         fontSize: "16px",
-        fontFamily: "monospace",
+        fontFamily: "Rajdhani, sans-serif",
         color: "#e8c840",
         fontStyle: "bold",
       })
-      .setOrigin(1, 0)
-      .setScrollFactor(0)
-      .setDepth(depth);
+      .setOrigin(1, 0);
+    this.hudContainer.add(this.currencyText);
 
     // Kills
     this.killText = this.add
       .text(width - 16, 34, "Kills: 0", {
         fontSize: "12px",
-        fontFamily: "monospace",
+        fontFamily: "Rajdhani, sans-serif",
         color: "#b0a8c0",
       })
-      .setOrigin(1, 0)
-      .setScrollFactor(0)
-      .setDepth(depth);
+      .setOrigin(1, 0);
+    this.hudContainer.add(this.killText);
+
+    // Wave counter (top center)
+    this.waveText = this.add
+      .text(width / 2, 14, "WAVE 1", {
+        fontSize: "16px",
+        fontFamily: "Rajdhani, sans-serif",
+        color: "#d0c8e0",
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5, 0);
+    this.hudContainer.add(this.waveText);
+
+    // Wave status
+    this.waveStatusText = this.add
+      .text(width / 2, 34, "", {
+        fontSize: "11px",
+        fontFamily: "Rajdhani, sans-serif",
+        color: "#8a82a0",
+      })
+      .setOrigin(0.5, 0);
+    this.hudContainer.add(this.waveStatusText);
+
+    // Wave announcement
+    this.waveAnnouncement = this.add
+      .text(width / 2, height / 2 - 40, "", {
+        fontSize: "40px",
+        fontFamily: "Rajdhani, sans-serif",
+        color: "#d0c8e0",
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5)
+      .setAlpha(0);
+    this.hudContainer.add(this.waveAnnouncement);
 
     // Controls
-    this.add
-      .text(width / 2, height - 14, "WASD move · SPACE/CLICK punch · R retry", {
+    const controls = this.add
+      .text(width / 2, height - 14, "WASD move · SPACE/CLICK punch · ESC pause", {
         fontSize: "10px",
-        fontFamily: "monospace",
+        fontFamily: "Rajdhani, sans-serif",
         color: "#5a5566",
       })
-      .setOrigin(0.5, 1)
-      .setScrollFactor(0)
-      .setDepth(depth);
+      .setOrigin(0.5, 1);
+    this.hudContainer.add(controls);
   }
 
   private updateHUD() {
@@ -524,5 +828,27 @@ export class GameScene extends Phaser.Scene {
     this.burnoutText.setVisible(this.player.burnedOut);
     this.currencyText.setText(`$${this.currency}`);
     this.killText.setText(`Kills: ${this.kills}`);
+
+    // Wave HUD
+    const state = this.waveManager.state;
+    const wave = this.waveManager.wave;
+
+    if (state === "pre_game") {
+      this.waveText.setText("GET READY");
+      const secs = this.waveManager.getPreGameTimeLeft();
+      this.waveStatusText.setText(`Starting in ${secs}s`);
+    } else {
+      this.waveText.setText(`WAVE ${wave}`);
+
+      if (state === "active" || state === "clearing") {
+        const remaining = this.waveManager.getEnemiesRemaining();
+        this.waveStatusText.setText(
+          `${remaining} enem${remaining === 1 ? "y" : "ies"} remaining`
+        );
+      } else if (state === "intermission") {
+        const secs = this.waveManager.getIntermissionTimeLeft();
+        this.waveStatusText.setText(`Next wave in ${secs}s — SHOP OPEN`);
+      }
+    }
   }
 }

@@ -1,5 +1,7 @@
 import Phaser from "phaser";
 import { BALANCE } from "../data/balance";
+import { hasAnimation, getAnimKey } from "../data/animations";
+import { Direction } from "../data/characters";
 
 export type EnemyType = "basic" | "fast" | "tank";
 
@@ -40,7 +42,10 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
   private healthBarGfx: Phaser.GameObjects.Graphics;
   private hitFlashTimer = 0;
-  private currentDir = "south";
+  private currentDir: Direction = "south";
+  private hasWalkAnim: boolean;
+  private hasBiteAnim: boolean;
+  private biting = false;
   private baseTint: number;
 
   constructor(
@@ -71,6 +76,14 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     if (this.baseTint !== 0xffffff) {
       this.setTint(this.baseTint);
+    }
+
+    this.hasWalkAnim = hasAnimation("pussy", "walk");
+    this.hasBiteAnim = hasAnimation("pussy", "bite");
+
+    // Start walk animation if available
+    if (this.hasWalkAnim) {
+      this.play(getAnimKey("pussy", "walk", "south"));
     }
 
     this.healthBarGfx = scene.add.graphics();
@@ -109,6 +122,30 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.destroy();
   }
 
+  /** Play bite animation when attacking the player */
+  playBite() {
+    if (!this.hasBiteAnim || this.biting) return;
+
+    this.biting = true;
+    const biteKey = getAnimKey("pussy", "bite", this.currentDir);
+
+    if (this.scene.anims.exists(biteKey)) {
+      this.off("animationcomplete", this.handleBiteComplete, this);
+      this.play(biteKey);
+      this.once("animationcomplete", this.handleBiteComplete, this);
+    } else {
+      this.biting = false;
+    }
+  }
+
+  private handleBiteComplete = () => {
+    this.biting = false;
+    // Resume walk animation
+    if (this.hasWalkAnim) {
+      this.play(getAnimKey("pussy", "walk", this.currentDir), true);
+    }
+  };
+
   update(_time: number, delta: number) {
     if (!this.active || !this.body) return;
 
@@ -130,11 +167,17 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       Math.sin(angle) * this.speed
     );
 
-    // Update sprite direction
-    const newDir = angleToDirection(angle);
+    // Update sprite direction (don't interrupt bite)
+    const newDir = angleToDirection(angle) as Direction;
     if (newDir !== this.currentDir) {
       this.currentDir = newDir;
-      this.setTexture(`pussy-${newDir}`);
+      if (!this.biting) {
+        if (this.hasWalkAnim) {
+          this.play(getAnimKey("pussy", "walk", newDir), true);
+        } else {
+          this.setTexture(`pussy-${newDir}`);
+        }
+      }
       if (this.hitFlashTimer <= 0 && this.baseTint !== 0xffffff) {
         this.setTint(this.baseTint);
       }

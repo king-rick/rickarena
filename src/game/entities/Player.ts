@@ -4,7 +4,7 @@ import { BALANCE } from "../data/balance";
 import { hasAnimation, getAnimKey } from "../data/animations";
 
 export type Facing = "down" | "up" | "left" | "right";
-type PlayerAnim = "walk" | "breathing-idle" | "idle";
+type PlayerAnim = "walk" | "breathing-idle" | "idle" | "cross-punch" | "taking-punch" | "falling-back-death";
 
 export interface PlayerStats {
   speed: number;
@@ -47,6 +47,11 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private burnoutTimer = 0;
   private hasWalkAnim: boolean;
   private hasIdleAnim: boolean;
+  private hasPunchAnim: boolean;
+  private hasHurtAnim: boolean;
+  private hasDeathAnim: boolean;
+  private punching = false;
+  private locked = false; // true during hurt/death — blocks all input
 
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd!: {
@@ -69,6 +74,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.stats = { ...stats };
     this.hasWalkAnim = hasAnimation(characterId, "walk");
     this.hasIdleAnim = hasAnimation(characterId, "breathing-idle");
+    this.hasPunchAnim = hasAnimation(characterId, "cross-punch");
+    this.hasHurtAnim = hasAnimation(characterId, "taking-punch");
+    this.hasDeathAnim = hasAnimation(characterId, "falling-back-death");
 
     scene.add.existing(this);
     scene.physics.add.existing(this);
@@ -123,6 +131,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       }
     }
 
+    // Skip movement when locked (hurt/death)
+    if (this.locked) return;
+
     // Movement
     const speedMult = this.burnedOut ? BALANCE.burnout.speedMultiplier : 1;
     const speed = this.stats.speed * speedMult;
@@ -156,26 +167,31 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
         vy > 0 ? 1 : vy < 0 ? -1 : 0
       );
 
-      const dirChanged = dir !== this.currentDir;
-      const animChanged = this.currentAnim !== "walk";
-
-      if (dirChanged || animChanged) {
-        this.currentDir = dir;
-        this.currentAnim = "walk";
-
-        if (this.hasWalkAnim) {
-          this.play(getAnimKey(this.characterId, "walk", dir), true);
-        } else {
-          this.setTexture(`${this.characterId}-${dir}`);
-        }
-      }
-
-      // Update facing for combat
+      // Update facing for combat even during punch
       if (dir.includes("south")) this.facing = "down";
       else if (dir.includes("north")) this.facing = "up";
       else if (dir === "east") this.facing = "right";
       else if (dir === "west") this.facing = "left";
-    } else if (this.currentAnim === "walk") {
+
+      // Don't interrupt punch animation with walk/idle
+      if (!this.punching) {
+        const dirChanged = dir !== this.currentDir;
+        const animChanged = this.currentAnim !== "walk";
+
+        if (dirChanged || animChanged) {
+          this.currentDir = dir;
+          this.currentAnim = "walk";
+
+          if (this.hasWalkAnim) {
+            this.play(getAnimKey(this.characterId, "walk", dir), true);
+          } else {
+            this.setTexture(`${this.characterId}-${dir}`);
+          }
+        }
+      }
+
+      this.currentDir = dir;
+    } else if (this.currentAnim === "walk" && !this.punching) {
       // Stopped moving — switch to idle
       this.currentAnim = "idle";
 
@@ -187,6 +203,106 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       } else {
         this.setTexture(`${this.characterId}-${this.currentDir}`);
       }
+    }
+  }
+
+  // Callback for when a one-shot animation finishes (death needs its own)
+  private onActionAnimComplete: (() => void) | null = null;
+  private onDeathComplete: (() => void) | null = null;
+
+  /** Safely play a one-shot animation. Clears stale listeners first. */
+  private playOneShot(animKey: string): boolean {
+    if (!this.scene.anims.exists(animKey)) return false;
+
+    // Remove any stale listener before adding a new one
+    this.off("animationcomplete", this.handleAnimComplete, this);
+
+    try {
+      this.play(animKey);
+    } catch {
+      return false;
+    }
+
+    this.once("animationcomplete", this.handleAnimComplete, this);
+    return true;
+  }
+
+  private handleAnimComplete = () => {
+    if (this.onDeathComplete) {
+      this.onDeathComplete();
+      this.onDeathComplete = null;
+      return;
+    }
+
+    if (this.onActionAnimComplete) {
+      this.onActionAnimComplete();
+      this.onActionAnimComplete = null;
+    }
+
+    // Reset to idle and play idle animation immediately
+    this.punching = false;
+    this.locked = false;
+    this.currentAnim = "idle";
+
+    if (this.hasIdleAnim) {
+      this.play(getAnimKey(this.characterId, "breathing-idle", this.currentDir), true);
+    } else {
+      this.setTexture(`${this.characterId}-${this.currentDir}`);
+    }
+  };
+
+  playPunch(onImpact?: () => void) {
+    if (!this.hasPunchAnim || this.locked) {
+      onImpact?.();
+      return;
+    }
+
+    const punchKey = getAnimKey(this.characterId, "cross-punch", this.currentDir);
+
+    this.punching = true;
+    this.currentAnim = "cross-punch";
+    this.onActionAnimComplete = onImpact || null;
+
+    if (!this.playOneShot(punchKey)) {
+      this.punching = false;
+      this.currentAnim = "idle";
+      onImpact?.();
+    }
+  }
+
+  /** Play hurt flinch animation. Brief lock, then returns to normal. */
+  playHurt() {
+    if (!this.hasHurtAnim || this.locked) return;
+
+    const hurtKey = getAnimKey(this.characterId, "taking-punch", this.currentDir);
+
+    this.locked = true;
+    this.punching = false;
+    this.currentAnim = "taking-punch";
+
+    if (!this.playOneShot(hurtKey)) {
+      this.locked = false;
+      this.currentAnim = "idle";
+    }
+  }
+
+  /** Play death animation. Permanently locks the player. */
+  playDeath(onComplete?: () => void) {
+    if (!this.hasDeathAnim) {
+      onComplete?.();
+      return;
+    }
+
+    const deathKey = getAnimKey(this.characterId, "falling-back-death", this.currentDir);
+
+    this.locked = true;
+    this.punching = false;
+    this.currentAnim = "falling-back-death";
+    this.body.setVelocity(0, 0);
+    this.onDeathComplete = onComplete || null;
+
+    if (!this.playOneShot(deathKey)) {
+      onComplete?.();
     }
   }
 

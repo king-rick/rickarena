@@ -10,6 +10,8 @@ export interface CharacterDef {
     speed: number;
     stamina: number;
     regen: number;
+    punchRange: number; // px — how far the melee arc reaches
+    punchArc: number; // degrees — width of the swing
   };
   pixelLabId: string;
 }
@@ -21,7 +23,7 @@ export const CHARACTERS: CharacterDef[] = [
     fullName: "Rick Bruneau",
     className: "Brawler",
     weaponSpecialty: "Fists",
-    stats: { hp: 100, damage: 25, speed: 160, stamina: 80, regen: 8 },
+    stats: { hp: 100, damage: 25, speed: 160, stamina: 80, regen: 8, punchRange: 50, punchArc: 100 },
     pixelLabId: "d24fa173-9c58-4df6-bdba-40b883b1e59a",
   },
   {
@@ -30,7 +32,7 @@ export const CHARACTERS: CharacterDef[] = [
     fullName: "Dan Kundy",
     className: "Technician",
     weaponSpecialty: "Shotguns",
-    stats: { hp: 100, damage: 15, speed: 150, stamina: 120, regen: 12 },
+    stats: { hp: 100, damage: 15, speed: 150, stamina: 120, regen: 12, punchRange: 60, punchArc: 110 },
     pixelLabId: "26a5c8a9-c68d-4a4b-9466-8fa705300d06",
   },
   {
@@ -39,7 +41,7 @@ export const CHARACTERS: CharacterDef[] = [
     fullName: "Mason Costa",
     className: "Tank",
     weaponSpecialty: "Melee Weapons",
-    stats: { hp: 150, damage: 18, speed: 120, stamina: 110, regen: 9 },
+    stats: { hp: 150, damage: 18, speed: 120, stamina: 110, regen: 9, punchRange: 65, punchArc: 140 },
     pixelLabId: "dee453bd-8231-42c9-984d-5c3fbf756789",
   },
   {
@@ -48,7 +50,7 @@ export const CHARACTERS: CharacterDef[] = [
     fullName: "PJ Fulmore",
     className: "Rogue",
     weaponSpecialty: "Pistols",
-    stats: { hp: 70, damage: 14, speed: 220, stamina: 100, regen: 10 },
+    stats: { hp: 70, damage: 14, speed: 220, stamina: 100, regen: 10, punchRange: 45, punchArc: 80 },
     pixelLabId: "4a24fc8a-3427-4fd5-88ad-90bdcb6bb051",
   },
   {
@@ -57,7 +59,7 @@ export const CHARACTERS: CharacterDef[] = [
     fullName: "Jason Maloof",
     className: "Demolitionist",
     weaponSpecialty: "Explosives",
-    stats: { hp: 85, damage: 10, speed: 150, stamina: 100, regen: 11 },
+    stats: { hp: 85, damage: 10, speed: 150, stamina: 100, regen: 11, punchRange: 45, punchArc: 90 },
     pixelLabId: "5cc951c4-ef30-49a1-8136-8b2fdb3baec0",
   },
 ];

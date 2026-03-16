@@ -51,7 +51,7 @@ export class BootScene extends Phaser.Scene {
     this.add
       .text(width / 2, height / 2 - 30, "LOADING...", {
         fontSize: "14px",
-        fontFamily: "monospace",
+        fontFamily: "Rajdhani, sans-serif",
         color: "#666666",
       })
       .setOrigin(0.5);
@@ -73,11 +73,20 @@ export class BootScene extends Phaser.Scene {
             frames.push({ key: getFrameKey(charId, anim.type, dir, f) });
           }
 
+          const isLooping =
+            anim.type === "walk" || anim.type === "breathing-idle";
+
+          let frameRate = 8;
+          if (anim.type === "walk") frameRate = 10;
+          else if (anim.type === "cross-punch") frameRate = 18;
+          else if (anim.type === "taking-punch") frameRate = 14;
+          else if (anim.type === "falling-back-death") frameRate = 10;
+
           this.anims.create({
             key: animKey,
             frames,
-            frameRate: anim.type === "walk" ? 10 : 8,
-            repeat: anim.type === "walk" || anim.type === "breathing-idle" ? -1 : 0,
+            frameRate,
+            repeat: isLooping ? -1 : 0,
           });
         }
       }
