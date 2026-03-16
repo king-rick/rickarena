@@ -120,19 +120,12 @@ export const TREES = [
 export function drawMap(scene: Phaser.Scene): Phaser.GameObjects.Graphics {
   const g = scene.add.graphics();
 
-  // Ground — dark grass base
-  g.fillStyle(GRASS_DARK, 1);
-  g.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
-
-  // Grass variation patches
-  g.fillStyle(GRASS_MID, 0.4);
-  for (let i = 0; i < 40; i++) {
-    const px = Math.random() * MAP_WIDTH;
-    const py = Math.random() * MAP_HEIGHT;
-    const pw = 100 + Math.random() * 200;
-    const ph = 80 + Math.random() * 150;
-    g.fillRect(px, py, pw, ph);
-  }
+  // Ground — tiled grass texture
+  const grassTile = scene.add.tileSprite(0, 0, MAP_WIDTH, MAP_HEIGHT, "grass-tile");
+  grassTile.setOrigin(0, 0);
+  grassTile.setDepth(-1);
+  // Darken to match the evening mood
+  grassTile.setTint(0x556655);
 
   // Paths (stone walkways connecting landmarks)
   drawPaths(g);

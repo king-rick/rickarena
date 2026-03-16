@@ -77,6 +77,7 @@ export class GameScene extends Phaser.Scene {
   private waveStatusText!: Phaser.GameObjects.Text;
   private waveAnnouncement!: Phaser.GameObjects.Text;
   private weaponText!: Phaser.GameObjects.Text;
+  private weaponIcon!: Phaser.GameObjects.Image;
   private ammoText!: Phaser.GameObjects.Text;
   private trapText!: Phaser.GameObjects.Text;
 
@@ -87,6 +88,10 @@ export class GameScene extends Phaser.Scene {
   init(data: { characterId?: string }) {
     const id = data?.characterId || "rick";
     this.characterDef = CHARACTERS.find((c) => c.id === id) || CHARACTERS[0];
+  }
+
+  shutdown() {
+    this.sound.stopAll();
   }
 
   create() {
@@ -368,6 +373,11 @@ export class GameScene extends Phaser.Scene {
       getPlayerPos: () => ({ x: this.player.x, y: this.player.y }),
     });
 
+    // Ambient background loop
+    if (this.cache.audio.exists("sfx-ambient-birds")) {
+      this.sound.play("sfx-ambient-birds", { volume: 0.15, loop: true });
+    }
+
     this.waveManager.onWaveStart = (wave) => {
       this.closeShop();
       // Clear damage boost from previous wave
@@ -422,6 +432,42 @@ export class GameScene extends Phaser.Scene {
     this.updateHUD();
   }
 
+  // ------- Audio Helpers -------
+
+  private lastPunchSfx = 0;
+  private lastDeathSfx = 0;
+  private lastBiteSfx = 0;
+
+  private playSound(key: string, volume = 0.5) {
+    this.sound.play(key, { volume });
+  }
+
+  private playRandomPunch() {
+    const now = this.time.now;
+    if (now - this.lastPunchSfx < 300) return; // max ~3 per second
+    this.lastPunchSfx = now;
+    const keys = ["sfx-punch1", "sfx-punch2", "sfx-punch3"];
+    this.playSound(keys[Math.floor(Math.random() * keys.length)], 0.4);
+  }
+
+  private playRandomEnemyDeath() {
+    const now = this.time.now;
+    if (now - this.lastDeathSfx < 600) return; // max ~1.5 per second
+    this.lastDeathSfx = now;
+    // Only play ~40% of the time even when off cooldown
+    if (Math.random() > 0.4) return;
+    const keys = ["sfx-enemy-death1", "sfx-enemy-death2", "sfx-enemy-death3", "sfx-enemy-death4"];
+    this.playSound(keys[Math.floor(Math.random() * keys.length)], 0.5);
+  }
+
+  private playBiteSound() {
+    const now = this.time.now;
+    if (now - this.lastBiteSfx < 800) return; // max ~1 per second
+    this.lastBiteSfx = now;
+    const biteKey = Math.random() < 0.5 ? "sfx-bite" : "sfx-zombie-bite";
+    this.playSound(biteKey, 0.3);
+  }
+
   // ------- Combat -------
 
   private meleeAttack() {
@@ -441,6 +487,7 @@ export class GameScene extends Phaser.Scene {
         ? Math.floor(this.player.stats.damage * BALANCE.burnout.damageMultiplier)
         : this.player.stats.damage;
 
+      let hitAny = false;
       this.enemies.getChildren().forEach((obj) => {
         const enemy = obj as Enemy;
         if (!enemy.active) return;
@@ -464,6 +511,7 @@ export class GameScene extends Phaser.Scene {
         if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
 
         if (angleDiff <= arcHalf) {
+          hitAny = true;
           let finalDmg = damage;
           if (this.rollCrit("fists", 0)) { // distance 0 = melee range
             finalDmg = Math.floor(finalDmg * BALANCE.crit.damageMultiplier);
@@ -474,6 +522,7 @@ export class GameScene extends Phaser.Scene {
             this.kills++;
             this.currency += BALANCE.economy.killReward[enemy.enemyType];
             this.waveManager.onEnemyKilled();
+            this.playRandomEnemyDeath();
           }
 
           let kb = this.player.burnedOut
@@ -487,6 +536,13 @@ export class GameScene extends Phaser.Scene {
           );
         }
       });
+      if (hitAny) {
+        this.playRandomPunch();
+      } else {
+        // Missed punch — whoosh + grunt
+        this.playSound("sfx-whoosh", 0.3);
+        if (Math.random() < 0.4) this.playSound("sfx-grunt", 0.25);
+      }
     });
   }
 
@@ -544,6 +600,15 @@ export class GameScene extends Phaser.Scene {
 
     this.ammo--;
 
+    // Weapon fire sound
+    const sfxMap: Record<string, string> = {
+      pistol: "sfx-pistol",
+      shotgun: "sfx-shotgun",
+      smg: "sfx-smg",
+    };
+    const sfxKey = sfxMap[this.equippedWeapon!];
+    if (sfxKey) this.playSound(sfxKey, this.equippedWeapon === "smg" ? 0.2 : 0.35);
+
     // Muzzle flash
     const flashDist = 20;
     const flash = this.add.circle(
@@ -558,7 +623,7 @@ export class GameScene extends Phaser.Scene {
 
     if (this.ammo <= 0) {
       this.equippedWeapon = null;
-      // Flash "OUT OF AMMO" feedback
+      this.playSound("sfx-dryfire", 0.4);
       this.showWeaponMessage("OUT OF AMMO", "#cc3333");
     }
   }
@@ -632,6 +697,7 @@ export class GameScene extends Phaser.Scene {
       this.trapInventory.set(trapType, remaining);
     }
 
+    this.playSound("sfx-trap-place", 0.4);
     this.showWeaponMessage(`${BALANCE.traps[trapType].name.toUpperCase()} PLACED`, "#44dd44");
   }
 
@@ -642,6 +708,9 @@ export class GameScene extends Phaser.Scene {
       if (!enemy.active || !trap.active) return;
 
       const shouldRemove = trap.trigger(enemy, this);
+      if (trap.trapType === "landmine" && shouldRemove) {
+        this.playSound("sfx-explosion", 0.5);
+      }
       if (shouldRemove) {
         trap.destroy();
       }
@@ -651,6 +720,7 @@ export class GameScene extends Phaser.Scene {
         this.kills++;
         this.currency += BALANCE.economy.killReward[enemy.enemyType];
         this.waveManager.onEnemyKilled();
+        this.playRandomEnemyDeath();
       }
     };
 
@@ -719,6 +789,7 @@ export class GameScene extends Phaser.Scene {
         this.kills++;
         this.currency += BALANCE.economy.killReward[enemy.enemyType];
         this.waveManager.onEnemyKilled();
+        this.playRandomEnemyDeath();
       }
 
       // Small knockback from bullet
@@ -749,6 +820,7 @@ export class GameScene extends Phaser.Scene {
       const enemy = enemyObj as Enemy;
       this.player.stats.health -= enemy.damage;
       enemy.playBite();
+      this.playBiteSound();
 
       // Push enemy away on contact so they don't stay glued to player
       const pushAngle = Phaser.Math.Angle.Between(
@@ -1142,6 +1214,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    this.playSound("sfx-buy", 0.4);
     this.updateShopPrices();
     this.updateHUD();
 
@@ -1263,6 +1336,13 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(1, 0);
     this.hudContainer.add(this.killText);
 
+    // Weapon icon (right side, next to text)
+    this.weaponIcon = this.add.image(width - 16, 62, "item-pistol")
+      .setOrigin(1, 0.5)
+      .setScale(1.2)
+      .setVisible(false);
+    this.hudContainer.add(this.weaponIcon);
+
     // Weapon display (below kills, right side)
     this.weaponText = this.add
       .text(width - 16, 54, "FISTS", {
@@ -1376,11 +1456,18 @@ export class GameScene extends Phaser.Scene {
     // Weapon HUD
     if (this.equippedWeapon) {
       const wDef = BALANCE.weapons[this.equippedWeapon as keyof typeof BALANCE.weapons];
+      this.weaponIcon.setTexture(`item-${this.equippedWeapon}`);
+      this.weaponIcon.setVisible(true);
+      const iconW = this.weaponIcon.displayWidth + 6;
       this.weaponText.setText(wDef.name.toUpperCase());
       this.weaponText.setColor("#d0c8e0");
+      this.weaponText.setX(this.weaponIcon.x - iconW);
       this.ammoText.setText(`${this.ammo}/${this.maxAmmo}`);
       this.ammoText.setColor(this.ammo > 0 ? "#b0a8c0" : "#cc3333");
     } else {
+      this.weaponIcon.setVisible(false);
+      const { width } = this.cameras.main;
+      this.weaponText.setX(width - 16);
       this.weaponText.setText("FISTS");
       this.weaponText.setColor("#8a82a0");
       this.ammoText.setText("");

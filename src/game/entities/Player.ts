@@ -85,6 +85,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.body.setSize(36, 40);
     this.body.setOffset(46, 76);
     this.setScale(0.5);
+    this.setDepth(5);
 
     // Start with idle animation if available
     if (this.hasIdleAnim) {

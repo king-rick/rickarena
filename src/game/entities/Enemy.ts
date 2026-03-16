@@ -70,6 +70,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     scene.physics.add.existing(this);
 
     this.setScale(VARIANT_SCALES[type]);
+    this.setDepth(5);
 
     // Collision body covering torso + feet for reliable hit detection
     this.body.setSize(40, 55);
@@ -108,19 +109,20 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private die() {
     // Blood splat — stays on the ground
     const blood = this.scene.add.graphics();
-    blood.setDepth(-1);
-    for (let i = 0; i < 10; i++) {
+    blood.setDepth(0.5);
+    // Small scattered droplets
+    for (let i = 0; i < 4; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const dist = 8 + Math.random() * 30;
+      const dist = 4 + Math.random() * 12;
       const px = this.x + Math.cos(angle) * dist;
       const py = this.y + Math.sin(angle) * dist;
-      const size = 3 + Math.random() * 7;
-      blood.fillStyle(0x880000, 0.6 + Math.random() * 0.3);
-      blood.fillCircle(px, py, size / 2);
+      const size = 1.5 + Math.random() * 2;
+      blood.fillStyle(0x880000, 0.35 + Math.random() * 0.15);
+      blood.fillCircle(px, py, size);
     }
-    // Large center pool
-    blood.fillStyle(0x660000, 0.5);
-    blood.fillCircle(this.x, this.y, 8 + Math.random() * 4);
+    // Small center pool
+    blood.fillStyle(0x660000, 0.3);
+    blood.fillCircle(this.x, this.y, 3 + Math.random() * 2);
 
     // Register blood for cleanup after 3 waves
     const gameScene = this.scene as any;

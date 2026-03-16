@@ -4,51 +4,8 @@ import { Enemy } from "./Enemy";
 
 export type TrapType = "spikes" | "barricade" | "landmine";
 
-const TRAP_COLORS: Record<TrapType, number> = {
-  spikes: 0xcc4444,
-  barricade: 0x886644,
-  landmine: 0xcccc44,
-};
-
-/** Generate trap textures once per scene */
-export function ensureTrapTextures(scene: Phaser.Scene) {
-  if (!scene.textures.exists("trap-spikes")) {
-    const g = scene.add.graphics();
-    // Spikes: red X pattern
-    g.fillStyle(0xcc4444, 0.8);
-    g.fillRect(4, 4, 4, 24);
-    g.fillRect(12, 4, 4, 24);
-    g.fillRect(20, 4, 4, 24);
-    g.fillStyle(0x882222, 0.6);
-    g.fillRect(0, 12, 28, 4);
-    g.generateTexture("trap-spikes", 28, 28);
-    g.destroy();
-  }
-  if (!scene.textures.exists("trap-barricade")) {
-    const g = scene.add.graphics();
-    // Barricade: brown rectangle with planks
-    g.fillStyle(0x886644, 0.9);
-    g.fillRect(0, 4, 40, 20);
-    g.fillStyle(0x664422, 0.8);
-    g.fillRect(0, 8, 40, 3);
-    g.fillRect(0, 16, 40, 3);
-    g.fillStyle(0x554433, 1);
-    g.fillRect(8, 4, 3, 20);
-    g.fillRect(28, 4, 3, 20);
-    g.generateTexture("trap-barricade", 40, 28);
-    g.destroy();
-  }
-  if (!scene.textures.exists("trap-landmine")) {
-    const g = scene.add.graphics();
-    // Landmine: dark circle with center dot
-    g.fillStyle(0x555544, 0.8);
-    g.fillCircle(10, 10, 10);
-    g.fillStyle(0xcccc44, 0.9);
-    g.fillCircle(10, 10, 4);
-    g.generateTexture("trap-landmine", 20, 20);
-    g.destroy();
-  }
-}
+/** No-op — trap textures are now loaded as real sprites in BootScene */
+export function ensureTrapTextures(_scene: Phaser.Scene) {}
 
 export class Trap extends Phaser.Physics.Arcade.Image {
   declare body: Phaser.Physics.Arcade.Body;
@@ -70,8 +27,10 @@ export class Trap extends Phaser.Physics.Arcade.Image {
   /** Call after adding to physics group */
   init() {
     if (this.trapType === "barricade") {
-      // Barricade is a solid static body
-      this.body.setImmovable(true);
+      // Barricade uses a static body (inherently immovable)
+      if ("setImmovable" in this.body) {
+        (this.body as Phaser.Physics.Arcade.Body).setImmovable(true);
+      }
       this.body.setSize(40, 20);
     } else if (this.trapType === "spikes") {
       this.body.setSize(24, 24);

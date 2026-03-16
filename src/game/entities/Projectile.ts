@@ -1,14 +1,7 @@
 import Phaser from "phaser";
 
-/** Generate the bullet texture once per scene */
-export function ensureBulletTexture(scene: Phaser.Scene) {
-  if (scene.textures.exists("bullet")) return;
-  const g = scene.add.graphics();
-  g.fillStyle(0xffdd44, 1);
-  g.fillCircle(2, 2, 2);
-  g.generateTexture("bullet", 4, 4);
-  g.destroy();
-}
+/** No-op — bullet texture is now loaded as a real sprite in BootScene */
+export function ensureBulletTexture(_scene: Phaser.Scene) {}
 
 export class Projectile extends Phaser.Physics.Arcade.Image {
   declare body: Phaser.Physics.Arcade.Body;
@@ -45,6 +38,7 @@ export class Projectile extends Phaser.Physics.Arcade.Image {
     this.speedY = Math.sin(angle) * speed;
 
     this.setDepth(50);
+    this.setRotation(angle);
   }
 
   /** Call after adding to physics group to apply velocity */
