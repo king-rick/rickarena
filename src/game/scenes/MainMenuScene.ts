@@ -1,163 +1,286 @@
 import Phaser from "phaser";
-import { CHARACTERS } from "../data/characters";
+import { CHARACTERS, CharacterDef } from "../data/characters";
+import { getAnimKey } from "../data/animations";
 
 export class MainMenuScene extends Phaser.Scene {
   private selectedIndex = 0;
-  private sprites: Phaser.GameObjects.Image[] = [];
-  private nameTexts: Phaser.GameObjects.Text[] = [];
-  private classTexts: Phaser.GameObjects.Text[] = [];
-  private selector!: Phaser.GameObjects.Graphics;
+  private showcase!: Phaser.GameObjects.Sprite;
+  private nameText!: Phaser.GameObjects.Text;
+  private classText!: Phaser.GameObjects.Text;
+  private specialtyText!: Phaser.GameObjects.Text;
+  private abilityText!: Phaser.GameObjects.Text;
+  private ultimateText!: Phaser.GameObjects.Text;
+  private statBars: { label: Phaser.GameObjects.Text; bar: Phaser.GameObjects.Graphics }[] = [];
+  private arrowLeft!: Phaser.GameObjects.Text;
+  private arrowRight!: Phaser.GameObjects.Text;
+  private dotIndicators: Phaser.GameObjects.Graphics[] = [];
 
   constructor() {
     super({ key: "MainMenu" });
   }
 
   create() {
-    this.sprites = [];
-    this.nameTexts = [];
-    this.classTexts = [];
+    this.statBars = [];
+    this.dotIndicators = [];
     this.selectedIndex = 0;
 
+    // 960 x 540
     const { width, height } = this.cameras.main;
+    const cx = width / 2;
+    const cy = height / 2;
 
-    // Title
-    this.add
-      .text(width / 2, 80, "RICKARENA", {
-        fontSize: "48px",
-        fontFamily: "Rajdhani, sans-serif",
-        color: "#ffffff",
-        fontStyle: "bold",
-      })
-      .setOrigin(0.5);
+    // Background
+    const bg = this.add.graphics();
+    bg.fillStyle(0x0a0a0f, 1);
+    bg.fillRect(0, 0, width, height);
 
-    this.add
-      .text(width / 2, 130, "Survive the Pussies.", {
-        fontSize: "16px",
-        fontFamily: "Rajdhani, sans-serif",
-        color: "#888888",
-      })
-      .setOrigin(0.5);
+    // Title (top center)
+    this.add.text(cx, 20, "RICKARENA", {
+      fontSize: "28px",
+      fontFamily: "Rajdhani, sans-serif",
+      color: "#ffffff",
+      fontStyle: "bold",
+      letterSpacing: 8,
+    }).setOrigin(0.5);
 
-    // Character lineup
-    const spacing = width / (CHARACTERS.length + 1);
+    this.add.text(cx, 48, "Survive the Pussies.", {
+      fontSize: "12px",
+      fontFamily: "Rajdhani, sans-serif",
+      color: "#555555",
+    }).setOrigin(0.5);
 
-    // Selection indicator (drawn behind sprites)
-    this.selector = this.add.graphics();
-    this.selector.setDepth(0);
+    // --- CENTER: Character name + class + sprite ---
+    this.nameText = this.add.text(cx, 72, "", {
+      fontSize: "34px",
+      fontFamily: "Rajdhani, sans-serif",
+      color: "#ffffff",
+      fontStyle: "bold",
+      letterSpacing: 8,
+    }).setOrigin(0.5).setDepth(5);
 
-    CHARACTERS.forEach((char, i) => {
-      const x = spacing * (i + 1);
-      const y = height / 2;
+    this.classText = this.add.text(cx, 102, "", {
+      fontSize: "14px",
+      fontFamily: "Rajdhani, sans-serif",
+      color: "#5aabff",
+      letterSpacing: 4,
+    }).setOrigin(0.5).setDepth(5);
 
-      const sprite = this.add
-        .image(x, y, `${char.id}-south`)
-        .setOrigin(0.5)
-        .setScale(0.75)
-        .setInteractive({ useHandCursor: true })
-        .setDepth(1);
+    // Sprite (dead center)
+    const spriteY = cy - 15;
+    this.showcase = this.add.sprite(cx, spriteY, "rick-south")
+      .setScale(2.4)
+      .setDepth(2);
 
-      sprite.on("pointerdown", () => {
-        this.selectedIndex = i;
-        this.updateSelection();
-      });
+    // Arrows flanking sprite
+    this.arrowLeft = this.add.text(cx - 130, spriteY + 20, "\u25C0", {
+      fontSize: "28px",
+      fontFamily: "Rajdhani, sans-serif",
+      color: "#5aabff",
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(3);
 
-      this.sprites.push(sprite);
+    this.arrowRight = this.add.text(cx + 130, spriteY + 20, "\u25B6", {
+      fontSize: "28px",
+      fontFamily: "Rajdhani, sans-serif",
+      color: "#5aabff",
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(3);
 
-      const nameText = this.add
-        .text(x, y + 70, char.name.toUpperCase(), {
-          fontSize: "12px",
-          fontFamily: "Rajdhani, sans-serif",
-          color: "#aaaaaa",
-        })
-        .setOrigin(0.5)
-        .setDepth(1);
-      this.nameTexts.push(nameText);
-
-      const classText = this.add
-        .text(x, y + 85, char.className, {
-          fontSize: "10px",
-          fontFamily: "Rajdhani, sans-serif",
-          color: "#666666",
-        })
-        .setOrigin(0.5)
-        .setDepth(1);
-      this.classTexts.push(classText);
+    this.arrowLeft.on("pointerdown", () => {
+      this.selectedIndex = (this.selectedIndex - 1 + CHARACTERS.length) % CHARACTERS.length;
+      this.updateSelection();
+    });
+    this.arrowRight.on("pointerdown", () => {
+      this.selectedIndex = (this.selectedIndex + 1) % CHARACTERS.length;
+      this.updateSelection();
     });
 
-    // Prompt
-    const prompt = this.add
-      .text(width / 2, height - 60, "Select a character · ENTER to play", {
+    // Dot indicators below sprite
+    const dotSpacing = 16;
+    const dotsStartX = cx - ((CHARACTERS.length - 1) * dotSpacing) / 2;
+    const dotsY = spriteY + 155;
+    for (let i = 0; i < CHARACTERS.length; i++) {
+      const dot = this.add.graphics().setDepth(5);
+      dot.x = dotsStartX + i * dotSpacing;
+      dot.y = dotsY;
+      this.dotIndicators.push(dot);
+    }
+
+    // Specialty (below dots)
+    this.specialtyText = this.add.text(cx, dotsY + 18, "", {
+      fontSize: "12px",
+      fontFamily: "Rajdhani, sans-serif",
+      color: "#9988aa",
+      wordWrap: { width: 260 },
+      align: "center",
+    }).setOrigin(0.5, 0).setDepth(5);
+
+    // --- LEFT SIDE: Stats ---
+    const leftX = cx - 280;
+
+    this.add.text(leftX + 90, 90, "STATS", {
+      fontSize: "11px",
+      fontFamily: "Rajdhani, sans-serif",
+      color: "#555566",
+      fontStyle: "bold",
+      letterSpacing: 4,
+    }).setOrigin(0.5);
+
+    const statDefs = [
+      { key: "hp", label: "HP", color: 0x44bb44, max: 150 },
+      { key: "damage", label: "DMG", color: 0xdd4444, max: 25 },
+      { key: "speed", label: "SPD", color: 0x44aadd, max: 220 },
+      { key: "stamina", label: "STA", color: 0xddaa44, max: 120 },
+    ];
+
+    const statsStartY = 115;
+    const barMaxW = 130;
+    const barH = 10;
+    const statsBarLeft = leftX + 40;
+
+    statDefs.forEach((stat, i) => {
+      const y = statsStartY + i * 30;
+
+      const label = this.add.text(statsBarLeft - 8, y, stat.label, {
         fontSize: "14px",
         fontFamily: "Rajdhani, sans-serif",
-        color: "#4a90d9",
-      })
-      .setOrigin(0.5);
+        color: "#cccccc",
+        fontStyle: "bold",
+      }).setOrigin(1, 0.5).setDepth(2);
+
+      const bar = this.add.graphics().setDepth(2);
+
+      this.statBars.push({ label, bar });
+    });
+
+    // --- RIGHT SIDE: Abilities ---
+    const rightX = cx + 175;
+
+    this.add.text(rightX + 60, 90, "ABILITIES", {
+      fontSize: "11px",
+      fontFamily: "Rajdhani, sans-serif",
+      color: "#555566",
+      fontStyle: "bold",
+      letterSpacing: 4,
+    }).setOrigin(0.5);
+
+    this.abilityText = this.add.text(rightX, 115, "", {
+      fontSize: "13px",
+      fontFamily: "Rajdhani, sans-serif",
+      color: "#aaaacc",
+      wordWrap: { width: 220 },
+      lineSpacing: 4,
+    }).setOrigin(0, 0);
+
+    this.ultimateText = this.add.text(rightX, 175, "", {
+      fontSize: "13px",
+      fontFamily: "Rajdhani, sans-serif",
+      color: "#aaaacc",
+      wordWrap: { width: 220 },
+      lineSpacing: 4,
+    }).setOrigin(0, 0);
+
+    // --- Bottom bar ---
+    this.add.text(cx, height - 42, "A/D or \u2190/\u2192 to select  |  E = Map Editor", {
+      fontSize: "11px",
+      fontFamily: "Rajdhani, sans-serif",
+      color: "#444444",
+    }).setOrigin(0.5);
+
+    const prompt = this.add.text(cx, height - 20, "ENTER TO PLAY", {
+      fontSize: "22px",
+      fontFamily: "Rajdhani, sans-serif",
+      color: "#5aabff",
+      fontStyle: "bold",
+    }).setOrigin(0.5);
 
     this.tweens.add({
       targets: prompt,
-      alpha: 0.3,
-      duration: 1000,
+      alpha: 0.4,
+      duration: 1200,
       yoyo: true,
       repeat: -1,
     });
 
-    // Arrow keys / A-D to cycle, ENTER to start
+    // Input
     if (this.input.keyboard) {
       this.input.keyboard.on("keydown", (event: KeyboardEvent) => {
         if (event.key === "ArrowLeft" || event.key === "a") {
-          this.selectedIndex =
-            (this.selectedIndex - 1 + CHARACTERS.length) % CHARACTERS.length;
+          this.selectedIndex = (this.selectedIndex - 1 + CHARACTERS.length) % CHARACTERS.length;
           this.updateSelection();
         } else if (event.key === "ArrowRight" || event.key === "d") {
-          this.selectedIndex =
-            (this.selectedIndex + 1) % CHARACTERS.length;
+          this.selectedIndex = (this.selectedIndex + 1) % CHARACTERS.length;
           this.updateSelection();
         } else if (event.key === "Enter") {
           this.startGame();
+        } else if (event.key === "e" || event.key === "E") {
+          this.scene.start("MapEditor");
         }
       });
     }
-
-    // Double-click sprite to start
-    CHARACTERS.forEach((_char, i) => {
-      this.sprites[i].on("pointerdown", () => {
-        if (this.selectedIndex === i) {
-          // Already selected, start the game
-          this.startGame();
-        }
-      });
-    });
 
     this.updateSelection();
   }
 
   private updateSelection() {
-    // Highlight selected, dim others
-    this.sprites.forEach((sprite, i) => {
+    const char = CHARACTERS[this.selectedIndex];
+    const { width } = this.cameras.main;
+    const cx = width / 2;
+    const leftX = cx - 280;
+    const statsBarLeft = leftX + 40;
+
+    // Showcase sprite
+    const animKey = getAnimKey(char.id, "breathing-idle", "south");
+    if (this.anims.exists(animKey)) {
+      this.showcase.play(animKey);
+    } else {
+      this.showcase.setTexture(`${char.id}-south`);
+    }
+
+    // Text
+    this.nameText.setText(char.name.toUpperCase());
+    this.classText.setText(char.className.toUpperCase());
+    this.specialtyText.setText(char.specialtyDesc);
+    this.abilityText.setText(`[Q] ${char.ability.name}\n${char.ability.desc}`);
+    this.ultimateText.setText(`[R] ${char.ultimate.name}\n${char.ultimate.desc}`);
+
+    // Dots
+    this.dotIndicators.forEach((dot, i) => {
+      dot.clear();
       if (i === this.selectedIndex) {
-        sprite.setScale(0.85);
-        sprite.clearTint();
-        this.nameTexts[i].setColor("#ffffff");
-        this.classTexts[i].setColor("#aaaaaa");
+        dot.fillStyle(0x5aabff, 1);
+        dot.fillCircle(0, 0, 4);
       } else {
-        sprite.setScale(0.65);
-        sprite.setTint(0x555555);
-        this.nameTexts[i].setColor("#555555");
-        this.classTexts[i].setColor("#444444");
+        dot.fillStyle(0x333344, 1);
+        dot.fillCircle(0, 0, 3);
       }
     });
 
-    // Draw selection ring
-    this.selector.clear();
-    const sprite = this.sprites[this.selectedIndex];
-    this.selector.lineStyle(2, 0x4a90d9, 0.8);
-    this.selector.strokeRoundedRect(
-      sprite.x - 40,
-      sprite.y - 55,
-      80,
-      130,
-      8
-    );
+    // Stat bars
+    const statDefs = [
+      { key: "hp" as const, max: 150, color: 0x44bb44 },
+      { key: "damage" as const, max: 25, color: 0xdd4444 },
+      { key: "speed" as const, max: 220, color: 0x44aadd },
+      { key: "stamina" as const, max: 120, color: 0xddaa44 },
+    ];
+    const barMaxW = 130;
+    const barH = 10;
+    const statsStartY = 115;
+
+    statDefs.forEach((stat, i) => {
+      const y = statsStartY + i * 30;
+      const val = char.stats[stat.key];
+      const pct = Math.min(val / stat.max, 1);
+
+      const g = this.statBars[i].bar;
+      g.clear();
+
+      g.fillStyle(0x1a1a2a, 1);
+      g.fillRoundedRect(statsBarLeft, y - barH / 2, barMaxW, barH, 4);
+
+      if (barMaxW * pct > 0) {
+        g.fillStyle(stat.color, 0.9);
+        g.fillRoundedRect(statsBarLeft, y - barH / 2, barMaxW * pct, barH, 4);
+      }
+    });
   }
 
   private startGame() {

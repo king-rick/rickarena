@@ -6,7 +6,7 @@ const Game = dynamic(() => import("../components/Game"), { ssr: false });
 
 export default function Home() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-black">
+    <div className="h-screen w-screen overflow-hidden" style={{ background: "#0a0a0f" }}>
       <Game />
     </div>
   );

@@ -53,6 +53,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private punching = false;
   private locked = false; // true during hurt/death — blocks all input
 
+  /** True while punch animation is active — grants i-frames */
+  get isPunching(): boolean { return this.punching; }
+
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd!: {
     W: Phaser.Input.Keyboard.Key;

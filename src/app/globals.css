@@ -28,7 +28,10 @@
 }
 
 body {
-  background: var(--background);
+  background: #0a0a0f;
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
 }

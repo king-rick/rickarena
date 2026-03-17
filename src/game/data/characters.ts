@@ -10,6 +10,7 @@ export interface CharacterDef {
   fullName: string;
   className: string;
   weaponSpecialty: string;
+  specialtyDesc: string;
   stats: {
     hp: number;
     damage: number;
@@ -32,17 +33,19 @@ export const CHARACTERS: CharacterDef[] = [
     fullName: "Rick Bruneau",
     className: "Brawler",
     weaponSpecialty: "Fists",
+    specialtyDesc: "Fists — Half stamina cost on punches, highest melee damage",
     stats: { hp: 100, damage: 25, speed: 160, stamina: 80, regen: 8, punchRange: 50, punchArc: 100, critChance: 0.07 },
-    ability: { name: "Rage", desc: "Temporary damage + speed boost", cooldown: 15 },
-    ultimate: { name: "Rampage", desc: "Massive AoE ground pound", cooldown: 90 },
+    ability: { name: "Superkick", desc: "Devastating superkick with massive damage", cooldown: 15 },
+    ultimate: { name: "Fist of Rick", desc: "Charged haymaker with huge forward range and devastating damage", cooldown: 90 },
     pixelLabId: "d24fa173-9c58-4df6-bdba-40b883b1e59a",
   },
   {
     id: "dan",
     name: "Dan",
     fullName: "Dan Kundy",
-    className: "Technician",
+    className: "Engineer",
     weaponSpecialty: "Generalist", // decent with everything, best at nothing
+    specialtyDesc: "Balanced — +10% damage and +2% crit with all weapons",
     stats: { hp: 100, damage: 15, speed: 150, stamina: 120, regen: 12, punchRange: 60, punchArc: 110, critChance: 0.04 },
     ability: { name: "Turret", desc: "Deploy an auto-targeting turret", cooldown: 20 },
     ultimate: { name: "Overcharge", desc: "All turrets and traps get boosted", cooldown: 120 },
@@ -54,17 +57,19 @@ export const CHARACTERS: CharacterDef[] = [
     fullName: "Mason Costa",
     className: "Tank",
     weaponSpecialty: "Shotguns",
+    specialtyDesc: "Shotguns — +30% damage, knockback sends enemies flying",
     stats: { hp: 150, damage: 18, speed: 120, stamina: 110, regen: 9, punchRange: 65, punchArc: 140, critChance: 0.03 },
     ability: { name: "Fortress", desc: "Damage shield that taunts nearby enemies", cooldown: 18 },
-    ultimate: { name: "Avalanche", desc: "Charge through enemies, knocking them aside", cooldown: 100 },
+    ultimate: { name: "Bass Drop", desc: "AoE ground pound shockwave that stuns and damages all nearby enemies", cooldown: 100 },
     pixelLabId: "dee453bd-8231-42c9-984d-5c3fbf756789",
   },
   {
     id: "pj",
     name: "PJ",
     fullName: "PJ Fulmore",
-    className: "Rogue",
+    className: "Sharpshooter",
     weaponSpecialty: "Pistols",
+    specialtyDesc: "Pistols — +30% damage, +3% crit, fastest draw in the group",
     stats: { hp: 70, damage: 14, speed: 220, stamina: 100, regen: 10, punchRange: 45, punchArc: 80, critChance: 0.05 },
     ability: { name: "Shadow Step", desc: "Short dash with invincibility frames", cooldown: 8 },
     ultimate: { name: "Dead Eye", desc: "Guaranteed crits for a duration", cooldown: 80 },
@@ -76,6 +81,7 @@ export const CHARACTERS: CharacterDef[] = [
     fullName: "Jason Maloof",
     className: "Demolitionist",
     weaponSpecialty: "Explosives",
+    specialtyDesc: "Explosives — Landmines and traps deal +30% damage and radius",
     stats: { hp: 85, damage: 10, speed: 150, stamina: 100, regen: 11, punchRange: 45, punchArc: 90, critChance: 0.06 },
     ability: { name: "Frag Grenade", desc: "Throwable explosive with AoE damage", cooldown: 12 },
     ultimate: { name: "Carpet Bomb", desc: "Cluster bomb barrage over a wide area", cooldown: 110 },

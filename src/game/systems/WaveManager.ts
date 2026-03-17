@@ -6,8 +6,15 @@ import {
   LIBRARY,
   GIANT_WILLOW,
   HIDING_GROVE,
+  TREES,
   MAP_WIDTH,
   MAP_HEIGHT,
+  GREENHOUSE,
+  HEDGE_ROWS,
+  STONE_BRIDGE,
+  CAR_SHOW,
+  DECK,
+  GAZEBO2,
 } from "../map/EndicottEstate";
 
 export type WaveState =
@@ -16,21 +23,63 @@ export type WaveState =
   | "clearing" // All spawned, waiting for last kills
   | "intermission"; // 30s rest / shop window
 
-// Landmark spawn anchors — enemies crawl out from estate structures
+// Landmark spawn anchors — offset OUTSIDE structures so enemies don't spawn inside colliders
+const SPAWN_OFFSET = 60; // pixels outside the obstacle edge
 const LANDMARK_SPAWNS = [
-  // Mansion corners
-  { x: MANSION.x, y: MANSION.y },
-  { x: MANSION.x + MANSION.width, y: MANSION.y },
-  { x: MANSION.x, y: MANSION.y + MANSION.height },
-  { x: MANSION.x + MANSION.width, y: MANSION.y + MANSION.height },
-  // Library
-  { x: LIBRARY.x, y: LIBRARY.y + LIBRARY.height / 2 },
-  { x: LIBRARY.x + LIBRARY.width, y: LIBRARY.y + LIBRARY.height / 2 },
-  // Giant willow
-  { x: GIANT_WILLOW.x, y: GIANT_WILLOW.y },
-  // Hiding grove trees
-  ...HIDING_GROVE.map((t) => ({ x: t.x, y: t.y })),
+  // Mansion edges (offset outward)
+  { x: MANSION.x - SPAWN_OFFSET, y: MANSION.y + MANSION.height / 2 },
+  { x: MANSION.x + MANSION.width + SPAWN_OFFSET, y: MANSION.y + MANSION.height / 2 },
+  { x: MANSION.x + MANSION.width / 2, y: MANSION.y - SPAWN_OFFSET },
+  { x: MANSION.x + MANSION.width / 2, y: MANSION.y + MANSION.height + SPAWN_OFFSET },
+  // Library edges (offset outward)
+  { x: LIBRARY.x - SPAWN_OFFSET, y: LIBRARY.y + LIBRARY.height / 2 },
+  { x: LIBRARY.x + LIBRARY.width + SPAWN_OFFSET, y: LIBRARY.y + LIBRARY.height / 2 },
+  // Giant willow (offset outside radius)
+  { x: GIANT_WILLOW.x + GIANT_WILLOW.radius + SPAWN_OFFSET, y: GIANT_WILLOW.y },
+  { x: GIANT_WILLOW.x - GIANT_WILLOW.radius - SPAWN_OFFSET, y: GIANT_WILLOW.y },
+  // Hiding grove (offset outside each tree)
+  ...HIDING_GROVE.map((t) => ({ x: t.x, y: t.y + t.size + SPAWN_OFFSET })),
 ];
+
+// Obstacle rects/circles for spawn validation — enemies must not spawn inside these
+const OBSTACLE_RECTS = [
+  { x: MANSION.x, y: MANSION.y, w: MANSION.width, h: MANSION.height, pad: 20 },
+  { x: LIBRARY.x, y: LIBRARY.y, w: LIBRARY.width, h: LIBRARY.height, pad: 20 },
+  { x: GREENHOUSE.x, y: GREENHOUSE.y, w: GREENHOUSE.width, h: GREENHOUSE.height, pad: 20 },
+  { x: DECK.x, y: DECK.y, w: DECK.width, h: DECK.height, pad: 10 },
+  { x: STONE_BRIDGE.x, y: STONE_BRIDGE.y, w: STONE_BRIDGE.width, h: STONE_BRIDGE.height, pad: 10 },
+  ...HEDGE_ROWS.map((h) => ({ x: h.x, y: h.y, w: h.width, h: h.height, pad: 10 })),
+  ...CAR_SHOW.map((c) => ({
+    x: c.x - c.w / 2,
+    y: c.y - c.h / 2,
+    w: c.w,
+    h: c.h,
+    pad: 10,
+  })),
+];
+const OBSTACLE_CIRCLES = [
+  { x: GIANT_WILLOW.x, y: GIANT_WILLOW.y, r: GIANT_WILLOW.radius + 20 },
+  { x: GAZEBO2.x, y: GAZEBO2.y, r: GAZEBO2.radius + 15 },
+  ...TREES.map((t) => ({ x: t.x, y: t.y, r: t.size * 0.5 + 15 })),
+  ...HIDING_GROVE.map((t) => ({ x: t.x, y: t.y, r: t.collisionRadius + 15 })),
+];
+
+function isInsideObstacle(x: number, y: number): boolean {
+  for (const r of OBSTACLE_RECTS) {
+    if (x >= r.x - r.pad && x <= r.x + r.w + r.pad &&
+        y >= r.y - r.pad && y <= r.y + r.h + r.pad) {
+      return true;
+    }
+  }
+  for (const c of OBSTACLE_CIRCLES) {
+    const dx = x - c.x;
+    const dy = y - c.y;
+    if (dx * dx + dy * dy < c.r * c.r) {
+      return true;
+    }
+  }
+  return false;
+}
 
 interface WaveManagerConfig {
   scene: Phaser.Scene;
@@ -237,8 +286,18 @@ export class WaveManager {
     }
 
     // Clamp to world bounds
-    sx = Phaser.Math.Clamp(sx, 20, MAP_WIDTH - 20);
-    sy = Phaser.Math.Clamp(sy, 20, MAP_HEIGHT - 20);
+    sx = Phaser.Math.Clamp(sx, 60, MAP_WIDTH - 60);
+    sy = Phaser.Math.Clamp(sy, 60, MAP_HEIGHT - 60);
+
+    // Re-roll if spawn point is inside an obstacle (up to 5 attempts)
+    for (let attempt = 0; attempt < 5 && isInsideObstacle(sx, sy); attempt++) {
+      // Push outward from player position
+      const pushAngle = Math.random() * Math.PI * 2;
+      sx += Math.cos(pushAngle) * 80;
+      sy += Math.sin(pushAngle) * 80;
+      sx = Phaser.Math.Clamp(sx, 60, MAP_WIDTH - 60);
+      sy = Phaser.Math.Clamp(sy, 60, MAP_HEIGHT - 60);
+    }
 
     const type = this.pickEnemyType();
     const waveMultiplier = this.getWaveMultiplier();

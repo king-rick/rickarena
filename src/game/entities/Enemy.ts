@@ -48,6 +48,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private biting = false;
   private baseTint: number;
   private stunTimer = 0; // ms remaining where enemy is slowed/stopped
+  private stuckTimer = 0; // ms since last significant movement
+  private lastX = 0;
+  private lastY = 0;
 
   constructor(
     scene: Phaser.Scene,
@@ -82,6 +85,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     this.hasWalkAnim = hasAnimation("pussy", "walk");
     this.hasBiteAnim = hasAnimation("pussy", "bite");
+    this.lastX = x;
+    this.lastY = y;
 
     // Start walk animation if available
     if (this.hasWalkAnim) {
@@ -89,6 +94,11 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
 
     this.healthBarGfx = scene.add.graphics();
+  }
+
+  /** Apply extra stun time for heavy knockback (e.g. shotgun blasts) */
+  applyKnockbackStun(ms: number) {
+    this.stunTimer = Math.max(this.stunTimer, ms);
   }
 
   takeDamage(amount: number): boolean {
@@ -170,6 +180,26 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     // Stun countdown — don't chase while stunned (let knockback carry them)
     if (this.stunTimer > 0) {
       this.stunTimer -= delta;
+    }
+
+    // Stuck detection — if barely moved in 3 seconds, teleport near the player
+    this.stuckTimer += delta;
+    if (this.stuckTimer >= 3000) {
+      const dx = Math.abs(this.x - this.lastX);
+      const dy = Math.abs(this.y - this.lastY);
+      if (dx < 10 && dy < 10) {
+        // Stuck — teleport to a spot ~200px from the player, outside camera view
+        const teleportAngle = Math.random() * Math.PI * 2;
+        const teleportDist = 200 + Math.random() * 100;
+        this.setPosition(
+          player.x + Math.cos(teleportAngle) * teleportDist,
+          player.y + Math.sin(teleportAngle) * teleportDist
+        );
+        this.body.setVelocity(0, 0);
+      }
+      this.lastX = this.x;
+      this.lastY = this.y;
+      this.stuckTimer = 0;
     }
 
     const angle = Phaser.Math.Angle.Between(

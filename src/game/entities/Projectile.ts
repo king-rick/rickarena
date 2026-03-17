@@ -11,6 +11,7 @@ export class Projectile extends Phaser.Physics.Arcade.Image {
   private dropoff: number; // 0 = no dropoff, 0.5 = 50% damage at max range
   maxRange: number;
   distanceRatio = 0; // 0 at start, 1 at max range — used for crit calc
+  weaponType: string; // which weapon fired this projectile
   private startX: number;
   private startY: number;
   private speedX: number;
@@ -24,7 +25,8 @@ export class Projectile extends Phaser.Physics.Arcade.Image {
     speed: number,
     damage: number,
     range: number,
-    dropoff: number = 0
+    dropoff: number = 0,
+    weaponType: string = "pistol"
   ) {
     super(scene, x, y, "bullet");
 
@@ -32,6 +34,7 @@ export class Projectile extends Phaser.Physics.Arcade.Image {
     this.damage = damage;
     this.dropoff = dropoff;
     this.maxRange = range;
+    this.weaponType = weaponType;
     this.startX = x;
     this.startY = y;
     this.speedX = Math.cos(angle) * speed;

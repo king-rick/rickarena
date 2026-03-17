@@ -34,9 +34,9 @@ export const BALANCE = {
     spawnStaggerMs: 800, // ms between each enemy spawn within a wave
   },
 
-  // Economy
+  // Economy — money should always be moderately tight
   economy: {
-    killReward: { basic: 25, fast: 35, tank: 75 },
+    killReward: { basic: 10, fast: 20, tank: 40 },
     priceInflationPerWave: 0.05,
   },
 
@@ -46,12 +46,13 @@ export const BALANCE = {
       { id: "heal", name: "First Aid", desc: "Restore 50% HP", basePrice: 50 },
       { id: "fullHeal", name: "Full Heal", desc: "Restore 100% HP", basePrice: 150 },
       { id: "dmgBoost", name: "Adrenaline", desc: "+25% damage next wave", basePrice: 100 },
-      { id: "pistol", name: "Pistol", desc: "30 rounds, accurate", basePrice: 75 },
-      { id: "shotgun", name: "Shotgun", desc: "16 shells, spread", basePrice: 200 },
-      { id: "smg", name: "SMG", desc: "60 rounds, rapid fire", basePrice: 175 },
+      { id: "pistol", name: "Pistol", desc: "30 rounds, accurate", basePrice: 100, unlockWave: 1 },
+      { id: "shotgun", name: "Shotgun", desc: "16 shells, spread", basePrice: 300, unlockWave: 4 },
+      { id: "smg", name: "SMG", desc: "60 rounds, rapid fire", basePrice: 450, unlockWave: 6 },
       { id: "ammo", name: "Ammo Refill", desc: "Refill current weapon", basePrice: 75 },
-      { id: "spikes", name: "Spike Trap", desc: "Damages enemies (3 uses)", basePrice: 40 },
-      { id: "barricade", name: "Barricade", desc: "Blocks enemies, 80 HP", basePrice: 60 },
+      { id: "extraClip", name: "Extra Clip", desc: "Double ammo capacity", basePrice: 150 },
+      { id: "spikes", name: "Spike Trap", desc: "Damages enemies (4 uses)", basePrice: 40 },
+      { id: "barricade", name: "Barricade", desc: "Blocks enemies, 120 HP", basePrice: 60 },
       { id: "landmine", name: "Landmine", desc: "AoE explosion on contact", basePrice: 75 },
     ],
   },
@@ -67,7 +68,7 @@ export const BALANCE = {
       spread: 0, // degrees of random spread
       pellets: 1,
       ammo: 30,
-      price: 75,
+      price: 100,
       proficiency: "Pistols", // matches character weaponSpecialty
       dropoff: 0.4, // 40% damage at max range
       auto: false, // semi-auto: one shot per click
@@ -81,23 +82,24 @@ export const BALANCE = {
       spread: 18, // tight cone
       pellets: 5,
       ammo: 16,
-      price: 200,
+      price: 300,
       proficiency: "Shotguns",
       dropoff: 0, // no dropoff, already short range
       auto: false, // pump action: one blast per click
+      knockback: 80, // per pellet, stacks — shotgun creates space
     },
     smg: {
       name: "SMG",
-      damage: 6,
-      fireRate: 120,
-      speed: 450,
-      range: 250,
-      spread: 8,
+      damage: 12, // shreds at close range
+      fireRate: 100, // faster fire rate
+      speed: 500,
+      range: 280,
+      spread: 5, // tight spray
       pellets: 1,
       ammo: 60,
-      price: 175,
+      price: 450,
       proficiency: "Pistols", // PJ gets bonus here too
-      dropoff: 0.5, // 50% damage at max range
+      dropoff: 0.6, // heavy dropoff rewards close range
       auto: true, // full auto: hold to spray
     },
   },
@@ -128,20 +130,20 @@ export const BALANCE = {
   traps: {
     spikes: {
       name: "Spike Trap",
-      damage: 15,
-      uses: 3, // breaks after 3 triggers
+      damage: 25, // buffed from 15
+      uses: 4, // buffed from 3
       slowDuration: 500, // ms enemies are slowed after hitting
       price: 40,
     },
     barricade: {
       name: "Barricade",
-      hp: 80,
+      hp: 120, // buffed from 80
       price: 60,
     },
     landmine: {
       name: "Landmine",
-      damage: 50,
-      radius: 80, // AoE explosion radius
+      damage: 80, // buffed from 50
+      radius: 100, // buffed from 80
       price: 75,
     },
     maxPerType: 5, // max of each trap type on the field

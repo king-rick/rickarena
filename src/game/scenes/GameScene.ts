@@ -17,6 +17,12 @@ import {
   GIANT_WILLOW,
   HIDING_GROVE,
   TREES,
+  GREENHOUSE,
+  HEDGE_ROWS,
+  STONE_BRIDGE,
+  CAR_SHOW,
+  DECK,
+  GAZEBO2,
 } from "../map/EndicottEstate";
 
 export class GameScene extends Phaser.Scene {
@@ -46,6 +52,7 @@ export class GameScene extends Phaser.Scene {
   private maxAmmo = 0;
   private lastFireTime = 0;
   private fireHeld = false;
+  private hasExtraClip = false; // doubled ammo capacity for current weapon
   private projectiles!: Phaser.Physics.Arcade.Group;
 
   // Trap state
@@ -80,6 +87,17 @@ export class GameScene extends Phaser.Scene {
   private weaponIcon!: Phaser.GameObjects.Image;
   private ammoText!: Phaser.GameObjects.Text;
   private trapText!: Phaser.GameObjects.Text;
+  private countdownText!: Phaser.GameObjects.Text;
+  private shopCashText!: Phaser.GameObjects.Text;
+  private shopSelectedIndex = 0;
+  private shopItemName!: Phaser.GameObjects.Text;
+  private shopItemDesc!: Phaser.GameObjects.Text;
+  private shopItemPrice!: Phaser.GameObjects.Text;
+  private shopItemStatus!: Phaser.GameObjects.Text;
+  private shopItemIconGfx!: Phaser.GameObjects.Graphics;
+  private shopItemIconImg!: Phaser.GameObjects.Image;
+  private shopDots: Phaser.GameObjects.Graphics[] = [];
+  private shopCategoryText!: Phaser.GameObjects.Text;
 
   constructor() {
     super({ key: "Game" });
@@ -161,7 +179,7 @@ export class GameScene extends Phaser.Scene {
 
     // Willow trees (scattered around the estate)
     for (const tree of TREES) {
-      const trunkRadius = tree.size * 0.15; // trunk collision, not full canopy
+      const trunkRadius = tree.size * 0.15;
       const zone = this.add
         .zone(tree.x, tree.y, trunkRadius * 2, trunkRadius * 2)
         .setOrigin(0.5);
@@ -169,6 +187,81 @@ export class GameScene extends Phaser.Scene {
       (zone.body as Phaser.Physics.Arcade.StaticBody).setCircle(trunkRadius);
       this.obstacles.add(zone);
     }
+
+    // Greenhouse
+    const ghZone = this.add
+      .zone(GREENHOUSE.x + GREENHOUSE.width / 2, GREENHOUSE.y + GREENHOUSE.height / 2, GREENHOUSE.width, GREENHOUSE.height)
+      .setOrigin(0.5);
+    this.physics.add.existing(ghZone, true);
+    this.obstacles.add(ghZone);
+
+    // Hedge rows (garden maze)
+    for (const hedge of HEDGE_ROWS) {
+      const hZone = this.add
+        .zone(hedge.x + hedge.width / 2, hedge.y + hedge.height / 2, hedge.width, hedge.height)
+        .setOrigin(0.5);
+      this.physics.add.existing(hZone, true);
+      this.obstacles.add(hZone);
+    }
+
+    // Stone bridge walls (top and bottom edges)
+    const bridgeTopWall = this.add
+      .zone(STONE_BRIDGE.x + STONE_BRIDGE.width / 2, STONE_BRIDGE.y + STONE_BRIDGE.wallThickness / 2, STONE_BRIDGE.width, STONE_BRIDGE.wallThickness)
+      .setOrigin(0.5);
+    this.physics.add.existing(bridgeTopWall, true);
+    this.obstacles.add(bridgeTopWall);
+    const bridgeBotWall = this.add
+      .zone(STONE_BRIDGE.x + STONE_BRIDGE.width / 2, STONE_BRIDGE.y + STONE_BRIDGE.height - STONE_BRIDGE.wallThickness / 2, STONE_BRIDGE.width, STONE_BRIDGE.wallThickness)
+      .setOrigin(0.5);
+    this.physics.add.existing(bridgeBotWall, true);
+    this.obstacles.add(bridgeBotWall);
+
+    // Car show (each car is an obstacle)
+    for (const car of CAR_SHOW) {
+      const carZone = this.add.zone(car.x, car.y, car.w, car.h).setOrigin(0.5);
+      this.physics.add.existing(carZone, true);
+      this.obstacles.add(carZone);
+    }
+
+    // Extended deck (walkable, no collision — it's a platform you can stand on)
+
+    // Gazebo #2 (posts provide partial cover but gazebo is walkable)
+
+    // Fence boundary collision (4 walls with gate gaps)
+    const fi = 50;
+    const fenceThick = 16;
+    const gateGap = 80;
+    const cx = MAP_WIDTH / 2;
+    const cy = MAP_HEIGHT / 2;
+
+    // North fence: two segments with gap at cx
+    const nfLeft = this.add.zone(fi + (cx - gateGap / 2 - fi) / 2, fi, cx - gateGap / 2 - fi, fenceThick).setOrigin(0.5);
+    this.physics.add.existing(nfLeft, true);
+    this.obstacles.add(nfLeft);
+    const nfRight = this.add.zone(cx + gateGap / 2 + (MAP_WIDTH - fi - cx - gateGap / 2) / 2, fi, MAP_WIDTH - fi - cx - gateGap / 2, fenceThick).setOrigin(0.5);
+    this.physics.add.existing(nfRight, true);
+    this.obstacles.add(nfRight);
+
+    // South fence: two segments with gap at cx
+    const sfLeft = this.add.zone(fi + (cx - gateGap / 2 - fi) / 2, MAP_HEIGHT - fi, cx - gateGap / 2 - fi, fenceThick).setOrigin(0.5);
+    this.physics.add.existing(sfLeft, true);
+    this.obstacles.add(sfLeft);
+    const sfRight = this.add.zone(cx + gateGap / 2 + (MAP_WIDTH - fi - cx - gateGap / 2) / 2, MAP_HEIGHT - fi, MAP_WIDTH - fi - cx - gateGap / 2, fenceThick).setOrigin(0.5);
+    this.physics.add.existing(sfRight, true);
+    this.obstacles.add(sfRight);
+
+    // West fence: solid (no gate)
+    const wf = this.add.zone(fi, MAP_HEIGHT / 2, fenceThick, MAP_HEIGHT - fi * 2).setOrigin(0.5);
+    this.physics.add.existing(wf, true);
+    this.obstacles.add(wf);
+
+    // East fence: two segments with gap at cy
+    const efTop = this.add.zone(MAP_WIDTH - fi, fi + (cy - gateGap / 2 - fi) / 2, fenceThick, cy - gateGap / 2 - fi).setOrigin(0.5);
+    this.physics.add.existing(efTop, true);
+    this.obstacles.add(efTop);
+    const efBot = this.add.zone(MAP_WIDTH - fi, cy + gateGap / 2 + (MAP_HEIGHT - fi - cy - gateGap / 2) / 2, fenceThick, MAP_HEIGHT - fi - cy - gateGap / 2).setOrigin(0.5);
+    this.physics.add.existing(efBot, true);
+    this.obstacles.add(efBot);
 
     // Player
     const spawnX = MAP_WIDTH / 2;
@@ -189,6 +282,7 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
     this.cameras.main.setZoom(1.3);
     this.cameras.main.setBounds(0, 0, MAP_WIDTH, MAP_HEIGHT);
+    this.cameras.main.setRoundPixels(true);
 
     // World bounds
     this.physics.world.setBounds(0, 0, MAP_WIDTH, MAP_HEIGHT);
@@ -373,13 +467,22 @@ export class GameScene extends Phaser.Scene {
       getPlayerPos: () => ({ x: this.player.x, y: this.player.y }),
     });
 
-    // Ambient background loop
+    // Ambient background loops
     if (this.cache.audio.exists("sfx-ambient-birds")) {
       this.sound.play("sfx-ambient-birds", { volume: 0.15, loop: true });
     }
 
     this.waveManager.onWaveStart = (wave) => {
       this.closeShop();
+      // Horror stinger on wave 3+ for atmosphere
+      if (wave >= 3) {
+        const horrorKey = Math.random() < 0.5 ? "sfx-horror1" : "sfx-horror2";
+        this.playSound(horrorKey, 0.2);
+      }
+      // Layer in rain ambience starting wave 5
+      if (wave === 5 && this.cache.audio.exists("sfx-ambient-rain")) {
+        this.sound.play("sfx-ambient-rain", { volume: 0.08, loop: true });
+      }
       // Clear damage boost from previous wave
       if (this.damageBoostActive) {
         this.player.stats.damage = this.baseDamage;
@@ -423,6 +526,15 @@ export class GameScene extends Phaser.Scene {
     this.player.update();
     this.waveManager.update(delta);
 
+    // Footsteps while player is moving
+    const vel = this.player.body?.velocity;
+    if (vel && (Math.abs(vel.x) > 10 || Math.abs(vel.y) > 10)) {
+      this.playFootstep();
+    }
+
+    // Ambient zombie groans
+    this.tryPlayZombieGroan();
+
     // Hold-to-fire: only for auto weapons (SMG). Semi-auto fires on press only.
     if (this.fireHeld && !this.shopOpen && this.equippedWeapon) {
       const wDef = BALANCE.weapons[this.equippedWeapon as keyof typeof BALANCE.weapons];
@@ -437,35 +549,111 @@ export class GameScene extends Phaser.Scene {
   private lastPunchSfx = 0;
   private lastDeathSfx = 0;
   private lastBiteSfx = 0;
+  private lastFootstepTime = 0;
+  private lastGroanTime = 0;
 
   private playSound(key: string, volume = 0.5) {
-    this.sound.play(key, { volume });
+    if (this.cache.audio.exists(key)) {
+      this.sound.play(key, { volume });
+    }
   }
 
   private playRandomPunch() {
     const now = this.time.now;
-    if (now - this.lastPunchSfx < 300) return; // max ~3 per second
+    if (now - this.lastPunchSfx < 300) return;
     this.lastPunchSfx = now;
-    const keys = ["sfx-punch1", "sfx-punch2", "sfx-punch3"];
+    const keys = [
+      "sfx-punch1", "sfx-punch2", "sfx-punch3",
+      "sfx-punch-body1", "sfx-punch-body2", "sfx-hit-classic",
+      "sfx-punch-foley", "sfx-slap",
+    ];
     this.playSound(keys[Math.floor(Math.random() * keys.length)], 0.4);
   }
 
   private playRandomEnemyDeath() {
     const now = this.time.now;
-    if (now - this.lastDeathSfx < 600) return; // max ~1.5 per second
+    if (now - this.lastDeathSfx < 600) return;
     this.lastDeathSfx = now;
-    // Only play ~40% of the time even when off cooldown
     if (Math.random() > 0.4) return;
-    const keys = ["sfx-enemy-death1", "sfx-enemy-death2", "sfx-enemy-death3", "sfx-enemy-death4"];
+    const keys = [
+      "sfx-enemy-death1", "sfx-enemy-death2", "sfx-enemy-death3", "sfx-enemy-death4",
+      "sfx-enemy-death5", "sfx-enemy-death6", "sfx-enemy-death7", "sfx-enemy-death8",
+      "sfx-enemy-death9", "sfx-enemy-death10", "sfx-enemy-death11", "sfx-enemy-death12",
+    ];
     this.playSound(keys[Math.floor(Math.random() * keys.length)], 0.5);
   }
 
   private playBiteSound() {
     const now = this.time.now;
-    if (now - this.lastBiteSfx < 800) return; // max ~1 per second
+    if (now - this.lastBiteSfx < 800) return;
     this.lastBiteSfx = now;
-    const biteKey = Math.random() < 0.5 ? "sfx-bite" : "sfx-zombie-bite";
-    this.playSound(biteKey, 0.3);
+    const keys = ["sfx-bite", "sfx-zombie-bite", "sfx-zombie-bite2", "sfx-zombie-bite3", "sfx-zombie-bite-f"];
+    this.playSound(keys[Math.floor(Math.random() * keys.length)], 0.3);
+  }
+
+  /** Play footstep sound based on player position (grass default, gravel on paths, wood on deck) */
+  private playFootstep() {
+    const now = this.time.now;
+    if (now - this.lastFootstepTime < 280) return; // ~3.5 steps/sec
+    this.lastFootstepTime = now;
+
+    // Determine surface type based on player position
+    const px = this.player.x;
+    const py = this.player.y;
+    let surface: "grass" | "gravel" | "wood" = "grass";
+
+    // Check if on deck (wood surface)
+    if (px >= DECK.x && px <= DECK.x + DECK.width &&
+        py >= DECK.y && py <= DECK.y + DECK.height) {
+      surface = "wood";
+    }
+    // Check if on road/path (gravel) — roads are the cross-shaped paths through center
+    else {
+      const roadHalfWidth = 40;
+      const cx = MAP_WIDTH / 2;
+      const cy = MAP_HEIGHT / 2;
+      const onVerticalRoad = Math.abs(px - cx) < roadHalfWidth;
+      const onHorizontalRoad = Math.abs(py - cy) < roadHalfWidth;
+      if (onVerticalRoad || onHorizontalRoad) {
+        surface = "gravel";
+      }
+    }
+
+    if (surface === "wood") {
+      const i = Math.floor(Math.random() * 5) + 1;
+      this.playSound(`sfx-step-wood${i}`, 0.2);
+    } else if (surface === "gravel") {
+      const i = Math.floor(Math.random() * 6) + 1;
+      this.playSound(`sfx-step-gravel${i}`, 0.15);
+    } else {
+      const i = Math.floor(Math.random() * 6) + 1;
+      this.playSound(`sfx-step-grass${i}`, 0.15);
+    }
+  }
+
+  /** Random zombie groan from nearby enemies — atmospheric idle sound */
+  private tryPlayZombieGroan() {
+    const now = this.time.now;
+    if (now - this.lastGroanTime < 4000) return; // max 1 groan per 4 seconds
+    this.lastGroanTime = now;
+    if (Math.random() > 0.15) return; // ~15% chance per check
+
+    // Only groan if enemies are nearby (within ~300px)
+    const nearbyEnemy = this.enemies.getChildren().find((obj) => {
+      const e = obj as Enemy;
+      if (!e.active) return false;
+      const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, e.x, e.y);
+      return dist < 300;
+    });
+    if (!nearbyEnemy) return;
+
+    const i = Math.floor(Math.random() * 12) + 1;
+    this.playSound(`sfx-groan${i}`, 0.12);
+  }
+
+  /** Play player damage grunt */
+  private playPlayerHurt() {
+    this.playSound("sfx-player-grunt", 0.35);
   }
 
   // ------- Combat -------
@@ -592,7 +780,8 @@ export class GameScene extends Phaser.Scene {
         weaponDef.speed,
         Math.floor(weaponDef.damage * dmgMult),
         weaponDef.range,
-        weaponDef.dropoff
+        weaponDef.dropoff,
+        this.equippedWeapon!
       );
       this.projectiles.add(proj, true); // add to scene + group
       proj.launch(); // set velocity after body exists
@@ -600,14 +789,17 @@ export class GameScene extends Phaser.Scene {
 
     this.ammo--;
 
-    // Weapon fire sound
-    const sfxMap: Record<string, string> = {
-      pistol: "sfx-pistol",
-      shotgun: "sfx-shotgun",
-      smg: "sfx-smg",
+    // Weapon fire sound (alternate between 2 variants)
+    const sfxMap: Record<string, string[]> = {
+      pistol: ["sfx-pistol", "sfx-pistol2"],
+      shotgun: ["sfx-shotgun", "sfx-shotgun2"],
+      smg: ["sfx-smg", "sfx-smg2"],
     };
-    const sfxKey = sfxMap[this.equippedWeapon!];
-    if (sfxKey) this.playSound(sfxKey, this.equippedWeapon === "smg" ? 0.2 : 0.35);
+    const sfxKeys = sfxMap[this.equippedWeapon!];
+    if (sfxKeys) {
+      const sfxKey = sfxKeys[Math.floor(Math.random() * sfxKeys.length)];
+      this.playSound(sfxKey, this.equippedWeapon === "smg" ? 0.2 : 0.35);
+    }
 
     // Muzzle flash
     const flashDist = 20;
@@ -622,6 +814,10 @@ export class GameScene extends Phaser.Scene {
     this.time.delayedCall(50, () => flash.destroy());
 
     if (this.ammo <= 0) {
+      // Shotgun gets a pump sound on last shell
+      if (this.equippedWeapon === "shotgun") {
+        this.playSound("sfx-shotgun-pump", 0.3);
+      }
       this.equippedWeapon = null;
       this.playSound("sfx-dryfire", 0.4);
       this.showWeaponMessage("OUT OF AMMO", "#cc3333");
@@ -792,16 +988,30 @@ export class GameScene extends Phaser.Scene {
         this.playRandomEnemyDeath();
       }
 
-      // Small knockback from bullet
+      // Knockback from bullet — shotgun pellets stack knockback for big pushes
       const angle = Phaser.Math.Angle.Between(
         this.player.x,
         this.player.y,
         enemy.x,
         enemy.y
       );
+      const weaponDef = BALANCE.weapons[proj.weaponType as keyof typeof BALANCE.weapons];
+      const baseKnockback = (weaponDef as any)?.knockback ?? 50;
+      // Fast enemies get pushed harder by shotgun (lighter = easier to knock around)
+      const typeMult = enemy.enemyType === "fast" ? 1.5 : enemy.enemyType === "tank" ? 0.5 : 1.0;
+      const knockForce = baseKnockback * typeMult;
+
+      // Shotgun blasts need longer stun so the knockback actually plays out
+      if (baseKnockback > 50) {
+        enemy.applyKnockbackStun(300);
+      }
+
+      // Add to existing velocity so multiple pellets stack
+      const currentVx = enemy.body?.velocity.x ?? 0;
+      const currentVy = enemy.body?.velocity.y ?? 0;
       enemy.body?.setVelocity(
-        Math.cos(angle) * 50,
-        Math.sin(angle) * 50
+        currentVx + Math.cos(angle) * knockForce,
+        currentVy + Math.sin(angle) * knockForce
       );
 
       proj.destroy();
@@ -812,6 +1022,7 @@ export class GameScene extends Phaser.Scene {
   private handleEnemyContact: Phaser.Types.Physics.Arcade.ArcadePhysicsCallback =
     (_player, enemyObj) => {
       if (this.gameOver) return;
+      if (this.player.isPunching) return; // i-frames during punch
 
       const now = this.time.now;
       if (now - this.lastDamageTime < 500) return;
@@ -837,6 +1048,7 @@ export class GameScene extends Phaser.Scene {
 
       this.cameras.main.flash(100, 255, 0, 0, false);
       this.cameras.main.shake(100, 0.005);
+      this.playPlayerHurt();
 
       if (this.player.stats.health <= 0) {
         this.player.stats.health = 0;
@@ -989,93 +1201,127 @@ export class GameScene extends Phaser.Scene {
     this.shopContainer.setDepth(160);
     this.shopContainer.setVisible(false);
     this.hudContainer.add(this.shopContainer);
+    this.shopDots = [];
 
-    // Semi-transparent backdrop
     const items = BALANCE.shop.items;
-    const panelH = 80 + items.length * 28;
+    const panelW = 340;
+    const panelH = 240;
+    const panelLeft = width / 2 - panelW / 2;
     const panelTop = height / 2 - panelH / 2;
+    const cx = width / 2;
+    const cy = height / 2;
 
+    // Dim overlay
+    const overlay = this.add.graphics();
+    overlay.fillStyle(0x000000, 0.5);
+    overlay.fillRect(0, 0, width, height);
+    this.shopContainer.add(overlay);
+
+    // Panel background
     const bg = this.add.graphics();
-    bg.fillStyle(0x0a0a14, 0.85);
-    bg.fillRoundedRect(width / 2 - 175, panelTop, 350, panelH, 12);
-    bg.lineStyle(1, 0x4a4565, 0.6);
-    bg.strokeRoundedRect(width / 2 - 175, panelTop, 350, panelH, 12);
+    bg.fillStyle(0x0a0a14, 0.95);
+    bg.fillRoundedRect(panelLeft, panelTop, panelW, panelH, 10);
+    bg.lineStyle(1, 0x3a3550, 0.8);
+    bg.strokeRoundedRect(panelLeft, panelTop, panelW, panelH, 10);
     this.shopContainer.add(bg);
 
-    // Title
-    const title = this.add
-      .text(width / 2, panelTop + 20, "SHOP", {
-        fontSize: "22px",
-        fontFamily: "Rajdhani, sans-serif",
-        color: "#e8c840",
-        fontStyle: "bold",
-      })
-      .setOrigin(0.5);
-    this.shopContainer.add(title);
+    // Header: SHOP + cash
+    this.add.text(cx, panelTop + 16, "SHOP", {
+      fontSize: "16px", fontFamily: "Rajdhani, sans-serif", color: "#ffffff", fontStyle: "bold", letterSpacing: 4,
+    }).setOrigin(0.5).setDepth(161);
+    this.shopContainer.add(this.shopContainer.last!);
 
-    // Item rows
-    items.forEach((item, i) => {
-      const y = panelTop + 50 + i * 28;
-      const keyLabel = this.add
-        .text(width / 2 - 155, y, `[${i < 9 ? i + 1 : 0}]`, {
-          fontSize: "12px",
-          fontFamily: "Rajdhani, sans-serif",
-          color: "#4a90d9",
-          fontStyle: "bold",
-        })
-        .setOrigin(0, 0.5);
-      this.shopContainer.add(keyLabel);
+    this.shopCashText = this.add.text(panelLeft + panelW - 16, panelTop + 16, "$0", {
+      fontSize: "16px", fontFamily: "Rajdhani, sans-serif", color: "#e8c840", fontStyle: "bold",
+    }).setOrigin(1, 0.5);
+    this.shopContainer.add(this.shopCashText);
 
-      const nameLabel = this.add
-        .text(width / 2 - 115, y, item.name, {
-          fontSize: "12px",
-          fontFamily: "Rajdhani, sans-serif",
-          color: "#d0c8e0",
-        })
-        .setOrigin(0, 0.5);
-      this.shopContainer.add(nameLabel);
+    // Category label (SUPPLIES / WEAPONS / TRAPS)
+    this.shopCategoryText = this.add.text(cx, panelTop + 38, "", {
+      fontSize: "10px", fontFamily: "Rajdhani, sans-serif", color: "#5a5577", fontStyle: "bold", letterSpacing: 3,
+    }).setOrigin(0.5);
+    this.shopContainer.add(this.shopCategoryText);
 
-      const descLabel = this.add
-        .text(width / 2 + 10, y, item.desc, {
-          fontSize: "10px",
-          fontFamily: "Rajdhani, sans-serif",
-          color: "#8a82a0",
-        })
-        .setOrigin(0, 0.5);
-      this.shopContainer.add(descLabel);
+    // Item icon (graphics fallback for items without sprites)
+    this.shopItemIconGfx = this.add.graphics();
+    this.shopContainer.add(this.shopItemIconGfx);
 
-      const priceLabel = this.add
-        .text(width / 2 + 155, y, `$${item.basePrice}`, {
-          fontSize: "12px",
-          fontFamily: "Rajdhani, sans-serif",
-          color: "#e8c840",
-          fontStyle: "bold",
-        })
-        .setOrigin(1, 0.5);
-      this.shopContainer.add(priceLabel);
-    });
+    // Item icon (image for items with sprites)
+    this.shopItemIconImg = this.add.image(cx, panelTop + 75, "item-pistol")
+      .setOrigin(0.5)
+      .setScale(1.8)
+      .setVisible(false);
+    this.shopContainer.add(this.shopItemIconImg);
 
-    // Hints
-    const hint = this.add
-      .text(width / 2, panelTop + panelH - 24, "F or RIGHT-CLICK to fire  |  T to place trap", {
-        fontSize: "9px",
-        fontFamily: "Rajdhani, sans-serif",
-        color: "#5a5566",
-      })
-      .setOrigin(0.5);
-    this.shopContainer.add(hint);
+    // Item name (big, centered)
+    this.shopItemName = this.add.text(cx, panelTop + 110, "", {
+      fontSize: "22px", fontFamily: "Rajdhani, sans-serif", color: "#e0daf0", fontStyle: "bold",
+    }).setOrigin(0.5);
+    this.shopContainer.add(this.shopItemName);
 
-    const closeHint = this.add
-      .text(width / 2, panelTop + panelH - 10, "[ESC] or [B] to close shop", {
-        fontSize: "9px",
-        fontFamily: "Rajdhani, sans-serif",
-        color: "#6a6577",
-      })
-      .setOrigin(0.5);
+    // Description
+    this.shopItemDesc = this.add.text(cx, panelTop + 134, "", {
+      fontSize: "12px", fontFamily: "Rajdhani, sans-serif", color: "#9990aa",
+      wordWrap: { width: panelW - 60 }, align: "center",
+    }).setOrigin(0.5, 0);
+    this.shopContainer.add(this.shopItemDesc);
+
+    // Price
+    this.shopItemPrice = this.add.text(cx, panelTop + 165, "", {
+      fontSize: "20px", fontFamily: "Rajdhani, sans-serif", color: "#e8c840", fontStyle: "bold",
+    }).setOrigin(0.5);
+    this.shopContainer.add(this.shopItemPrice);
+
+    // Status text (LOCKED / PURCHASED / CAN'T AFFORD etc)
+    this.shopItemStatus = this.add.text(cx, panelTop + 186, "", {
+      fontSize: "11px", fontFamily: "Rajdhani, sans-serif", color: "#888899",
+    }).setOrigin(0.5);
+    this.shopContainer.add(this.shopItemStatus);
+
+    // Left/right arrows
+    const arrowL = this.add.text(panelLeft + 14, cy, "\u25C0", {
+      fontSize: "22px", fontFamily: "Rajdhani, sans-serif", color: "#5aabff",
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    arrowL.on("pointerdown", () => this.shopNavigate(-1));
+    this.shopContainer.add(arrowL);
+
+    const arrowR = this.add.text(panelLeft + panelW - 14, cy, "\u25B6", {
+      fontSize: "22px", fontFamily: "Rajdhani, sans-serif", color: "#5aabff",
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    arrowR.on("pointerdown", () => this.shopNavigate(1));
+    this.shopContainer.add(arrowR);
+
+    // Dot indicators
+    const dotSpacing = 10;
+    const dotsStartX = cx - ((items.length - 1) * dotSpacing) / 2;
+    const dotsY = panelTop + panelH - 18;
+    for (let i = 0; i < items.length; i++) {
+      const dot = this.add.graphics();
+      dot.x = dotsStartX + i * dotSpacing;
+      dot.y = dotsY;
+      this.shopContainer.add(dot);
+      this.shopDots.push(dot);
+    }
+
+    // Close hint
+    const closeHint = this.add.text(cx, panelTop + panelH + 14, "[ESC] or [B] to close  \u00B7  [ENTER] to buy  \u00B7  [A/D] browse", {
+      fontSize: "10px", fontFamily: "Rajdhani, sans-serif", color: "#555566",
+    }).setOrigin(0.5);
     this.shopContainer.add(closeHint);
 
-    // Key bindings for shop (1-0 for up to 10 items)
+    // Key bindings for shop navigation + purchase
     if (this.input.keyboard) {
+      // A/D and arrows to browse
+      const leftKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.LEFT);
+      const rightKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.RIGHT);
+      leftKey.on("down", () => { if (this.shopOpen) this.shopNavigate(-1); });
+      rightKey.on("down", () => { if (this.shopOpen) this.shopNavigate(1); });
+
+      // Enter to buy selected
+      const enterKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER);
+      enterKey.on("down", () => { if (this.shopOpen) this.buyItem(this.shopSelectedIndex); });
+
+      // Number keys still work as direct buy
       const keyCodes = [
         Phaser.Input.Keyboard.KeyCodes.ONE,
         Phaser.Input.Keyboard.KeyCodes.TWO,
@@ -1087,6 +1333,7 @@ export class GameScene extends Phaser.Scene {
         Phaser.Input.Keyboard.KeyCodes.EIGHT,
         Phaser.Input.Keyboard.KeyCodes.NINE,
         Phaser.Input.Keyboard.KeyCodes.ZERO,
+        Phaser.Input.Keyboard.KeyCodes.MINUS,
       ];
       keyCodes.forEach((code, i) => {
         if (i < items.length) {
@@ -1095,6 +1342,101 @@ export class GameScene extends Phaser.Scene {
         }
       });
     }
+  }
+
+  private shopNavigate(dir: number) {
+    const items = BALANCE.shop.items;
+    this.shopSelectedIndex = (this.shopSelectedIndex + dir + items.length) % items.length;
+    this.updateShopDisplay();
+  }
+
+  private updateShopDisplay() {
+    const items = BALANCE.shop.items;
+    const item = items[this.shopSelectedIndex];
+    const unlockWave = (item as any).unlockWave;
+    const locked = unlockWave && this.waveManager.wave < unlockWave;
+    const price = this.getItemPrice(this.shopSelectedIndex);
+    const canAfford = this.currency >= price;
+
+    // Category
+    const idx = this.shopSelectedIndex;
+    let category = "SUPPLIES";
+    if (idx >= 3 && idx <= 7) category = "WEAPONS";
+    else if (idx >= 8) category = "TRAPS";
+    this.shopCategoryText.setText(category);
+
+    // Item icon
+    const iconMap: Record<string, string> = {
+      pistol: "item-pistol",
+      shotgun: "item-shotgun",
+      smg: "item-smg",
+      ammo: "item-ammo",
+      extraClip: "item-ammo-box",
+      spikes: "trap-spikes",
+      barricade: "trap-barricade",
+      landmine: "item-landmine",
+    };
+    const consumableColors: Record<string, number> = {
+      heal: 0x44bb44,
+      fullHeal: 0x33dd99,
+      dmgBoost: 0xdd4444,
+    };
+
+    const { width, height } = this.cameras.main;
+    const panelTop = height / 2 - 120;
+    const iconTexture = iconMap[item.id];
+    this.shopItemIconGfx.clear();
+
+    if (iconTexture && this.textures.exists(iconTexture)) {
+      this.shopItemIconImg.setTexture(iconTexture);
+      this.shopItemIconImg.setVisible(true);
+      this.shopItemIconImg.setAlpha(locked ? 0.3 : 1);
+    } else if (consumableColors[item.id]) {
+      this.shopItemIconImg.setVisible(false);
+      const color = consumableColors[item.id];
+      this.shopItemIconGfx.fillStyle(color, locked ? 0.3 : 0.9);
+      this.shopItemIconGfx.fillRoundedRect(width / 2 - 14, panelTop + 58, 28, 28, 6);
+      this.shopItemIconGfx.lineStyle(1, 0xffffff, locked ? 0.1 : 0.3);
+      this.shopItemIconGfx.strokeRoundedRect(width / 2 - 14, panelTop + 58, 28, 28, 6);
+    } else {
+      this.shopItemIconImg.setVisible(false);
+    }
+
+    // Item info
+    this.shopItemName.setText(item.name.toUpperCase());
+
+    if (locked) {
+      this.shopItemName.setColor("#444055");
+      this.shopItemDesc.setText("???");
+      this.shopItemDesc.setColor("#333044");
+      this.shopItemPrice.setText(`WAVE ${unlockWave}`);
+      this.shopItemPrice.setColor("#553333");
+      this.shopItemStatus.setText("LOCKED");
+      this.shopItemStatus.setColor("#553333");
+    } else {
+      this.shopItemName.setColor("#e0daf0");
+      this.shopItemDesc.setText(item.desc);
+      this.shopItemDesc.setColor("#9990aa");
+      this.shopItemPrice.setText(`$${price}`);
+      this.shopItemPrice.setColor(canAfford ? "#e8c840" : "#663333");
+      this.shopItemStatus.setText(canAfford ? "ENTER TO BUY" : "NOT ENOUGH CASH");
+      this.shopItemStatus.setColor(canAfford ? "#5aabff" : "#663333");
+    }
+
+    // Cash
+    this.shopCashText.setText(`$${this.currency}`);
+
+    // Dots
+    this.shopDots.forEach((dot, i) => {
+      dot.clear();
+      if (i === this.shopSelectedIndex) {
+        dot.fillStyle(0x5aabff, 1);
+        dot.fillCircle(0, 0, 3);
+      } else {
+        dot.fillStyle(0x333344, 1);
+        dot.fillCircle(0, 0, 2);
+      }
+    });
   }
 
   private getItemPrice(index: number): number {
@@ -1106,7 +1448,7 @@ export class GameScene extends Phaser.Scene {
   private openShop() {
     this.shopOpen = true;
     this.shopContainer.setVisible(true);
-    this.updateShopPrices();
+    this.updateShopDisplay();
   }
 
   private closeShop() {
@@ -1114,30 +1456,23 @@ export class GameScene extends Phaser.Scene {
     this.shopContainer.setVisible(false);
   }
 
-  private updateShopPrices() {
-    // Update price labels with inflation
-    const items = BALANCE.shop.items;
-    const priceLabels = this.shopContainer.list.filter(
-      (obj) => obj instanceof Phaser.GameObjects.Text && (obj as Phaser.GameObjects.Text).text.startsWith("$")
-    ) as Phaser.GameObjects.Text[];
-
-    // Price labels are the ones starting with $
-    let priceIdx = 0;
-    for (let i = 0; i < items.length; i++) {
-      const price = this.getItemPrice(i);
-      if (priceLabels[priceIdx]) {
-        priceLabels[priceIdx].setText(`$${price}`);
-        priceLabels[priceIdx].setColor(this.currency >= price ? "#e8c840" : "#663333");
-        priceIdx++;
-      }
-    }
-  }
-
   private buyItem(index: number) {
+    const item = BALANCE.shop.items[index];
     const price = this.getItemPrice(index);
-    if (this.currency < price) return;
+    if (this.currency < price) {
+      this.playSound("sfx-error", 0.3);
+      return;
+    }
 
-    const itemId = BALANCE.shop.items[index].id;
+    // Wave-lock check
+    const unlockWave = (item as any).unlockWave;
+    if (unlockWave && this.waveManager.wave < unlockWave) {
+      this.playSound("sfx-error", 0.3);
+      this.showWeaponMessage(`UNLOCKS WAVE ${unlockWave}`, "#cc3333");
+      return;
+    }
+
+    const itemId = item.id;
 
     switch (itemId) {
       case "heal": {
@@ -1185,6 +1520,7 @@ export class GameScene extends Phaser.Scene {
         this.equippedWeapon = itemId;
         this.ammo = ammoAmount;
         this.maxAmmo = ammoAmount;
+        this.hasExtraClip = false; // reset on new weapon
         this.showWeaponMessage(weaponDef.name.toUpperCase() + " EQUIPPED", "#dddd44");
         break;
       }
@@ -1193,6 +1529,19 @@ export class GameScene extends Phaser.Scene {
         if (this.ammo >= this.maxAmmo) return; // already full
         this.currency -= price;
         this.ammo = this.maxAmmo;
+        break;
+      }
+      case "extraClip": {
+        if (!this.equippedWeapon) return; // no weapon
+        if (this.hasExtraClip) {
+          this.showWeaponMessage("ALREADY UPGRADED", "#cc3333");
+          return;
+        }
+        this.currency -= price;
+        this.hasExtraClip = true;
+        this.maxAmmo = this.maxAmmo * 2;
+        this.ammo = this.maxAmmo; // refill to new max
+        this.showWeaponMessage("EXTRA CLIP — AMMO DOUBLED", "#44dd44");
         break;
       }
       case "spikes":
@@ -1215,7 +1564,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.playSound("sfx-buy", 0.4);
-    this.updateShopPrices();
+    this.updateShopDisplay();
     this.updateHUD();
 
     // Flash feedback
@@ -1279,6 +1628,22 @@ export class GameScene extends Phaser.Scene {
   private createHUD() {
     const { width, height } = this.cameras.main;
 
+    // --- HUD Panel Backgrounds (Stardew-style dark boxes) ---
+    // HUD text uses unzoomed coords (width/height), panels must match
+    const hudPanels = this.add.graphics();
+    hudPanels.setDepth(0);
+
+    // Top-left: HP + Stamina bars (labels at x=16, bars at x=42 w=160)
+    hudPanels.fillStyle(0x0a0a14, 0.65);
+    hudPanels.fillRoundedRect(8, 6, 202, 58, 6);
+
+    // Top-center: Wave text at width/2, status below
+    hudPanels.fillStyle(0x0a0a14, 0.65);
+    hudPanels.fillRoundedRect(width / 2 - 90, 6, 180, 48, 6);
+
+
+    this.hudContainer.add(hudPanels);
+
     // Health bar
     this.healthBar = this.add.graphics();
     this.hudContainer.add(this.healthBar);
@@ -1315,62 +1680,62 @@ export class GameScene extends Phaser.Scene {
       .setVisible(false);
     this.hudContainer.add(this.burnoutText);
 
-    // Currency (top right)
+    // Currency (bottom left)
     this.currencyText = this.add
-      .text(width - 16, 14, "$0", {
-        fontSize: "16px",
+      .text(16, height - 90, "$0", {
+        fontSize: "20px",
         fontFamily: "Rajdhani, sans-serif",
         color: "#e8c840",
         fontStyle: "bold",
       })
-      .setOrigin(1, 0);
+      .setOrigin(0, 1);
     this.hudContainer.add(this.currencyText);
 
     // Kills
     this.killText = this.add
-      .text(width - 16, 34, "Kills: 0", {
-        fontSize: "12px",
+      .text(16, height - 68, "Kills: 0", {
+        fontSize: "14px",
         fontFamily: "Rajdhani, sans-serif",
         color: "#b0a8c0",
       })
-      .setOrigin(1, 0);
+      .setOrigin(0, 1);
     this.hudContainer.add(this.killText);
 
-    // Weapon icon (right side, next to text)
-    this.weaponIcon = this.add.image(width - 16, 62, "item-pistol")
-      .setOrigin(1, 0.5)
-      .setScale(1.2)
+    // Weapon icon (bottom left, next to weapon text)
+    this.weaponIcon = this.add.image(16, height - 46, "item-pistol")
+      .setOrigin(0, 0.5)
+      .setScale(1.5)
       .setVisible(false);
     this.hudContainer.add(this.weaponIcon);
 
-    // Weapon display (below kills, right side)
+    // Weapon display (bottom left)
     this.weaponText = this.add
-      .text(width - 16, 54, "FISTS", {
-        fontSize: "11px",
+      .text(40, height - 54, "FISTS", {
+        fontSize: "14px",
         fontFamily: "Rajdhani, sans-serif",
         color: "#8a82a0",
       })
-      .setOrigin(1, 0);
+      .setOrigin(0, 0);
     this.hudContainer.add(this.weaponText);
 
     this.ammoText = this.add
-      .text(width - 16, 68, "", {
-        fontSize: "11px",
+      .text(40, height - 38, "", {
+        fontSize: "13px",
         fontFamily: "Rajdhani, sans-serif",
         color: "#b0a8c0",
       })
-      .setOrigin(1, 0);
+      .setOrigin(0, 0);
     this.hudContainer.add(this.ammoText);
 
-    // Trap inventory (right side, below ammo)
+    // Trap inventory (bottom left, below ammo)
     this.trapText = this.add
-      .text(width - 16, 86, "", {
-        fontSize: "12px",
+      .text(16, height - 20, "", {
+        fontSize: "13px",
         fontFamily: "Rajdhani, sans-serif",
         color: "#b0a8c0",
         lineSpacing: 2,
       })
-      .setOrigin(1, 0);
+      .setOrigin(0, 1);
     this.hudContainer.add(this.trapText);
 
     // Wave counter (top center)
@@ -1405,6 +1770,18 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setAlpha(0);
     this.hudContainer.add(this.waveAnnouncement);
+
+    // Countdown text (big 3...2...1 before wave starts)
+    this.countdownText = this.add
+      .text(width / 2, height / 2, "", {
+        fontSize: "72px",
+        fontFamily: "Rajdhani, sans-serif",
+        color: "#ffffff",
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5)
+      .setAlpha(0);
+    this.hudContainer.add(this.countdownText);
 
     // Controls
     const controls = this.add
@@ -1461,13 +1838,13 @@ export class GameScene extends Phaser.Scene {
       const iconW = this.weaponIcon.displayWidth + 6;
       this.weaponText.setText(wDef.name.toUpperCase());
       this.weaponText.setColor("#d0c8e0");
-      this.weaponText.setX(this.weaponIcon.x - iconW);
+      this.weaponText.setX(16 + iconW);
       this.ammoText.setText(`${this.ammo}/${this.maxAmmo}`);
+      this.ammoText.setX(16 + iconW);
       this.ammoText.setColor(this.ammo > 0 ? "#b0a8c0" : "#cc3333");
     } else {
       this.weaponIcon.setVisible(false);
-      const { width } = this.cameras.main;
-      this.weaponText.setX(width - 16);
+      this.weaponText.setX(16);
       this.weaponText.setText("FISTS");
       this.weaponText.setColor("#8a82a0");
       this.ammoText.setText("");
@@ -1495,11 +1872,13 @@ export class GameScene extends Phaser.Scene {
     // Wave HUD
     const state = this.waveManager.state;
     const wave = this.waveManager.wave;
+    let countdownSecs = -1;
 
     if (state === "pre_game") {
       this.waveText.setText("GET READY");
       const secs = this.waveManager.getPreGameTimeLeft();
       this.waveStatusText.setText(`Starting in ${secs}s`);
+      countdownSecs = secs;
     } else {
       this.waveText.setText(`WAVE ${wave}`);
 
@@ -1511,7 +1890,28 @@ export class GameScene extends Phaser.Scene {
       } else if (state === "intermission") {
         const secs = this.waveManager.getIntermissionTimeLeft();
         this.waveStatusText.setText(`Next wave in ${secs}s — SHOP OPEN`);
+        countdownSecs = secs;
       }
+    }
+
+    // Big countdown: 3...2...1
+    if (countdownSecs >= 1 && countdownSecs <= 3) {
+      const numStr = `${countdownSecs}`;
+      if (this.countdownText.text !== numStr) {
+        this.countdownText.setText(numStr);
+        this.countdownText.setAlpha(1);
+        this.countdownText.setScale(1.5);
+        this.tweens.add({
+          targets: this.countdownText,
+          scaleX: 1,
+          scaleY: 1,
+          alpha: 0.3,
+          duration: 900,
+          ease: "Cubic.easeOut",
+        });
+      }
+    } else if (countdownSecs <= 0 && this.countdownText.alpha > 0) {
+      this.countdownText.setAlpha(0);
     }
   }
 }
