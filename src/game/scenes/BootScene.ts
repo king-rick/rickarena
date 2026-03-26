@@ -47,6 +47,13 @@ export class BootScene extends Phaser.Scene {
     // Tiles
     this.load.image("grass-tile", "/assets/sprites/tiles/grass-patch.png");
 
+    // Tilemap — village map (16x16 tiles, 80x65)
+    this.load.tilemapTiledJSON("village-map", "/assets/maps/village.tmj");
+    this.load.image("ts-ground", "/assets/tilesets/fantasy/Tileset_Ground.png");
+    this.load.image("ts-road", "/assets/tilesets/fantasy/Tileset_Road.png");
+    this.load.image("ts-water", "/assets/tilesets/fantasy/Tileset_Water.png");
+    this.load.image("ts-rockslope", "/assets/tilesets/fantasy/Tileset_RockSlope_Simple.png");
+
     // Item sprites
     this.load.image("item-pistol", "/assets/sprites/items/pistol.png");
     this.load.image("item-shotgun", "/assets/sprites/items/shotgun.png");

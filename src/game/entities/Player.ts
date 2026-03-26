@@ -87,7 +87,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     // Collision body: covers torso area for solid enemy separation
     this.body.setSize(36, 40);
     this.body.setOffset(46, 76);
-    this.setScale(0.5);
+    this.setScale(0.25);
     this.setDepth(5);
 
     // Start with idle animation if available

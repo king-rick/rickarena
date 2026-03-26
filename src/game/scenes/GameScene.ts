@@ -6,24 +6,9 @@ import { Trap, TrapType, ensureTrapTextures } from "../entities/Trap";
 import { CHARACTERS, CharacterDef } from "../data/characters";
 import { BALANCE } from "../data/balance";
 import { WaveManager, WaveState } from "../systems/WaveManager";
-import {
-  drawMap,
-  drawLighting,
-  drawHidingGroveCanopy,
-  MAP_WIDTH,
-  MAP_HEIGHT,
-  MANSION,
-  LIBRARY,
-  GIANT_WILLOW,
-  HIDING_GROVE,
-  TREES,
-  GREENHOUSE,
-  HEDGE_ROWS,
-  STONE_BRIDGE,
-  CAR_SHOW,
-  DECK,
-  GAZEBO2,
-} from "../map/EndicottEstate";
+// Village map constants
+const VILLAGE_MAP_W = 80 * 16;  // 1280px
+const VILLAGE_MAP_H = 65 * 16;  // 1040px
 
 export class GameScene extends Phaser.Scene {
   player!: Player;
@@ -122,150 +107,48 @@ export class GameScene extends Phaser.Scene {
     this.fireHeld = false;
     this.bloodSplats = [];
 
-    // Draw map
-    drawMap(this);
-    drawHidingGroveCanopy(this);
-    drawLighting(this);
+    // Draw tilemap — village map
+    const map = this.make.tilemap({ key: "village-map" });
+    const groundTs = map.addTilesetImage("ground", "ts-ground");
+    const roadTs = map.addTilesetImage("road", "ts-road");
+    const waterTs = map.addTilesetImage("water", "ts-water");
+    const rockTs = map.addTilesetImage("rock-slope", "ts-rockslope");
+    const allTilesets = [groundTs!, roadTs!, waterTs!, rockTs!];
+    map.createLayer("ground", allTilesets, 0, 0)?.setDepth(-2);
+    map.createLayer("paths", allTilesets, 0, 0)?.setDepth(-1);
+    map.createLayer("buildings", allTilesets, 0, 0)?.setDepth(0);
+    map.createLayer("decorations", allTilesets, 0, 0)?.setDepth(1);
+    map.createLayer("props", allTilesets, 0, 0)?.setDepth(2);
 
-    // Obstacles
+    // Obstacles — loaded from Tiled object layer
     this.obstacles = this.physics.add.staticGroup();
-
-    // Mansion
-    const mansionZone = this.add
-      .zone(
-        MANSION.x + MANSION.width / 2,
-        MANSION.y + MANSION.height / 2,
-        MANSION.width,
-        MANSION.height
-      )
-      .setOrigin(0.5);
-    this.physics.add.existing(mansionZone, true);
-    this.obstacles.add(mansionZone);
-
-    // Library
-    const libraryZone = this.add
-      .zone(
-        LIBRARY.x + LIBRARY.width / 2,
-        LIBRARY.y + LIBRARY.height / 2,
-        LIBRARY.width,
-        LIBRARY.height
-      )
-      .setOrigin(0.5);
-    this.physics.add.existing(libraryZone, true);
-    this.obstacles.add(libraryZone);
-
-    // Giant willow
-    const willowSize = GIANT_WILLOW.radius * 1.2;
-    const willowZone = this.add
-      .zone(GIANT_WILLOW.x, GIANT_WILLOW.y, willowSize, willowSize)
-      .setOrigin(0.5);
-    this.physics.add.existing(willowZone, true);
-    (willowZone.body as Phaser.Physics.Arcade.StaticBody).setCircle(
-      GIANT_WILLOW.radius * 0.6
-    );
-    this.obstacles.add(willowZone);
-
-    // Hiding grove trees
-    for (const tree of HIDING_GROVE) {
-      const treeZone = this.add
-        .zone(tree.x, tree.y, tree.collisionRadius * 2, tree.collisionRadius * 2)
-        .setOrigin(0.5);
-      this.physics.add.existing(treeZone, true);
-      (treeZone.body as Phaser.Physics.Arcade.StaticBody).setCircle(
-        tree.collisionRadius
-      );
-      this.obstacles.add(treeZone);
+    const collisionLayer = map.getObjectLayer("collision");
+    if (collisionLayer) {
+      for (const obj of collisionLayer.objects) {
+        const isEllipse = !!(obj as any).ellipse;
+        if (isEllipse) {
+          // Circle collision: obj.x/y is top-left of bounding box in Tiled
+          const radius = obj.width! / 2;
+          const cx = obj.x! + radius;
+          const cy = obj.y! + radius;
+          const zone = this.add.zone(cx, cy, radius * 2, radius * 2).setOrigin(0.5);
+          this.physics.add.existing(zone, true);
+          (zone.body as Phaser.Physics.Arcade.StaticBody).setCircle(radius);
+          this.obstacles.add(zone);
+        } else {
+          // Rectangle collision: obj.x/y is top-left
+          const zone = this.add
+            .zone(obj.x! + obj.width! / 2, obj.y! + obj.height! / 2, obj.width!, obj.height!)
+            .setOrigin(0.5);
+          this.physics.add.existing(zone, true);
+          this.obstacles.add(zone);
+        }
+      }
     }
-
-    // Willow trees (scattered around the estate)
-    for (const tree of TREES) {
-      const trunkRadius = tree.size * 0.15;
-      const zone = this.add
-        .zone(tree.x, tree.y, trunkRadius * 2, trunkRadius * 2)
-        .setOrigin(0.5);
-      this.physics.add.existing(zone, true);
-      (zone.body as Phaser.Physics.Arcade.StaticBody).setCircle(trunkRadius);
-      this.obstacles.add(zone);
-    }
-
-    // Greenhouse
-    const ghZone = this.add
-      .zone(GREENHOUSE.x + GREENHOUSE.width / 2, GREENHOUSE.y + GREENHOUSE.height / 2, GREENHOUSE.width, GREENHOUSE.height)
-      .setOrigin(0.5);
-    this.physics.add.existing(ghZone, true);
-    this.obstacles.add(ghZone);
-
-    // Hedge rows (garden maze)
-    for (const hedge of HEDGE_ROWS) {
-      const hZone = this.add
-        .zone(hedge.x + hedge.width / 2, hedge.y + hedge.height / 2, hedge.width, hedge.height)
-        .setOrigin(0.5);
-      this.physics.add.existing(hZone, true);
-      this.obstacles.add(hZone);
-    }
-
-    // Stone bridge walls (top and bottom edges)
-    const bridgeTopWall = this.add
-      .zone(STONE_BRIDGE.x + STONE_BRIDGE.width / 2, STONE_BRIDGE.y + STONE_BRIDGE.wallThickness / 2, STONE_BRIDGE.width, STONE_BRIDGE.wallThickness)
-      .setOrigin(0.5);
-    this.physics.add.existing(bridgeTopWall, true);
-    this.obstacles.add(bridgeTopWall);
-    const bridgeBotWall = this.add
-      .zone(STONE_BRIDGE.x + STONE_BRIDGE.width / 2, STONE_BRIDGE.y + STONE_BRIDGE.height - STONE_BRIDGE.wallThickness / 2, STONE_BRIDGE.width, STONE_BRIDGE.wallThickness)
-      .setOrigin(0.5);
-    this.physics.add.existing(bridgeBotWall, true);
-    this.obstacles.add(bridgeBotWall);
-
-    // Car show (each car is an obstacle)
-    for (const car of CAR_SHOW) {
-      const carZone = this.add.zone(car.x, car.y, car.w, car.h).setOrigin(0.5);
-      this.physics.add.existing(carZone, true);
-      this.obstacles.add(carZone);
-    }
-
-    // Extended deck (walkable, no collision — it's a platform you can stand on)
-
-    // Gazebo #2 (posts provide partial cover but gazebo is walkable)
-
-    // Fence boundary collision (4 walls with gate gaps)
-    const fi = 50;
-    const fenceThick = 16;
-    const gateGap = 80;
-    const cx = MAP_WIDTH / 2;
-    const cy = MAP_HEIGHT / 2;
-
-    // North fence: two segments with gap at cx
-    const nfLeft = this.add.zone(fi + (cx - gateGap / 2 - fi) / 2, fi, cx - gateGap / 2 - fi, fenceThick).setOrigin(0.5);
-    this.physics.add.existing(nfLeft, true);
-    this.obstacles.add(nfLeft);
-    const nfRight = this.add.zone(cx + gateGap / 2 + (MAP_WIDTH - fi - cx - gateGap / 2) / 2, fi, MAP_WIDTH - fi - cx - gateGap / 2, fenceThick).setOrigin(0.5);
-    this.physics.add.existing(nfRight, true);
-    this.obstacles.add(nfRight);
-
-    // South fence: two segments with gap at cx
-    const sfLeft = this.add.zone(fi + (cx - gateGap / 2 - fi) / 2, MAP_HEIGHT - fi, cx - gateGap / 2 - fi, fenceThick).setOrigin(0.5);
-    this.physics.add.existing(sfLeft, true);
-    this.obstacles.add(sfLeft);
-    const sfRight = this.add.zone(cx + gateGap / 2 + (MAP_WIDTH - fi - cx - gateGap / 2) / 2, MAP_HEIGHT - fi, MAP_WIDTH - fi - cx - gateGap / 2, fenceThick).setOrigin(0.5);
-    this.physics.add.existing(sfRight, true);
-    this.obstacles.add(sfRight);
-
-    // West fence: solid (no gate)
-    const wf = this.add.zone(fi, MAP_HEIGHT / 2, fenceThick, MAP_HEIGHT - fi * 2).setOrigin(0.5);
-    this.physics.add.existing(wf, true);
-    this.obstacles.add(wf);
-
-    // East fence: two segments with gap at cy
-    const efTop = this.add.zone(MAP_WIDTH - fi, fi + (cy - gateGap / 2 - fi) / 2, fenceThick, cy - gateGap / 2 - fi).setOrigin(0.5);
-    this.physics.add.existing(efTop, true);
-    this.obstacles.add(efTop);
-    const efBot = this.add.zone(MAP_WIDTH - fi, cy + gateGap / 2 + (MAP_HEIGHT - fi - cy - gateGap / 2) / 2, fenceThick, MAP_HEIGHT - fi - cy - gateGap / 2).setOrigin(0.5);
-    this.physics.add.existing(efBot, true);
-    this.obstacles.add(efBot);
 
     // Player
-    const spawnX = MAP_WIDTH / 2;
-    const spawnY = MAP_HEIGHT / 2 + 300;
+    const spawnX = VILLAGE_MAP_W / 2;
+    const spawnY = VILLAGE_MAP_H / 2 + 40;
     const stats = this.characterDef.stats;
 
     this.player = new Player(this, spawnX, spawnY, this.characterDef.id, {
@@ -280,12 +163,12 @@ export class GameScene extends Phaser.Scene {
 
     // Camera
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
-    this.cameras.main.setZoom(1.3);
-    this.cameras.main.setBounds(0, 0, MAP_WIDTH, MAP_HEIGHT);
+    this.cameras.main.setZoom(3);
+    this.cameras.main.setBounds(0, 0, VILLAGE_MAP_W, VILLAGE_MAP_H);
     this.cameras.main.setRoundPixels(true);
 
     // World bounds
-    this.physics.world.setBounds(0, 0, MAP_WIDTH, MAP_HEIGHT);
+    this.physics.world.setBounds(0, 0, VILLAGE_MAP_W, VILLAGE_MAP_H);
     this.player.body.setCollideWorldBounds(true);
 
     // Collisions
@@ -597,38 +480,10 @@ export class GameScene extends Phaser.Scene {
     if (now - this.lastFootstepTime < 280) return; // ~3.5 steps/sec
     this.lastFootstepTime = now;
 
-    // Determine surface type based on player position
-    const px = this.player.x;
-    const py = this.player.y;
-    let surface: "grass" | "gravel" | "wood" = "grass";
-
-    // Check if on deck (wood surface)
-    if (px >= DECK.x && px <= DECK.x + DECK.width &&
-        py >= DECK.y && py <= DECK.y + DECK.height) {
-      surface = "wood";
-    }
-    // Check if on road/path (gravel) — roads are the cross-shaped paths through center
-    else {
-      const roadHalfWidth = 40;
-      const cx = MAP_WIDTH / 2;
-      const cy = MAP_HEIGHT / 2;
-      const onVerticalRoad = Math.abs(px - cx) < roadHalfWidth;
-      const onHorizontalRoad = Math.abs(py - cy) < roadHalfWidth;
-      if (onVerticalRoad || onHorizontalRoad) {
-        surface = "gravel";
-      }
-    }
-
-    if (surface === "wood") {
-      const i = Math.floor(Math.random() * 5) + 1;
-      this.playSound(`sfx-step-wood${i}`, 0.2);
-    } else if (surface === "gravel") {
-      const i = Math.floor(Math.random() * 6) + 1;
-      this.playSound(`sfx-step-gravel${i}`, 0.15);
-    } else {
-      const i = Math.floor(Math.random() * 6) + 1;
-      this.playSound(`sfx-step-grass${i}`, 0.15);
-    }
+    // TODO: surface detection from tilemap layers (road=gravel, building=wood)
+    // For now, all grass footsteps
+    const i = Math.floor(Math.random() * 6) + 1;
+    this.playSound(`sfx-step-grass${i}`, 0.15);
   }
 
   /** Random zombie groan from nearby enemies — atmospheric idle sound */

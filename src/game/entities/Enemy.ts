@@ -26,9 +26,9 @@ const VARIANT_TINTS: Record<EnemyType, number> = {
 };
 
 const VARIANT_SCALES: Record<EnemyType, number> = {
-  basic: 0.4,
-  fast: 0.35,
-  tank: 0.5,
+  basic: 0.2,
+  fast: 0.18,
+  tank: 0.25,
 };
 
 export class Enemy extends Phaser.Physics.Arcade.Sprite {

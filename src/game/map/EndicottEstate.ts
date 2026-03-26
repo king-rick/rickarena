@@ -205,14 +205,7 @@ const GATE_GAP = 80; // width of opening at each gate
 export function drawMap(scene: Phaser.Scene): Phaser.GameObjects.Graphics {
   const g = scene.add.graphics();
 
-  // Ground — tiled grass texture
-  const grassTile = scene.add.tileSprite(0, 0, MAP_WIDTH, MAP_HEIGHT, "grass-tile");
-  grassTile.setOrigin(0, 0);
-  grassTile.setDepth(-1);
-  grassTile.setTint(0x556655);
-
-  // Paths
-  drawPaths(g);
+  // Ground + paths now rendered by tilemap (see GameScene create())
 
   // Wooden fence perimeter
   drawFence(g);
