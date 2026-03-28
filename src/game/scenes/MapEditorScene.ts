@@ -83,8 +83,8 @@ export class MapEditorScene extends Phaser.Scene {
   private infoText!: Phaser.GameObjects.Text;
 
   // Canvas dimensions (set in create)
-  private W = 960;
-  private H = 540;
+  private W = 1920;
+  private H = 1080;
 
   // Keys
   private keys!: {

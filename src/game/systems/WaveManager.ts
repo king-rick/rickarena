@@ -46,6 +46,9 @@ export class WaveManager {
   private stateTimer = 0;
   private preGameDuration = 3000; // 3s before wave 1
   private countdownDuration = 3000; // 3s countdown before each wave after intermission
+  private intermissionDuration = 30000; // 30s max intermission before auto-start
+  private readyUp = false; // player has pressed ready
+  private readyCountdown = 0; // 3s countdown after ready
 
   // Announcement callback — GameScene handles the visual
   onWaveStart?: (wave: number) => void;
@@ -97,8 +100,15 @@ export class WaveManager {
 
       case "intermission":
         this.stateTimer += delta;
-        if (this.stateTimer >= this.getIntermissionDuration()) {
-          this.startWave();
+        if (this.readyUp) {
+          this.readyCountdown -= delta;
+          if (this.readyCountdown <= 0) {
+            this.readyUp = false;
+            this.startWave();
+          }
+        } else if (this.stateTimer >= this.intermissionDuration) {
+          // Auto-start after 30s if player hasn't pressed skip
+          this.triggerReady();
         }
         break;
     }
@@ -109,19 +119,28 @@ export class WaveManager {
     this.enemiesAlive = Math.max(0, this.enemiesAlive - 1);
   }
 
-  /** Intermission duration for the current wave (ms) */
-  getIntermissionDuration(): number {
-    // Next wave is wave + 1 since we're between waves
-    const nextWave = this.wave + 1;
-    return nextWave >= BALANCE.waves.intermissionLateWave
-      ? BALANCE.waves.intermissionLateMs
-      : BALANCE.waves.intermissionEarlyMs;
+  /** Player presses ready — starts 3s countdown to next wave */
+  triggerReady() {
+    if (this.state !== "intermission" || this.readyUp) return;
+    this.readyUp = true;
+    this.readyCountdown = 3000;
   }
 
-  /** How much time is left in intermission (seconds) */
+  /** Whether the player has readied up */
+  isReadyUp(): boolean {
+    return this.readyUp;
+  }
+
+  /** Countdown seconds remaining after ready-up (0 if not ready) */
+  getReadyCountdown(): number {
+    if (!this.readyUp) return 0;
+    return Math.max(0, Math.ceil(this.readyCountdown / 1000));
+  }
+
+  /** Intermission time remaining before auto-start (seconds) */
   getIntermissionTimeLeft(): number {
-    if (this.state !== "intermission") return 0;
-    const remaining = this.getIntermissionDuration() - this.stateTimer;
+    if (this.state !== "intermission" || this.readyUp) return 0;
+    const remaining = this.intermissionDuration - this.stateTimer;
     return Math.max(0, Math.ceil(remaining / 1000));
   }
 
@@ -170,6 +189,8 @@ export class WaveManager {
   }
 
   private beginIntermission() {
+    this.readyUp = false;
+    this.readyCountdown = 0;
     this.setState("intermission");
     this.onIntermissionStart?.(this.wave);
   }

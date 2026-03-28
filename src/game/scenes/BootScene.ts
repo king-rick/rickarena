@@ -102,12 +102,31 @@ export class BootScene extends Phaser.Scene {
     this.load.image("trap-barricade", "/assets/sprites/items/trap-barricade.png");
     this.load.image("trap-landmine", "/assets/sprites/items/trap-landmine.png");
 
+    // HUD UI sprites
+    this.load.image("ui-icon-heart", "/assets/sprites/ui/icon-heart.png");
+    this.load.image("ui-icon-lightning", "/assets/sprites/ui/icon-lightning.png");
+    this.load.image("ui-icon-skull", "/assets/sprites/ui/icon-skull.png");
+    this.load.image("ui-icon-coin", "/assets/sprites/ui/icon-coin.png");
+    this.load.image("ui-icon-star", "/assets/sprites/ui/icon-star.png");
+    this.load.image("ui-icon-sword", "/assets/sprites/ui/icon-sword.png");
+    this.load.image("ui-panel-main", "/assets/sprites/ui/panel-main.png");
+    this.load.image("ui-panel-sm", "/assets/sprites/ui/panel-sm.png");
+    this.load.image("ui-panel-dark", "/assets/sprites/ui/panel-dark.png");
+    this.load.image("ui-panel-button", "/assets/sprites/ui/panel-button.png");
+    this.load.image("ui-bar-frame", "/assets/sprites/ui/bar-frame.png");
+
+    // Effect sprites
+    this.load.image("fx-muzzle-flash", "/assets/sprites/items/muzzle-flash.png");
+    this.load.image("fx-explosion", "/assets/sprites/items/explosion.png");
+    this.load.image("fx-smoke", "/assets/sprites/items/smoke-puff.png");
+    this.load.image("fx-spark", "/assets/sprites/items/spark.png");
+
     // Audio
     // Weapons (2 variants per weapon for variety)
     this.load.audio("sfx-pistol", "/assets/audio/weapons/pistol-fire-1.wav");
     this.load.audio("sfx-pistol2", "/assets/audio/weapons/pistol-fire-2.wav");
-    this.load.audio("sfx-shotgun", "/assets/audio/weapons/shotgun-blast-el.wav");
-    this.load.audio("sfx-shotgun2", "/assets/audio/weapons/shotgun-fire.wav");
+    this.load.audio("sfx-shotgun", "/assets/audio/weapons/shotgun-blast.wav");
+    this.load.audio("sfx-shotgun2", "/assets/audio/weapons/shotgun-blast-el.wav");
     this.load.audio("sfx-shotgun-pump", "/assets/audio/weapons/shotgun-pump.wav");
     this.load.audio("sfx-smg", "/assets/audio/weapons/smg-fire-1.wav");
     this.load.audio("sfx-smg2", "/assets/audio/weapons/smg-fire-2.wav");

@@ -103,6 +103,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
 
     this.healthBarGfx = scene.add.graphics();
+    this.healthBarGfx.setDepth(20);
   }
 
   /** Apply extra stun time for heavy knockback (e.g. shotgun blasts) */

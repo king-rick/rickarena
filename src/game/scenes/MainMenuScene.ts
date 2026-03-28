@@ -9,7 +9,6 @@ export class MainMenuScene extends Phaser.Scene {
   private classText!: Phaser.GameObjects.Text;
   private specialtyText!: Phaser.GameObjects.Text;
   private abilityText!: Phaser.GameObjects.Text;
-  private ultimateText!: Phaser.GameObjects.Text;
   private statBars: { label: Phaser.GameObjects.Text; bar: Phaser.GameObjects.Graphics }[] = [];
   private arrowLeft!: Phaser.GameObjects.Text;
   private arrowRight!: Phaser.GameObjects.Text;
@@ -24,7 +23,7 @@ export class MainMenuScene extends Phaser.Scene {
     this.dotIndicators = [];
     this.selectedIndex = 0;
 
-    // 960 x 540
+    // 1920 x 1080
     const { width, height } = this.cameras.main;
     const cx = width / 2;
     const cy = height / 2;
@@ -35,51 +34,51 @@ export class MainMenuScene extends Phaser.Scene {
     bg.fillRect(0, 0, width, height);
 
     // Title (top center)
-    this.add.text(cx, 20, "RICKARENA", {
-      fontSize: "28px",
+    this.add.text(cx, 40, "RICKARENA", {
+      fontSize: "56px",
       fontFamily: "Rajdhani, sans-serif",
       color: "#ffffff",
       fontStyle: "bold",
-      letterSpacing: 8,
+      letterSpacing: 16,
     }).setOrigin(0.5);
 
-    this.add.text(cx, 48, "Survive the Pussies.", {
-      fontSize: "12px",
+    this.add.text(cx, 96, "Survive the Pussies.", {
+      fontSize: "22px",
       fontFamily: "Rajdhani, sans-serif",
       color: "#555555",
     }).setOrigin(0.5);
 
     // --- CENTER: Character name + class + sprite ---
-    this.nameText = this.add.text(cx, 72, "", {
-      fontSize: "34px",
+    this.nameText = this.add.text(cx, 144, "", {
+      fontSize: "64px",
       fontFamily: "Rajdhani, sans-serif",
       color: "#ffffff",
       fontStyle: "bold",
-      letterSpacing: 8,
+      letterSpacing: 12,
     }).setOrigin(0.5).setDepth(5);
 
-    this.classText = this.add.text(cx, 102, "", {
-      fontSize: "14px",
+    this.classText = this.add.text(cx, 204, "", {
+      fontSize: "26px",
       fontFamily: "Rajdhani, sans-serif",
       color: "#5aabff",
-      letterSpacing: 4,
+      letterSpacing: 6,
     }).setOrigin(0.5).setDepth(5);
 
     // Sprite (dead center)
-    const spriteY = cy - 15;
+    const spriteY = cy - 30;
     this.showcase = this.add.sprite(cx, spriteY, "rick-south")
-      .setScale(2.4)
+      .setScale(4.8)
       .setDepth(2);
 
     // Arrows flanking sprite
-    this.arrowLeft = this.add.text(cx - 130, spriteY + 20, "\u25C0", {
-      fontSize: "28px",
+    this.arrowLeft = this.add.text(cx - 260, spriteY + 40, "\u25C0", {
+      fontSize: "56px",
       fontFamily: "Rajdhani, sans-serif",
       color: "#5aabff",
     }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(3);
 
-    this.arrowRight = this.add.text(cx + 130, spriteY + 20, "\u25B6", {
-      fontSize: "28px",
+    this.arrowRight = this.add.text(cx + 260, spriteY + 40, "\u25B6", {
+      fontSize: "56px",
       fontFamily: "Rajdhani, sans-serif",
       color: "#5aabff",
     }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(3);
@@ -94,9 +93,9 @@ export class MainMenuScene extends Phaser.Scene {
     });
 
     // Dot indicators below sprite
-    const dotSpacing = 16;
+    const dotSpacing = 28;
     const dotsStartX = cx - ((CHARACTERS.length - 1) * dotSpacing) / 2;
-    const dotsY = spriteY + 155;
+    const dotsY = spriteY + 300;
     for (let i = 0; i < CHARACTERS.length; i++) {
       const dot = this.add.graphics().setDepth(5);
       dot.x = dotsStartX + i * dotSpacing;
@@ -105,23 +104,23 @@ export class MainMenuScene extends Phaser.Scene {
     }
 
     // Specialty (below dots)
-    this.specialtyText = this.add.text(cx, dotsY + 18, "", {
-      fontSize: "12px",
+    this.specialtyText = this.add.text(cx, dotsY + 32, "", {
+      fontSize: "22px",
       fontFamily: "Rajdhani, sans-serif",
       color: "#9988aa",
-      wordWrap: { width: 260 },
+      wordWrap: { width: 520 },
       align: "center",
     }).setOrigin(0.5, 0).setDepth(5);
 
     // --- LEFT SIDE: Stats ---
-    const leftX = cx - 280;
+    const leftX = cx - 560;
 
-    this.add.text(leftX + 90, 90, "STATS", {
-      fontSize: "11px",
+    this.add.text(leftX + 180, 180, "STATS", {
+      fontSize: "20px",
       fontFamily: "Rajdhani, sans-serif",
       color: "#555566",
       fontStyle: "bold",
-      letterSpacing: 4,
+      letterSpacing: 6,
     }).setOrigin(0.5);
 
     const statDefs = [
@@ -131,16 +130,16 @@ export class MainMenuScene extends Phaser.Scene {
       { key: "stamina", label: "STA", color: 0xddaa44, max: 120 },
     ];
 
-    const statsStartY = 115;
-    const barMaxW = 130;
-    const barH = 10;
-    const statsBarLeft = leftX + 40;
+    const statsStartY = 230;
+    const barMaxW = 260;
+    const barH = 20;
+    const statsBarLeft = leftX + 80;
 
     statDefs.forEach((stat, i) => {
-      const y = statsStartY + i * 30;
+      const y = statsStartY + i * 56;
 
-      const label = this.add.text(statsBarLeft - 8, y, stat.label, {
-        fontSize: "14px",
+      const label = this.add.text(statsBarLeft - 16, y, stat.label, {
+        fontSize: "26px",
         fontFamily: "Rajdhani, sans-serif",
         color: "#cccccc",
         fontStyle: "bold",
@@ -152,41 +151,35 @@ export class MainMenuScene extends Phaser.Scene {
     });
 
     // --- RIGHT SIDE: Abilities ---
-    const rightX = cx + 175;
+    const rightX = cx + 350;
 
-    this.add.text(rightX + 60, 90, "ABILITIES", {
-      fontSize: "11px",
+    this.add.text(rightX + 120, 180, "ABILITIES", {
+      fontSize: "20px",
       fontFamily: "Rajdhani, sans-serif",
       color: "#555566",
       fontStyle: "bold",
-      letterSpacing: 4,
+      letterSpacing: 6,
     }).setOrigin(0.5);
 
-    this.abilityText = this.add.text(rightX, 115, "", {
-      fontSize: "13px",
+    this.abilityText = this.add.text(rightX, 230, "", {
+      fontSize: "24px",
       fontFamily: "Rajdhani, sans-serif",
       color: "#aaaacc",
-      wordWrap: { width: 220 },
-      lineSpacing: 4,
+      wordWrap: { width: 440 },
+      lineSpacing: 8,
     }).setOrigin(0, 0);
 
-    this.ultimateText = this.add.text(rightX, 175, "", {
-      fontSize: "13px",
-      fontFamily: "Rajdhani, sans-serif",
-      color: "#aaaacc",
-      wordWrap: { width: 220 },
-      lineSpacing: 4,
-    }).setOrigin(0, 0);
+    // Ultimate removed — single ability per character
 
     // --- Bottom bar ---
-    this.add.text(cx, height - 42, "A/D or \u2190/\u2192 to select  |  E = Map Editor", {
-      fontSize: "11px",
+    this.add.text(cx, height - 84, "A/D or \u2190/\u2192 to select  |  E = Map Editor", {
+      fontSize: "20px",
       fontFamily: "Rajdhani, sans-serif",
       color: "#444444",
     }).setOrigin(0.5);
 
-    const prompt = this.add.text(cx, height - 20, "ENTER TO PLAY", {
-      fontSize: "22px",
+    const prompt = this.add.text(cx, height - 40, "ENTER TO PLAY", {
+      fontSize: "42px",
       fontFamily: "Rajdhani, sans-serif",
       color: "#5aabff",
       fontStyle: "bold",
@@ -224,8 +217,8 @@ export class MainMenuScene extends Phaser.Scene {
     const char = CHARACTERS[this.selectedIndex];
     const { width } = this.cameras.main;
     const cx = width / 2;
-    const leftX = cx - 280;
-    const statsBarLeft = leftX + 40;
+    const leftX = cx - 560;
+    const statsBarLeft = leftX + 80;
 
     // Showcase sprite
     const animKey = getAnimKey(char.id, "breathing-idle", "south");
@@ -240,17 +233,16 @@ export class MainMenuScene extends Phaser.Scene {
     this.classText.setText(char.className.toUpperCase());
     this.specialtyText.setText(char.specialtyDesc);
     this.abilityText.setText(`[Q] ${char.ability.name}\n${char.ability.desc}`);
-    this.ultimateText.setText(`[R] ${char.ultimate.name}\n${char.ultimate.desc}`);
 
     // Dots
     this.dotIndicators.forEach((dot, i) => {
       dot.clear();
       if (i === this.selectedIndex) {
         dot.fillStyle(0x5aabff, 1);
-        dot.fillCircle(0, 0, 4);
+        dot.fillCircle(0, 0, 7);
       } else {
         dot.fillStyle(0x333344, 1);
-        dot.fillCircle(0, 0, 3);
+        dot.fillCircle(0, 0, 5);
       }
     });
 
@@ -261,12 +253,12 @@ export class MainMenuScene extends Phaser.Scene {
       { key: "speed" as const, max: 220, color: 0x44aadd },
       { key: "stamina" as const, max: 120, color: 0xddaa44 },
     ];
-    const barMaxW = 130;
-    const barH = 10;
-    const statsStartY = 115;
+    const barMaxW = 260;
+    const barH = 20;
+    const statsStartY = 230;
 
     statDefs.forEach((stat, i) => {
-      const y = statsStartY + i * 30;
+      const y = statsStartY + i * 56;
       const val = char.stats[stat.key];
       const pct = Math.min(val / stat.max, 1);
 
@@ -274,11 +266,11 @@ export class MainMenuScene extends Phaser.Scene {
       g.clear();
 
       g.fillStyle(0x1a1a2a, 1);
-      g.fillRoundedRect(statsBarLeft, y - barH / 2, barMaxW, barH, 4);
+      g.fillRoundedRect(statsBarLeft, y - barH / 2, barMaxW, barH, 6);
 
       if (barMaxW * pct > 0) {
         g.fillStyle(stat.color, 0.9);
-        g.fillRoundedRect(statsBarLeft, y - barH / 2, barMaxW * pct, barH, 4);
+        g.fillRoundedRect(statsBarLeft, y - barH / 2, barMaxW * pct, barH, 6);
       }
     });
   }

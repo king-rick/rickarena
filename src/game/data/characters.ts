@@ -22,9 +22,20 @@ export interface CharacterDef {
     critChance: number; // base crit chance (0-1), stacks with weapon + proficiency + distance
   };
   ability: AbilityDef; // Q — unique character ability
-  ultimate: AbilityDef; // R — powerful, long cooldown
   pixelLabId: string;
 }
+
+/** Uniform base stats — all characters start identical. Differentiation comes from abilities and weapon specialties. */
+export const BASE_STATS = {
+  hp: 100,
+  damage: 18,
+  speed: 160,
+  stamina: 100,
+  regen: 10,
+  punchRange: 50,
+  punchArc: 100,
+  critChance: 0.05,
+};
 
 export const CHARACTERS: CharacterDef[] = [
   {
@@ -34,9 +45,8 @@ export const CHARACTERS: CharacterDef[] = [
     className: "Brawler",
     weaponSpecialty: "Fists",
     specialtyDesc: "Fists — Half stamina cost on punches, highest melee damage",
-    stats: { hp: 100, damage: 25, speed: 160, stamina: 80, regen: 8, punchRange: 50, punchArc: 100, critChance: 0.07 },
-    ability: { name: "Superkick", desc: "Devastating superkick with massive damage", cooldown: 15 },
-    ultimate: { name: "Fist of Rick", desc: "Charged haymaker with huge forward range and devastating damage", cooldown: 90 },
+    stats: { ...BASE_STATS },
+    ability: { name: "Superkick", desc: "Devastating superkick with massive knockback and damage", cooldown: 15 },
     pixelLabId: "d24fa173-9c58-4df6-bdba-40b883b1e59a",
   },
   {
@@ -44,11 +54,10 @@ export const CHARACTERS: CharacterDef[] = [
     name: "Dan",
     fullName: "Dan Kundy",
     className: "Engineer",
-    weaponSpecialty: "Generalist", // decent with everything, best at nothing
+    weaponSpecialty: "Generalist",
     specialtyDesc: "Balanced — +10% damage and +2% crit with all weapons",
-    stats: { hp: 120, damage: 20, speed: 155, stamina: 130, regen: 14, punchRange: 60, punchArc: 110, critChance: 0.05 },
-    ability: { name: "Turret", desc: "Deploy an auto-targeting turret", cooldown: 20 },
-    ultimate: { name: "Overcharge", desc: "All turrets and traps get boosted", cooldown: 120 },
+    stats: { ...BASE_STATS },
+    ability: { name: "EMP Grenade", desc: "Throws a grenade that stuns all enemies in the blast radius", cooldown: 18 },
     pixelLabId: "26a5c8a9-c68d-4a4b-9466-8fa705300d06",
   },
   // Mason Costa — removed from playable roster temporarily (sprite rework in progress)
@@ -60,9 +69,8 @@ export const CHARACTERS: CharacterDef[] = [
     className: "Sharpshooter",
     weaponSpecialty: "Pistols",
     specialtyDesc: "Pistols — +30% damage, +3% crit, fastest draw in the group",
-    stats: { hp: 70, damage: 14, speed: 220, stamina: 100, regen: 10, punchRange: 45, punchArc: 80, critChance: 0.05 },
-    ability: { name: "Shadow Step", desc: "Short dash with invincibility frames", cooldown: 8 },
-    ultimate: { name: "Dead Eye", desc: "Guaranteed crits for a duration", cooldown: 80 },
+    stats: { ...BASE_STATS },
+    ability: { name: "Katana Slash", desc: "Wide devastating katana swing that cleaves everything in front", cooldown: 12 },
     pixelLabId: "4a24fc8a-3427-4fd5-88ad-90bdcb6bb051",
   },
   {
@@ -72,9 +80,8 @@ export const CHARACTERS: CharacterDef[] = [
     className: "Demolitionist",
     weaponSpecialty: "Explosives",
     specialtyDesc: "Explosives — Landmines and traps deal +30% damage and radius",
-    stats: { hp: 85, damage: 10, speed: 150, stamina: 100, regen: 11, punchRange: 45, punchArc: 90, critChance: 0.06 },
-    ability: { name: "Frag Grenade", desc: "Throwable explosive with AoE damage", cooldown: 12 },
-    ultimate: { name: "Carpet Bomb", desc: "Cluster bomb barrage over a wide area", cooldown: 110 },
+    stats: { ...BASE_STATS },
+    ability: { name: "Smokescreen", desc: "Lights a smoke that heals allies and confuses enemies for 5s", cooldown: 20 },
     pixelLabId: "5cc951c4-ef30-49a1-8136-8b2fdb3baec0",
   },
 ];

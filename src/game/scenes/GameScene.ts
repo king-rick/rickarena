@@ -6,6 +6,8 @@ import { Trap, TrapType, ensureTrapTextures } from "../entities/Trap";
 import { CHARACTERS, CharacterDef } from "../data/characters";
 import { BALANCE } from "../data/balance";
 import { WaveManager, WaveState } from "../systems/WaveManager";
+import { LevelingSystem, BuffOption } from "../systems/LevelingSystem";
+import { hasAnimation, getAnimKey } from "../data/animations";
 // Village map constants
 const VILLAGE_MAP_W = 80 * 16;  // 1280px
 const VILLAGE_MAP_H = 65 * 16;  // 1040px
@@ -35,6 +37,13 @@ export class GameScene extends Phaser.Scene {
   // Wave system
   private waveManager!: WaveManager;
 
+  // RPG Leveling
+  private levelingSystem!: LevelingSystem;
+  private xpBar!: Phaser.GameObjects.Graphics;
+  private levelText!: Phaser.GameObjects.Text;
+  private levelUpOverlay!: Phaser.GameObjects.Container;
+  private levelUpActive = false;
+
   // Weapon state
   private equippedWeapon: string | null = null; // null = fists
   private ammo = 0;
@@ -47,9 +56,21 @@ export class GameScene extends Phaser.Scene {
   // Trap state
   private trapInventory: Map<TrapType, number> = new Map();
   private selectedTrapIndex = 0; // cycles through available trap types
-  private readonly trapTypes: TrapType[] = ["spikes", "barricade", "landmine"];
+  private readonly trapTypes: TrapType[] = ["barricade", "landmine"];
+  private barricadeVertical = false; // toggle for barricade orientation
   private traps!: Phaser.Physics.Arcade.Group;
   private barricades!: Phaser.Physics.Arcade.StaticGroup;
+
+  // Ability state (Q)
+  private abilityCooldownTimer = 0; // ms remaining
+  private abilityActive = false;
+  // Smokescreen state (Jason)
+  private smokeCloud: Phaser.GameObjects.Graphics | null = null;
+  private smokeX = 0;
+  private smokeY = 0;
+  private smokeTimer = 0; // ms remaining
+  private readonly smokeDuration = 5000;
+  private readonly smokeRadius = 128; // 8x8 tiles = 256px diameter = 128px radius
 
   // Shop
   private shopOpen = false;
@@ -90,6 +111,7 @@ export class GameScene extends Phaser.Scene {
   private zoomEnabled = false; // toggled in settings
   private trapText!: Phaser.GameObjects.Text;
   private countdownText!: Phaser.GameObjects.Text;
+  private abilityCDText!: Phaser.GameObjects.Text;
   private shopCashText!: Phaser.GameObjects.Text;
   private shopSelectedIndex = 0;
   private shopItemName!: Phaser.GameObjects.Text;
@@ -123,6 +145,11 @@ export class GameScene extends Phaser.Scene {
     this.ammo = 0;
     this.fireHeld = false;
     this.bloodSplats = [];
+
+    // Slow gameplay by 25%
+    this.time.timeScale = 0.75;
+    this.physics.world.timeScale = 1 / 0.75; // physics timeScale is inverted (higher = slower)
+    this.tweens.timeScale = 0.75;
 
     // Draw tilemap — Endicott Estate
     const map = this.make.tilemap({ key: "endicott-map" });
@@ -215,15 +242,21 @@ export class GameScene extends Phaser.Scene {
       damage: stats.damage,
     });
 
-    // Camera
+    // RPG Leveling system
+    this.levelingSystem = new LevelingSystem();
+    this.levelingSystem.onLevelUp = (level, options) => {
+      this.showLevelUpUI(level, options);
+    };
+
+    // Camera (1080p — wider view than 540p at same zoom)
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
-    this.cameras.main.setZoom(2.5);
+    this.cameras.main.setZoom(3.0);
     this.cameras.main.setBounds(0, 0, ENDICOTT_MAP_W, ENDICOTT_MAP_H);
     this.cameras.main.setRoundPixels(true);
 
     // Minimap — bottom-right corner, shows full map with player dot
-    const mmSize = 140;
-    const mmPadding = 10;
+    const mmSize = 160;
+    const mmPadding = 12;
     const { width: screenW, height: screenH } = this.cameras.main;
     this.minimap = this.cameras.add(
       screenW - mmSize - mmPadding,
@@ -241,7 +274,7 @@ export class GameScene extends Phaser.Scene {
     const mmBorder = this.add.graphics();
     mmBorder.setScrollFactor(0);
     mmBorder.setDepth(200);
-    mmBorder.lineStyle(2, 0x4a4565, 0.8);
+    mmBorder.lineStyle(3, 0x4a4565, 0.8);
     mmBorder.strokeRect(
       screenW - mmSize - mmPadding,
       screenH - mmSize - mmPadding,
@@ -255,7 +288,7 @@ export class GameScene extends Phaser.Scene {
       screenW - mmPadding,
       screenH - mmSize - mmPadding - 18,
       `${Math.round(this.cameras.main.zoom * 100)}%`,
-      { fontSize: "12px", fontFamily: "Rajdhani, sans-serif", color: "#ffffff" }
+      { fontSize: "20px", fontFamily: "Rajdhani, sans-serif", color: "#ffffff" }
     ).setOrigin(1, 0).setDepth(200).setVisible(false);
     this.minimap.ignore(this.zoomText);
 
@@ -346,7 +379,14 @@ export class GameScene extends Phaser.Scene {
         Phaser.Input.Keyboard.KeyCodes.SPACE
       );
       space.on("down", () => {
-        if (!this.gameOver && !this.paused && !this.shopOpen) this.meleeAttack();
+        if (this.gameOver || this.paused) return;
+        // During intermission, SPACE skips to next wave
+        if (this.waveManager.state === "intermission" && !this.waveManager.isReadyUp()) {
+          this.closeShop();
+          this.waveManager.triggerReady();
+          return;
+        }
+        if (!this.shopOpen) this.meleeAttack();
       });
 
       // Fire weapon (F key)
@@ -367,12 +407,10 @@ export class GameScene extends Phaser.Scene {
         if (!this.gameOver && !this.paused && !this.shopOpen) this.placeTrap();
       });
 
-      // Select trap type directly (8=spikes, 9=barricade, 0=landmine)
-      // These keys also buy in shop — when shop is closed, they select trap
+      // Select trap type directly (8=barricade, 9=landmine)
       const trapKeys = [
         { code: Phaser.Input.Keyboard.KeyCodes.EIGHT, index: 0 },
         { code: Phaser.Input.Keyboard.KeyCodes.NINE, index: 1 },
-        { code: Phaser.Input.Keyboard.KeyCodes.ZERO, index: 2 },
       ];
       trapKeys.forEach(({ code, index }) => {
         const key = this.input.keyboard!.addKey(code);
@@ -386,6 +424,13 @@ export class GameScene extends Phaser.Scene {
             this.showWeaponMessage(`${name.toUpperCase()} SELECTED`, "#dddd44");
           }
         });
+      });
+      // Ability (Q key)
+      const qKey = this.input.keyboard.addKey(
+        Phaser.Input.Keyboard.KeyCodes.Q
+      );
+      qKey.on("down", () => {
+        if (!this.gameOver && !this.paused && !this.shopOpen) this.useAbility();
       });
     }
     // Right-click to fire weapon
@@ -431,6 +476,21 @@ export class GameScene extends Phaser.Scene {
           this.openShop();
         }
       });
+
+      // SPACE to skip/ready up during intermission (overrides melee during intermission)
+      // (melee SPACE handler above already checks shopOpen but not intermission —
+      //  we handle priority in the melee handler by also checking wave state)
+
+      // V key to toggle barricade orientation
+      const vKey = this.input.keyboard.addKey(
+        Phaser.Input.Keyboard.KeyCodes.V
+      );
+      vKey.on("down", () => {
+        if (this.gameOver || this.paused) return;
+        this.barricadeVertical = !this.barricadeVertical;
+        const orient = this.barricadeVertical ? "VERTICAL" : "HORIZONTAL";
+        this.showWeaponMessage(`BARRICADE: ${orient}`, "#dddd44");
+      });
     }
 
     // HUD container — lives in world space, tracks camera position each frame
@@ -464,11 +524,7 @@ export class GameScene extends Phaser.Scene {
 
     this.waveManager.onWaveStart = (wave) => {
       this.closeShop();
-      // Horror stinger on wave 3+ for atmosphere
-      if (wave >= 3) {
-        const horrorKey = Math.random() < 0.5 ? "sfx-horror1" : "sfx-horror2";
-        this.playSound(horrorKey, 0.2);
-      }
+      // MUTED — pending sound audit
       // Layer in rain ambience starting wave 5
       if (wave === 5 && this.cache.audio.exists("sfx-ambient-rain")) {
         const rain = this.sound.add("sfx-ambient-rain", { volume: 0.08, loop: true });
@@ -543,6 +599,20 @@ export class GameScene extends Phaser.Scene {
       if (wDef?.auto) this.fireWeapon();
     }
 
+    // Ability cooldown
+    if (this.abilityCooldownTimer > 0) {
+      this.abilityCooldownTimer -= delta;
+    }
+
+    // Smokescreen tick (Jason)
+    if (this.smokeTimer > 0) {
+      this.smokeTimer -= delta;
+      this.updateSmokescreen(delta);
+      if (this.smokeTimer <= 0) {
+        this.destroySmokescreen();
+      }
+    }
+
     this.updateHUD();
   }
 
@@ -574,24 +644,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private playRandomEnemyDeath() {
-    const now = this.time.now;
-    if (now - this.lastDeathSfx < 600) return;
-    this.lastDeathSfx = now;
-    if (Math.random() > 0.4) return;
-    const keys = [
-      "sfx-enemy-death1", "sfx-enemy-death2", "sfx-enemy-death3", "sfx-enemy-death4",
-      "sfx-enemy-death5", "sfx-enemy-death6", "sfx-enemy-death7", "sfx-enemy-death8",
-      "sfx-enemy-death9", "sfx-enemy-death10", "sfx-enemy-death11", "sfx-enemy-death12",
-    ];
-    this.playSound(keys[Math.floor(Math.random() * keys.length)], 0.5);
+    // MUTED — pending sound audit
   }
 
   private playBiteSound() {
-    const now = this.time.now;
-    if (now - this.lastBiteSfx < 800) return;
-    this.lastBiteSfx = now;
-    const keys = ["sfx-bite", "sfx-zombie-bite", "sfx-zombie-bite2", "sfx-zombie-bite3", "sfx-zombie-bite-f"];
-    this.playSound(keys[Math.floor(Math.random() * keys.length)], 0.3);
+    // MUTED — pending sound audit
   }
 
   /** Play footstep sound based on player position (grass default, gravel on paths, wood on deck) */
@@ -608,22 +665,7 @@ export class GameScene extends Phaser.Scene {
 
   /** Random zombie groan from nearby enemies — atmospheric idle sound */
   private tryPlayZombieGroan() {
-    const now = this.time.now;
-    if (now - this.lastGroanTime < 4000) return; // max 1 groan per 4 seconds
-    this.lastGroanTime = now;
-    if (Math.random() > 0.15) return; // ~15% chance per check
-
-    // Only groan if enemies are nearby (within ~300px)
-    const nearbyEnemy = this.enemies.getChildren().find((obj) => {
-      const e = obj as Enemy;
-      if (!e.active) return false;
-      const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, e.x, e.y);
-      return dist < 300;
-    });
-    if (!nearbyEnemy) return;
-
-    const i = Math.floor(Math.random() * 12) + 1;
-    this.playSound(`sfx-groan${i}`, 0.12);
+    // MUTED — pending sound audit
   }
 
   /** Play player damage grunt */
@@ -682,10 +724,7 @@ export class GameScene extends Phaser.Scene {
           }
           const killed = enemy.takeDamage(finalDmg);
           if (killed) {
-            this.kills++;
-            this.currency += BALANCE.economy.killReward[enemy.enemyType];
-            this.waveManager.onEnemyKilled();
-            this.playRandomEnemyDeath();
+            this.onEnemyKilled(enemy);
           }
 
           let kb = this.player.burnedOut
@@ -720,6 +759,359 @@ export class GameScene extends Phaser.Scene {
       case "up":
         return -Math.PI / 2;
     }
+  }
+
+  // ------- Shared kill handler -------
+
+  private onEnemyKilled(enemy: Enemy) {
+    this.kills++;
+    this.currency += BALANCE.economy.killReward[enemy.enemyType];
+    this.waveManager.onEnemyKilled();
+    this.playRandomEnemyDeath();
+
+    // RPG XP
+    const xpReward = BALANCE.leveling.xpPerKill[enemy.enemyType];
+    this.levelingSystem.addXP(xpReward);
+  }
+
+  // ------- Ability System (Q) -------
+
+  private useAbility() {
+    if (this.abilityCooldownTimer > 0) return;
+
+    const charId = this.characterDef.id;
+    switch (charId) {
+      case "rick": this.abilitySuperkick(); break;
+      case "dan": this.abilityEMPGrenade(); break;
+      case "pj": this.abilityBladeDash(); break;
+      case "jason": this.abilitySmokescreen(); break;
+    }
+
+    this.abilityCooldownTimer = this.characterDef.ability.cooldown * 1000;
+  }
+
+  /** Rick — Superkick: devastating kick with huge range, damage, and knockback */
+  private abilitySuperkick() {
+    // Play high-kick animation
+    if (hasAnimation(this.characterDef.id, "high-kick")) {
+      const kickKey = getAnimKey(this.characterDef.id, "high-kick", this.player["currentDir"]);
+      if (this.anims.exists(kickKey)) {
+        this.player.play(kickKey);
+        this.player.once("animationcomplete", () => {
+          const idleKey = getAnimKey(this.characterDef.id, "breathing-idle", this.player["currentDir"]);
+          if (this.anims.exists(idleKey)) this.player.play(idleKey, true);
+        });
+      }
+    }
+
+    const angle = this.getFacingAngle();
+    const range = 140; // big reach
+    const arc = Phaser.Math.DegToRad(130); // wide sweep
+    const damage = this.characterDef.stats.damage * 8; // 200 dmg — devastating
+    const knockback = 700;
+    let hits = 0;
+
+    // Screen shake for impact feel
+    this.cameras.main.shake(200, 0.008);
+
+    this.enemies.getChildren().forEach((obj) => {
+      const enemy = obj as Enemy;
+      if (!enemy.active) return;
+
+      const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, enemy.x, enemy.y);
+      if (dist > range) return;
+
+      const enemyAngle = Phaser.Math.Angle.Between(this.player.x, this.player.y, enemy.x, enemy.y);
+      let diff = enemyAngle - angle;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      if (Math.abs(diff) > arc / 2) return;
+
+      const killed = enemy.takeDamage(damage);
+      if (killed) {
+        this.onEnemyKilled(enemy);
+      } else {
+        // Massive knockback
+        enemy.body.setVelocity(
+          Math.cos(enemyAngle) * knockback,
+          Math.sin(enemyAngle) * knockback
+        );
+        enemy.applyKnockbackStun(800);
+      }
+      hits++;
+    });
+
+    // Kick arc visual — flash a wide arc in front of the player
+    const arcGfx = this.add.graphics().setDepth(5);
+    arcGfx.fillStyle(0xff4444, 0.25);
+    arcGfx.slice(this.player.x, this.player.y, range, angle - arc / 2, angle + arc / 2, false);
+    arcGfx.fillPath();
+    this.tweens.add({
+      targets: arcGfx,
+      alpha: 0,
+      duration: 250,
+      onComplete: () => arcGfx.destroy(),
+    });
+
+    this.playSound("sfx-punch1", 0.6);
+    this.playSound("sfx-hit-classic", 0.5);
+    if (hits > 0) this.playSound("sfx-whoosh", 0.4);
+    this.showWeaponMessage("SUPERKICK!", "#ff4444");
+  }
+
+  /** Dan — EMP Grenade: throw a grenade that flies forward and detonates on landing */
+  private abilityEMPGrenade() {
+    // Play throw animation first, grenade launches after animation completes
+    const angle = this.getFacingAngle();
+    const throwDist = 160; // ~5 tiles away
+    const gx = this.player.x + Math.cos(angle) * throwDist;
+    const gy = this.player.y + Math.sin(angle) * throwDist;
+
+    const launchGrenade = () => {
+      // Create visible grenade projectile
+      const grenade = this.add.image(this.player.x, this.player.y, "item-grenade")
+        .setScale(0.8)
+        .setDepth(6);
+
+      // Grenade flies in an arc to landing point
+      this.tweens.add({
+        targets: grenade,
+        x: gx,
+        y: gy,
+        duration: 450,
+        ease: "Sine.easeOut",
+      });
+      // Vertical arc (scale Y to simulate arc height)
+      this.tweens.add({
+        targets: grenade,
+        scaleX: 1.1,
+        scaleY: 1.1,
+        duration: 225,
+        yoyo: true,
+        ease: "Sine.easeOut",
+        onComplete: () => {
+          grenade.destroy();
+          this.detonateEMP(gx, gy);
+        },
+      });
+    };
+
+    if (hasAnimation(this.characterDef.id, "throw-grenade")) {
+      const throwKey = getAnimKey(this.characterDef.id, "throw-grenade", this.player["currentDir"]);
+      if (this.anims.exists(throwKey)) {
+        this.player.play(throwKey);
+        this.player.once("animationcomplete", () => {
+          const idleKey = getAnimKey(this.characterDef.id, "breathing-idle", this.player["currentDir"]);
+          if (this.anims.exists(idleKey)) this.player.play(idleKey, true);
+          launchGrenade();
+        });
+      } else {
+        launchGrenade();
+      }
+    } else {
+      launchGrenade();
+    }
+  }
+
+  /** Detonates the EMP at a world position */
+  private detonateEMP(gx: number, gy: number) {
+    const blastRadius = 160;
+    const stunDuration = 3000;
+
+    // Screen shake
+    this.cameras.main.shake(150, 0.006);
+
+    // Visual: EMP blast with spark sprite + expanding ring
+    const empFlash = this.add.image(gx, gy, "fx-spark").setDepth(5);
+    empFlash.setScale(blastRadius / 8);
+    empFlash.setAlpha(0.9);
+    empFlash.setTint(0x44aaff);
+
+    const ring = this.add.graphics().setDepth(5);
+    ring.lineStyle(3, 0x88ccff, 0.6);
+    ring.strokeCircle(gx, gy, blastRadius);
+
+    this.tweens.add({
+      targets: [empFlash, ring],
+      alpha: 0,
+      duration: 500,
+      onComplete: () => { empFlash.destroy(); ring.destroy(); },
+    });
+
+    let stunCount = 0;
+    this.enemies.getChildren().forEach((obj) => {
+      const enemy = obj as Enemy;
+      if (!enemy.active) return;
+
+      const dist = Phaser.Math.Distance.Between(gx, gy, enemy.x, enemy.y);
+      if (dist <= blastRadius) {
+        enemy.applyKnockbackStun(stunDuration);
+        enemy.body.setVelocity(0, 0);
+        stunCount++;
+      }
+    });
+
+    this.playSound("sfx-explosion", 0.4);
+    this.showWeaponMessage(`EMP! ${stunCount} STUNNED`, "#44aaff");
+  }
+
+  /** PJ — Katana Slash: wide arc swing in facing direction, high damage */
+  private abilityBladeDash() {
+    // Play katana animation
+    if (hasAnimation(this.characterDef.id, "swinging-katana")) {
+      const slashKey = getAnimKey(this.characterDef.id, "swinging-katana", this.player["currentDir"]);
+      if (this.anims.exists(slashKey)) {
+        this.player.play(slashKey);
+        this.player.once("animationcomplete", () => {
+          const idleKey = getAnimKey(this.characterDef.id, "breathing-idle", this.player["currentDir"]);
+          if (this.anims.exists(idleKey)) this.player.play(idleKey, true);
+        });
+      }
+    }
+
+    const angle = this.getFacingAngle();
+    const range = 110; // katana reach
+    const arc = Phaser.Math.DegToRad(140); // wide slash arc
+    const damage = this.characterDef.stats.damage * 14; // 196 dmg — devastating
+    const knockback = 350;
+    let hits = 0;
+
+    this.cameras.main.shake(120, 0.005);
+
+    this.enemies.getChildren().forEach((obj) => {
+      const enemy = obj as Enemy;
+      if (!enemy.active) return;
+
+      const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, enemy.x, enemy.y);
+      if (dist > range) return;
+
+      const enemyAngle = Phaser.Math.Angle.Between(this.player.x, this.player.y, enemy.x, enemy.y);
+      let diff = enemyAngle - angle;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      if (Math.abs(diff) > arc / 2) return;
+
+      const killed = enemy.takeDamage(damage);
+      if (killed) {
+        this.onEnemyKilled(enemy);
+      } else {
+        enemy.body.setVelocity(
+          Math.cos(enemyAngle) * knockback,
+          Math.sin(enemyAngle) * knockback
+        );
+        enemy.applyKnockbackStun(500);
+      }
+      hits++;
+    });
+
+    // Slash arc visual
+    const arcGfx = this.add.graphics().setDepth(5);
+    arcGfx.fillStyle(0xeeeeff, 0.2);
+    arcGfx.slice(this.player.x, this.player.y, range, angle - arc / 2, angle + arc / 2, false);
+    arcGfx.fillPath();
+    arcGfx.lineStyle(2, 0xeeeeff, 0.5);
+    arcGfx.beginPath();
+    arcGfx.arc(this.player.x, this.player.y, range, angle - arc / 2, angle + arc / 2, false);
+    arcGfx.strokePath();
+    this.tweens.add({
+      targets: arcGfx,
+      alpha: 0,
+      duration: 250,
+      onComplete: () => arcGfx.destroy(),
+    });
+
+    this.playSound("sfx-whoosh", 0.5);
+    if (hits > 0) this.playSound("sfx-hit-classic", 0.5);
+    this.showWeaponMessage("KATANA SLASH!", "#eeeeff");
+  }
+
+  /** Jason — Smokescreen: smoke cloud that heals player and confuses enemies */
+  private abilitySmokescreen() {
+    // Play cigarette animation
+    if (hasAnimation(this.characterDef.id, "light-cigarette")) {
+      const smokeKey = getAnimKey(this.characterDef.id, "light-cigarette", this.player["currentDir"]);
+      if (this.anims.exists(smokeKey)) {
+        this.player.play(smokeKey);
+        this.player.once("animationcomplete", () => {
+          const idleKey = getAnimKey(this.characterDef.id, "breathing-idle", this.player["currentDir"]);
+          if (this.anims.exists(idleKey)) this.player.play(idleKey, true);
+        });
+      }
+    }
+
+    // Destroy any existing smoke
+    this.destroySmokescreen();
+
+    // Place smoke at player position
+    this.smokeX = this.player.x;
+    this.smokeY = this.player.y;
+    this.smokeTimer = this.smokeDuration;
+
+    // Draw smoke cloud
+    this.smokeCloud = this.add.graphics();
+    this.smokeCloud.setDepth(3);
+    this.smokeCloud.setAlpha(0.5);
+    this.drawSmokeCloud();
+
+    this.showWeaponMessage("SMOKESCREEN!", "#88aa88");
+  }
+
+  private drawSmokeCloud() {
+    if (!this.smokeCloud) return;
+    this.smokeCloud.clear();
+    const alpha = Math.min(1, this.smokeTimer / 1000) * 0.5;
+    this.smokeCloud.setAlpha(alpha);
+    // Multiple overlapping circles for organic smoke look
+    for (let i = 0; i < 8; i++) {
+      const ox = Math.sin(i * 0.8 + this.smokeTimer * 0.001) * this.smokeRadius * 0.3;
+      const oy = Math.cos(i * 1.1 + this.smokeTimer * 0.0015) * this.smokeRadius * 0.3;
+      const r = this.smokeRadius * (0.5 + Math.sin(i * 2.3) * 0.2);
+      this.smokeCloud.fillStyle(0x556655, 0.15 + Math.sin(i) * 0.05);
+      this.smokeCloud.fillCircle(this.smokeX + ox, this.smokeY + oy, r);
+    }
+  }
+
+  private updateSmokescreen(delta: number) {
+    this.drawSmokeCloud();
+
+    // Heal player if inside smoke
+    const distToSmoke = Phaser.Math.Distance.Between(
+      this.player.x, this.player.y, this.smokeX, this.smokeY
+    );
+    if (distToSmoke <= this.smokeRadius) {
+      const healRate = 15; // HP per second
+      const healAmount = healRate * (delta / 1000);
+      this.player.stats.health = Math.min(
+        this.player.stats.maxHealth,
+        this.player.stats.health + healAmount
+      );
+    }
+
+    // Confuse enemies touching smoke — they wander aimlessly
+    this.enemies.getChildren().forEach((obj) => {
+      const enemy = obj as Enemy;
+      if (!enemy.active) return;
+
+      const dist = Phaser.Math.Distance.Between(enemy.x, enemy.y, this.smokeX, this.smokeY);
+      if (dist <= this.smokeRadius) {
+        // Apply confusion: stun + random velocity (wander)
+        enemy.applyKnockbackStun(200); // re-apply each frame to keep them confused
+        const wanderAngle = Math.random() * Math.PI * 2;
+        const wanderSpeed = 30 + Math.random() * 40;
+        enemy.body.setVelocity(
+          Math.cos(wanderAngle) * wanderSpeed,
+          Math.sin(wanderAngle) * wanderSpeed
+        );
+      }
+    });
+  }
+
+  private destroySmokescreen() {
+    if (this.smokeCloud) {
+      this.smokeCloud.destroy();
+      this.smokeCloud = null;
+    }
+    this.smokeTimer = 0;
   }
 
   private fireWeapon() {
@@ -767,37 +1159,23 @@ export class GameScene extends Phaser.Scene {
     // Play shooting animation on the player sprite
     this.player.playShoot(this.equippedWeapon!);
 
-    // Weapon fire sound (alternate between 2 variants)
-    const sfxMap: Record<string, string[]> = {
-      pistol: ["sfx-pistol", "sfx-pistol2"],
-      shotgun: ["sfx-shotgun", "sfx-shotgun2"],
-      smg: ["sfx-smg", "sfx-smg2"],
-    };
-    const sfxKeys = sfxMap[this.equippedWeapon!];
-    if (sfxKeys) {
-      const sfxKey = sfxKeys[Math.floor(Math.random() * sfxKeys.length)];
-      this.playSound(sfxKey, this.equippedWeapon === "smg" ? 0.2 : 0.35);
-    }
+    // MUTED — pending sound audit
 
-    // Muzzle flash
+    // Muzzle flash sprite
     const flashDist = 20;
-    const flash = this.add.circle(
+    const flash = this.add.image(
       this.player.x + Math.cos(angle) * flashDist,
       this.player.y + Math.sin(angle) * flashDist,
-      6,
-      0xffdd44,
-      0.8
+      "fx-muzzle-flash"
     );
     flash.setDepth(60);
-    this.time.delayedCall(50, () => flash.destroy());
+    flash.setRotation(angle);
+    flash.setAlpha(0.9);
+    this.time.delayedCall(60, () => flash.destroy());
 
     if (this.ammo <= 0) {
-      // Shotgun gets a pump sound on last shell
-      if (this.equippedWeapon === "shotgun") {
-        this.playSound("sfx-shotgun-pump", 0.3);
-      }
       this.equippedWeapon = null;
-      this.playSound("sfx-dryfire", 0.4);
+      // MUTED — pending sound audit
       this.showWeaponMessage("OUT OF AMMO", "#cc3333");
     }
   }
@@ -805,13 +1183,13 @@ export class GameScene extends Phaser.Scene {
   private showWeaponMessage(msg: string, color: string) {
     const cam = this.cameras.main;
     const txt = this.add.text(
-      this.player.x, this.player.y - 40, msg,
-      { fontFamily: "Rajdhani, sans-serif", fontSize: "12px", color, fontStyle: "bold" }
+      this.player.x, this.player.y - 80, msg,
+      { fontFamily: "Rajdhani, sans-serif", fontSize: "22px", color, fontStyle: "bold" }
     ).setDepth(100).setOrigin(0.5);
 
     this.tweens.add({
       targets: txt,
-      y: this.player.y - 70,
+      y: this.player.y - 140,
       alpha: 0,
       duration: 800,
       onComplete: () => txt.destroy(),
@@ -852,7 +1230,7 @@ export class GameScene extends Phaser.Scene {
     const placeX = this.player.x + Math.cos(angle) * placeDist;
     const placeY = this.player.y + Math.sin(angle) * placeDist;
 
-    const trap = new Trap(this, placeX, placeY, trapType);
+    const trap = new Trap(this, placeX, placeY, trapType, trapType === "barricade" && this.barricadeVertical);
 
     if (trapType === "barricade") {
       this.barricades.add(trap, true);
@@ -891,10 +1269,7 @@ export class GameScene extends Phaser.Scene {
 
       // Track kills from traps
       if (!enemy.active) {
-        this.kills++;
-        this.currency += BALANCE.economy.killReward[enemy.enemyType];
-        this.waveManager.onEnemyKilled();
-        this.playRandomEnemyDeath();
+        this.onEnemyKilled(enemy);
       }
     };
 
@@ -960,10 +1335,7 @@ export class GameScene extends Phaser.Scene {
 
       const killed = enemy.takeDamage(damage);
       if (killed) {
-        this.kills++;
-        this.currency += BALANCE.economy.killReward[enemy.enemyType];
-        this.waveManager.onEnemyKilled();
-        this.playRandomEnemyDeath();
+        this.onEnemyKilled(enemy);
       }
 
       // Knockback from bullet — shotgun pellets stack knockback for big pushes
@@ -1055,8 +1427,8 @@ export class GameScene extends Phaser.Scene {
     this.hudContainer.add(overlay);
 
     const diedText = this.add
-      .text(width / 2, height / 2 - 40, "YOU DIED", {
-        fontSize: "48px",
+      .text(width / 2, height / 2 - 80, "YOU DIED", {
+        fontSize: "80px",
         fontFamily: "Rajdhani, sans-serif",
         color: "#cc3333",
         fontStyle: "bold",
@@ -1069,10 +1441,10 @@ export class GameScene extends Phaser.Scene {
     const statsText = this.add
       .text(
         width / 2,
-        height / 2 + 20,
+        height / 2 + 40,
         `Wave ${waveReached}  |  ${this.kills} kills`,
         {
-          fontSize: "20px",
+          fontSize: "36px",
           fontFamily: "Rajdhani, sans-serif",
           color: "#cccccc",
         }
@@ -1210,8 +1582,8 @@ export class GameScene extends Phaser.Scene {
     this.hudContainer.add(this.pauseOverlay);
 
     this.pauseTitle = this.add
-      .text(width / 2, height / 2 - 40, "PAUSED", {
-        fontSize: "36px",
+      .text(width / 2, height / 2 - 80, "PAUSED", {
+        fontSize: "64px",
         fontFamily: "Rajdhani, sans-serif",
         color: "#d0c8e0",
         fontStyle: "bold",
@@ -1221,8 +1593,8 @@ export class GameScene extends Phaser.Scene {
     this.hudContainer.add(this.pauseTitle);
 
     this.pauseQuitBtn = this.add
-      .text(width / 2, height / 2 + 20, "[ Q ]  Quit to Menu", {
-        fontSize: "16px",
+      .text(width / 2, height / 2 + 40, "[ Q ]  Quit to Menu", {
+        fontSize: "30px",
         fontFamily: "Rajdhani, sans-serif",
         color: "#8a82a0",
       })
@@ -1243,8 +1615,8 @@ export class GameScene extends Phaser.Scene {
 
     // Settings button
     this.pauseSettingsBtn = this.add
-      .text(width / 2, height / 2 + 50, "[ S ]  Settings", {
-        fontSize: "16px",
+      .text(width / 2, height / 2 + 100, "[ S ]  Settings", {
+        fontSize: "30px",
         fontFamily: "Rajdhani, sans-serif",
         color: "#8a82a0",
       })
@@ -1273,8 +1645,8 @@ export class GameScene extends Phaser.Scene {
     this.settingsContainer.setVisible(false);
     this.hudContainer.add(this.settingsContainer);
 
-    const panelW = 320;
-    const panelH = 170;
+    const panelW = 640;
+    const panelH = 340;
     const cx = width / 2;
     const cy = height / 2;
     const left = cx - panelW / 2;
@@ -1283,28 +1655,28 @@ export class GameScene extends Phaser.Scene {
     // Panel background
     const bg = this.add.graphics();
     bg.fillStyle(0x12121f, 0.95);
-    bg.fillRoundedRect(left, top, panelW, panelH, 8);
-    bg.lineStyle(1, 0x4a4565, 0.6);
-    bg.strokeRoundedRect(left, top, panelW, panelH, 8);
+    bg.fillRoundedRect(left, top, panelW, panelH, 12);
+    bg.lineStyle(2, 0x4a4565, 0.6);
+    bg.strokeRoundedRect(left, top, panelW, panelH, 12);
     this.settingsContainer.add(bg);
 
     // Title
-    const title = this.add.text(cx, top + 20, "SETTINGS", {
-      fontSize: "20px", fontFamily: "Rajdhani, sans-serif",
+    const title = this.add.text(cx, top + 40, "SETTINGS", {
+      fontSize: "36px", fontFamily: "Rajdhani, sans-serif",
       color: "#d0c8e0", fontStyle: "bold",
     }).setOrigin(0.5);
     this.settingsContainer.add(title);
 
-    let yPos = top + 55;
-    const labelStyle = { fontSize: "14px", fontFamily: "Rajdhani, sans-serif", color: "#b0a8c0" };
-    const valStyle = { fontSize: "14px", fontFamily: "Rajdhani, sans-serif", color: "#d0c8e0" };
+    let yPos = top + 110;
+    const labelStyle = { fontSize: "26px", fontFamily: "Rajdhani, sans-serif", color: "#b0a8c0" };
+    const valStyle = { fontSize: "26px", fontFamily: "Rajdhani, sans-serif", color: "#d0c8e0" };
 
     // --- SFX Volume ---
-    this.settingsContainer.add(this.add.text(left + 20, yPos, "Sound Volume", labelStyle));
-    const sfxValText = this.add.text(left + panelW - 20, yPos, "100%", valStyle).setOrigin(1, 0);
+    this.settingsContainer.add(this.add.text(left + 40, yPos, "Sound Volume", labelStyle));
+    const sfxValText = this.add.text(left + panelW - 40, yPos, "100%", valStyle).setOrigin(1, 0);
     this.settingsContainer.add(sfxValText);
-    yPos += 22;
-    const sfxSlider = this.createSlider(left + 20, yPos, panelW - 40, this.sfxVolume, (val) => {
+    yPos += 44;
+    const sfxSlider = this.createSlider(left + 40, yPos, panelW - 80, this.sfxVolume, (val) => {
       this.sfxVolume = val;
       this.sfxMuted = val === 0;
       sfxValText.setText(`${Math.round(val * 100)}%`);
@@ -1313,10 +1685,10 @@ export class GameScene extends Phaser.Scene {
       }
     });
     this.settingsContainer.add(sfxSlider);
-    yPos += 30;
+    yPos += 60;
 
     // --- Scroll Zoom Toggle ---
-    const zoomToggle = this.createToggle(left + 20, yPos, "Scroll Zoom", this.zoomEnabled, (on) => {
+    const zoomToggle = this.createToggle(left + 40, yPos, "Scroll Zoom", this.zoomEnabled, (on) => {
       this.zoomEnabled = on;
       if (on) {
         this.zoomText.setVisible(true);
@@ -1324,7 +1696,7 @@ export class GameScene extends Phaser.Scene {
         this.wheelHandler = (e: WheelEvent) => {
           e.preventDefault();
           const cam = this.cameras.main;
-          const zoomStops = [1, 1.5, 2, 2.5, 3, 4];
+          const zoomStops = [2, 2.5, 3, 3.5, 4, 5];
           const curIdx = zoomStops.reduce((closest, val, idx) =>
             Math.abs(val - cam.zoom) < Math.abs(zoomStops[closest] - cam.zoom) ? idx : closest, 0);
           const nextIdx = Phaser.Math.Clamp(curIdx + (e.deltaY > 0 ? -1 : 1), 0, zoomStops.length - 1);
@@ -1338,14 +1710,14 @@ export class GameScene extends Phaser.Scene {
           window.removeEventListener("wheel", this.wheelHandler);
           this.wheelHandler = undefined;
         }
-        this.cameras.main.setZoom(2.5);
+        this.cameras.main.setZoom(3.0);
       }
     });
     this.settingsContainer.add(zoomToggle);
 
     // Back button
-    const backBtn = this.add.text(cx, top + panelH - 25, "[ ESC ]  Back", {
-      fontSize: "14px", fontFamily: "Rajdhani, sans-serif", color: "#8a82a0",
+    const backBtn = this.add.text(cx, top + panelH - 50, "[ ESC ]  Back", {
+      fontSize: "26px", fontFamily: "Rajdhani, sans-serif", color: "#8a82a0",
     }).setOrigin(0.5).setInteractive({ useHandCursor: true });
     backBtn.on("pointerover", () => backBtn.setColor("#d0c8e0"));
     backBtn.on("pointerout", () => backBtn.setColor("#8a82a0"));
@@ -1359,7 +1731,7 @@ export class GameScene extends Phaser.Scene {
     // Track
     const track = this.add.graphics();
     track.fillStyle(0x2a2a3a, 1);
-    track.fillRoundedRect(x, y + 4, w, 6, 3);
+    track.fillRoundedRect(x, y + 8, w, 12, 6);
     container.add(track);
 
     // Fill
@@ -1373,15 +1745,15 @@ export class GameScene extends Phaser.Scene {
     const drawSlider = (val: number) => {
       fill.clear();
       fill.fillStyle(0x4a90d9, 1);
-      fill.fillRoundedRect(x, y + 4, w * val, 6, 3);
+      fill.fillRoundedRect(x, y + 8, w * val, 12, 6);
       knob.clear();
       knob.fillStyle(0xd0c8e0, 1);
-      knob.fillCircle(x + w * val, y + 7, 7);
+      knob.fillCircle(x + w * val, y + 14, 12);
     };
     drawSlider(initial);
 
     // Invisible hit area
-    const hitZone = this.add.zone(x + w / 2, y + 7, w + 20, 20).setInteractive({ useHandCursor: true });
+    const hitZone = this.add.zone(x + w / 2, y + 14, w + 30, 36).setInteractive({ useHandCursor: true });
     container.add(hitZone);
 
     let dragging = false;
@@ -1411,23 +1783,23 @@ export class GameScene extends Phaser.Scene {
     let isOn = initial;
 
     const labelText = this.add.text(x, y, label, {
-      fontSize: "14px", fontFamily: "Rajdhani, sans-serif", color: "#b0a8c0",
+      fontSize: "26px", fontFamily: "Rajdhani, sans-serif", color: "#b0a8c0",
     });
     container.add(labelText);
 
-    const boxX = x + 220;
+    const boxX = x + 440;
     const box = this.add.graphics();
     const drawToggle = () => {
       box.clear();
       box.fillStyle(isOn ? 0x4a90d9 : 0x2a2a3a, 1);
-      box.fillRoundedRect(boxX, y + 1, 36, 16, 8);
+      box.fillRoundedRect(boxX, y + 2, 64, 28, 14);
       box.fillStyle(0xd0c8e0, 1);
-      box.fillCircle(isOn ? boxX + 28 : boxX + 8, y + 9, 6);
+      box.fillCircle(isOn ? boxX + 50 : boxX + 14, y + 16, 10);
     };
     drawToggle();
     container.add(box);
 
-    const hitZone = this.add.zone(boxX + 18, y + 9, 40, 20).setInteractive({ useHandCursor: true });
+    const hitZone = this.add.zone(boxX + 32, y + 16, 72, 36).setInteractive({ useHandCursor: true });
     hitZone.on("pointerdown", () => {
       isOn = !isOn;
       drawToggle();
@@ -1504,8 +1876,8 @@ export class GameScene extends Phaser.Scene {
     this.shopDots = [];
 
     const items = BALANCE.shop.items;
-    const panelW = 340;
-    const panelH = 240;
+    const panelW = 680;
+    const panelH = 480;
     const panelLeft = width / 2 - panelW / 2;
     const panelTop = height / 2 - panelH / 2;
     const cx = width / 2;
@@ -1520,25 +1892,25 @@ export class GameScene extends Phaser.Scene {
     // Panel background
     const bg = this.add.graphics();
     bg.fillStyle(0x0a0a14, 0.95);
-    bg.fillRoundedRect(panelLeft, panelTop, panelW, panelH, 10);
-    bg.lineStyle(1, 0x3a3550, 0.8);
-    bg.strokeRoundedRect(panelLeft, panelTop, panelW, panelH, 10);
+    bg.fillRoundedRect(panelLeft, panelTop, panelW, panelH, 16);
+    bg.lineStyle(2, 0x3a3550, 0.8);
+    bg.strokeRoundedRect(panelLeft, panelTop, panelW, panelH, 16);
     this.shopContainer.add(bg);
 
     // Header: SHOP + cash
-    this.add.text(cx, panelTop + 16, "SHOP", {
-      fontSize: "16px", fontFamily: "Rajdhani, sans-serif", color: "#ffffff", fontStyle: "bold", letterSpacing: 4,
+    this.add.text(cx, panelTop + 32, "SHOP", {
+      fontSize: "32px", fontFamily: "Rajdhani, sans-serif", color: "#ffffff", fontStyle: "bold", letterSpacing: 8,
     }).setOrigin(0.5).setDepth(161);
     this.shopContainer.add(this.shopContainer.last!);
 
-    this.shopCashText = this.add.text(panelLeft + panelW - 16, panelTop + 16, "$0", {
-      fontSize: "16px", fontFamily: "Rajdhani, sans-serif", color: "#e8c840", fontStyle: "bold",
+    this.shopCashText = this.add.text(panelLeft + panelW - 32, panelTop + 32, "$0", {
+      fontSize: "32px", fontFamily: "Rajdhani, sans-serif", color: "#e8c840", fontStyle: "bold",
     }).setOrigin(1, 0.5);
     this.shopContainer.add(this.shopCashText);
 
     // Category label (SUPPLIES / WEAPONS / TRAPS)
-    this.shopCategoryText = this.add.text(cx, panelTop + 38, "", {
-      fontSize: "10px", fontFamily: "Rajdhani, sans-serif", color: "#5a5577", fontStyle: "bold", letterSpacing: 3,
+    this.shopCategoryText = this.add.text(cx, panelTop + 76, "", {
+      fontSize: "18px", fontFamily: "Rajdhani, sans-serif", color: "#5a5577", fontStyle: "bold", letterSpacing: 4,
     }).setOrigin(0.5);
     this.shopContainer.add(this.shopCategoryText);
 
@@ -1547,54 +1919,54 @@ export class GameScene extends Phaser.Scene {
     this.shopContainer.add(this.shopItemIconGfx);
 
     // Item icon (image for items with sprites)
-    this.shopItemIconImg = this.add.image(cx, panelTop + 75, "item-pistol")
+    this.shopItemIconImg = this.add.image(cx, panelTop + 150, "item-pistol")
       .setOrigin(0.5)
-      .setScale(1.8)
+      .setScale(3.6)
       .setVisible(false);
     this.shopContainer.add(this.shopItemIconImg);
 
     // Item name (big, centered)
-    this.shopItemName = this.add.text(cx, panelTop + 110, "", {
-      fontSize: "22px", fontFamily: "Rajdhani, sans-serif", color: "#e0daf0", fontStyle: "bold",
+    this.shopItemName = this.add.text(cx, panelTop + 220, "", {
+      fontSize: "40px", fontFamily: "Rajdhani, sans-serif", color: "#e0daf0", fontStyle: "bold",
     }).setOrigin(0.5);
     this.shopContainer.add(this.shopItemName);
 
     // Description
-    this.shopItemDesc = this.add.text(cx, panelTop + 134, "", {
-      fontSize: "12px", fontFamily: "Rajdhani, sans-serif", color: "#9990aa",
-      wordWrap: { width: panelW - 60 }, align: "center",
+    this.shopItemDesc = this.add.text(cx, panelTop + 268, "", {
+      fontSize: "22px", fontFamily: "Rajdhani, sans-serif", color: "#9990aa",
+      wordWrap: { width: panelW - 120 }, align: "center",
     }).setOrigin(0.5, 0);
     this.shopContainer.add(this.shopItemDesc);
 
     // Price
-    this.shopItemPrice = this.add.text(cx, panelTop + 165, "", {
-      fontSize: "20px", fontFamily: "Rajdhani, sans-serif", color: "#e8c840", fontStyle: "bold",
+    this.shopItemPrice = this.add.text(cx, panelTop + 330, "", {
+      fontSize: "36px", fontFamily: "Rajdhani, sans-serif", color: "#e8c840", fontStyle: "bold",
     }).setOrigin(0.5);
     this.shopContainer.add(this.shopItemPrice);
 
     // Status text (LOCKED / PURCHASED / CAN'T AFFORD etc)
-    this.shopItemStatus = this.add.text(cx, panelTop + 186, "", {
-      fontSize: "11px", fontFamily: "Rajdhani, sans-serif", color: "#888899",
+    this.shopItemStatus = this.add.text(cx, panelTop + 372, "", {
+      fontSize: "20px", fontFamily: "Rajdhani, sans-serif", color: "#888899",
     }).setOrigin(0.5);
     this.shopContainer.add(this.shopItemStatus);
 
     // Left/right arrows
-    const arrowL = this.add.text(panelLeft + 14, cy, "\u25C0", {
-      fontSize: "22px", fontFamily: "Rajdhani, sans-serif", color: "#5aabff",
+    const arrowL = this.add.text(panelLeft + 28, cy, "\u25C0", {
+      fontSize: "40px", fontFamily: "Rajdhani, sans-serif", color: "#5aabff",
     }).setOrigin(0.5).setInteractive({ useHandCursor: true });
     arrowL.on("pointerdown", () => this.shopNavigate(-1));
     this.shopContainer.add(arrowL);
 
-    const arrowR = this.add.text(panelLeft + panelW - 14, cy, "\u25B6", {
-      fontSize: "22px", fontFamily: "Rajdhani, sans-serif", color: "#5aabff",
+    const arrowR = this.add.text(panelLeft + panelW - 28, cy, "\u25B6", {
+      fontSize: "40px", fontFamily: "Rajdhani, sans-serif", color: "#5aabff",
     }).setOrigin(0.5).setInteractive({ useHandCursor: true });
     arrowR.on("pointerdown", () => this.shopNavigate(1));
     this.shopContainer.add(arrowR);
 
     // Dot indicators
-    const dotSpacing = 10;
+    const dotSpacing = 18;
     const dotsStartX = cx - ((items.length - 1) * dotSpacing) / 2;
-    const dotsY = panelTop + panelH - 18;
+    const dotsY = panelTop + panelH - 36;
     for (let i = 0; i < items.length; i++) {
       const dot = this.add.graphics();
       dot.x = dotsStartX + i * dotSpacing;
@@ -1604,8 +1976,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Close hint
-    const closeHint = this.add.text(cx, panelTop + panelH + 14, "[ESC] or [B] to close  \u00B7  [ENTER] to buy  \u00B7  [A/D] browse", {
-      fontSize: "10px", fontFamily: "Rajdhani, sans-serif", color: "#555566",
+    const closeHint = this.add.text(cx, panelTop + panelH + 28, "[ESC] or [B] to close  \u00B7  [ENTER] to buy  \u00B7  [A/D] browse", {
+      fontSize: "18px", fontFamily: "Rajdhani, sans-serif", color: "#555566",
     }).setOrigin(0.5);
     this.shopContainer.add(closeHint);
 
@@ -1621,7 +1993,7 @@ export class GameScene extends Phaser.Scene {
       const enterKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER);
       enterKey.on("down", () => { if (this.shopOpen) this.buyItem(this.shopSelectedIndex); });
 
-      // Number keys still work as direct buy
+      // Number keys + numpad for direct buy
       const keyCodes = [
         Phaser.Input.Keyboard.KeyCodes.ONE,
         Phaser.Input.Keyboard.KeyCodes.TWO,
@@ -1635,7 +2007,25 @@ export class GameScene extends Phaser.Scene {
         Phaser.Input.Keyboard.KeyCodes.ZERO,
         Phaser.Input.Keyboard.KeyCodes.MINUS,
       ];
+      const numpadCodes = [
+        Phaser.Input.Keyboard.KeyCodes.NUMPAD_ONE,
+        Phaser.Input.Keyboard.KeyCodes.NUMPAD_TWO,
+        Phaser.Input.Keyboard.KeyCodes.NUMPAD_THREE,
+        Phaser.Input.Keyboard.KeyCodes.NUMPAD_FOUR,
+        Phaser.Input.Keyboard.KeyCodes.NUMPAD_FIVE,
+        Phaser.Input.Keyboard.KeyCodes.NUMPAD_SIX,
+        Phaser.Input.Keyboard.KeyCodes.NUMPAD_SEVEN,
+        Phaser.Input.Keyboard.KeyCodes.NUMPAD_EIGHT,
+        Phaser.Input.Keyboard.KeyCodes.NUMPAD_NINE,
+        Phaser.Input.Keyboard.KeyCodes.NUMPAD_ZERO,
+      ];
       keyCodes.forEach((code, i) => {
+        if (i < items.length) {
+          const key = this.input.keyboard!.addKey(code);
+          key.on("down", () => { if (this.shopOpen) this.buyItem(i); });
+        }
+      });
+      numpadCodes.forEach((code, i) => {
         if (i < items.length) {
           const key = this.input.keyboard!.addKey(code);
           key.on("down", () => { if (this.shopOpen) this.buyItem(i); });
@@ -1683,7 +2073,7 @@ export class GameScene extends Phaser.Scene {
     };
 
     const { width, height } = this.cameras.main;
-    const panelTop = height / 2 - 120;
+    const panelTop = height / 2 - 240;
     const iconTexture = iconMap[item.id];
     this.shopItemIconGfx.clear();
 
@@ -1695,9 +2085,9 @@ export class GameScene extends Phaser.Scene {
       this.shopItemIconImg.setVisible(false);
       const color = consumableColors[item.id];
       this.shopItemIconGfx.fillStyle(color, locked ? 0.3 : 0.9);
-      this.shopItemIconGfx.fillRoundedRect(width / 2 - 14, panelTop + 58, 28, 28, 6);
-      this.shopItemIconGfx.lineStyle(1, 0xffffff, locked ? 0.1 : 0.3);
-      this.shopItemIconGfx.strokeRoundedRect(width / 2 - 14, panelTop + 58, 28, 28, 6);
+      this.shopItemIconGfx.fillRoundedRect(width / 2 - 28, panelTop + 116, 56, 56, 10);
+      this.shopItemIconGfx.lineStyle(2, 0xffffff, locked ? 0.1 : 0.3);
+      this.shopItemIconGfx.strokeRoundedRect(width / 2 - 28, panelTop + 116, 56, 56, 10);
     } else {
       this.shopItemIconImg.setVisible(false);
     }
@@ -1731,10 +2121,10 @@ export class GameScene extends Phaser.Scene {
       dot.clear();
       if (i === this.shopSelectedIndex) {
         dot.fillStyle(0x5aabff, 1);
-        dot.fillCircle(0, 0, 3);
+        dot.fillCircle(0, 0, 5);
       } else {
         dot.fillStyle(0x333344, 1);
-        dot.fillCircle(0, 0, 2);
+        dot.fillCircle(0, 0, 3);
       }
     });
   }
@@ -1784,12 +2174,6 @@ export class GameScene extends Phaser.Scene {
         );
         break;
       }
-      case "fullHeal": {
-        if (this.player.stats.health >= this.player.stats.maxHealth) return;
-        this.currency -= price;
-        this.player.stats.health = this.player.stats.maxHealth;
-        break;
-      }
       case "dmgBoost": {
         if (this.damageBoostActive) return;
         this.currency -= price;
@@ -1798,8 +2182,8 @@ export class GameScene extends Phaser.Scene {
         break;
       }
       case "pistol":
-      case "shotgun":
-      case "smg": {
+      case "shotgun": {
+      // case "smg": // SMG disabled pending balance pass
         // Already holding this weapon with ammo — buy ammo refill instead
         if (this.equippedWeapon === itemId && this.ammo > 0) {
           if (this.ammo >= this.maxAmmo) return;
@@ -1844,7 +2228,6 @@ export class GameScene extends Phaser.Scene {
         this.showWeaponMessage("EXTRA CLIP — AMMO DOUBLED", "#44dd44");
         break;
       }
-      case "spikes":
       case "barricade":
       case "landmine": {
         const trapType = itemId as TrapType;
@@ -1870,8 +2253,8 @@ export class GameScene extends Phaser.Scene {
     // Flash feedback
     const { width, height } = this.cameras.main;
     const flash = this.add
-      .text(width / 2, height / 2 + 80, "PURCHASED", {
-        fontSize: "12px",
+      .text(width / 2, height / 2 + 160, "PURCHASED", {
+        fontSize: "24px",
         fontFamily: "Rajdhani, sans-serif",
         color: "#44cc44",
         fontStyle: "bold",
@@ -1881,7 +2264,7 @@ export class GameScene extends Phaser.Scene {
     this.tweens.add({
       targets: flash,
       alpha: 0,
-      y: height / 2 + 65,
+      y: height / 2 + 130,
       duration: 800,
       onComplete: () => flash.destroy(),
     });
@@ -1927,52 +2310,24 @@ export class GameScene extends Phaser.Scene {
 
   private createHUD() {
     const { width, height } = this.cameras.main;
+    const S = 2; // scale factor for 1080p (base was 540p)
 
-    // --- HUD Panel Backgrounds (Stardew-style dark boxes) ---
-    // HUD text uses unzoomed coords (width/height), panels must match
-    const hudPanels = this.add.graphics();
-    hudPanels.setDepth(0);
+    // ===== TOP-LEFT: HP + Stamina bars (no panel, just bars) =====
+    const hpIcon = this.add.image(20, 20, "ui-icon-heart").setOrigin(0, 0).setScale(S);
+    this.hudContainer.add(hpIcon);
 
-    // Top-left: HP + Stamina bars (labels at x=16, bars at x=42 w=160)
-    hudPanels.fillStyle(0x0a0a14, 0.65);
-    hudPanels.fillRoundedRect(8, 6, 202, 58, 6);
-
-    // Top-center: Wave text at width/2, status below
-    hudPanels.fillStyle(0x0a0a14, 0.65);
-    hudPanels.fillRoundedRect(width / 2 - 90, 6, 180, 48, 6);
-
-
-    this.hudContainer.add(hudPanels);
-
-    // Health bar
     this.healthBar = this.add.graphics();
     this.hudContainer.add(this.healthBar);
 
-    // Stamina bar
+    const staIcon = this.add.image(20, 52, "ui-icon-lightning").setOrigin(0, 0).setScale(S);
+    this.hudContainer.add(staIcon);
+
     this.staminaBar = this.add.graphics();
     this.hudContainer.add(this.staminaBar);
 
-    // Labels
-    const hpLabel = this.add.text(16, 14, "HP", {
-      fontSize: "11px",
-      fontFamily: "Rajdhani, sans-serif",
-      color: "#9a8fb5",
-      fontStyle: "bold",
-    });
-    this.hudContainer.add(hpLabel);
-
-    const staLabel = this.add.text(16, 32, "STA", {
-      fontSize: "11px",
-      fontFamily: "Rajdhani, sans-serif",
-      color: "#9a8fb5",
-      fontStyle: "bold",
-    });
-    this.hudContainer.add(staLabel);
-
-    // Burnout
     this.burnoutText = this.add
-      .text(16, 50, "BURNED OUT", {
-        fontSize: "11px",
+      .text(60, 82, "BURNED OUT", {
+        fontSize: "18px",
         fontFamily: "Rajdhani, sans-serif",
         color: "#ff4444",
         fontStyle: "bold",
@@ -1980,101 +2335,124 @@ export class GameScene extends Phaser.Scene {
       .setVisible(false);
     this.hudContainer.add(this.burnoutText);
 
-    // Currency (bottom left)
+    this.levelText = this.add.text(20, 82, "Lv.1", {
+      fontSize: "18px",
+      fontFamily: "Rajdhani, sans-serif",
+      color: "#d4a843",
+      fontStyle: "bold",
+    });
+    this.hudContainer.add(this.levelText);
+
+    this.xpBar = this.add.graphics();
+
+    // ===== TOP-RIGHT: Skull + kills, Coin + gold (no panel, just icons + numbers) =====
+    const skullIcon = this.add.image(width - 100, 20, "ui-icon-skull").setOrigin(0, 0).setScale(S);
+    this.hudContainer.add(skullIcon);
+
+    this.killText = this.add
+      .text(width - 64, 22, "0", {
+        fontSize: "24px",
+        fontFamily: "Rajdhani, sans-serif",
+        color: "#ffffff",
+        fontStyle: "bold",
+      })
+      .setOrigin(0, 0);
+    this.hudContainer.add(this.killText);
+
+    const coinIcon = this.add.image(width - 100, 50, "ui-icon-coin").setOrigin(0, 0).setScale(S);
+    this.hudContainer.add(coinIcon);
+
     this.currencyText = this.add
-      .text(16, height - 90, "$0", {
-        fontSize: "20px",
+      .text(width - 64, 52, "0", {
+        fontSize: "24px",
         fontFamily: "Rajdhani, sans-serif",
         color: "#e8c840",
         fontStyle: "bold",
       })
-      .setOrigin(0, 1);
+      .setOrigin(0, 0);
     this.hudContainer.add(this.currencyText);
 
-    // Kills
-    this.killText = this.add
-      .text(16, height - 68, "Kills: 0", {
-        fontSize: "14px",
-        fontFamily: "Rajdhani, sans-serif",
-        color: "#b0a8c0",
-      })
-      .setOrigin(0, 1);
-    this.hudContainer.add(this.killText);
-
-    // Weapon icon (bottom left, next to weapon text)
-    this.weaponIcon = this.add.image(16, height - 46, "item-pistol")
-      .setOrigin(0, 0.5)
-      .setScale(1.5)
-      .setVisible(false);
-    this.hudContainer.add(this.weaponIcon);
-
-    // Weapon display (bottom left)
-    this.weaponText = this.add
-      .text(40, height - 54, "FISTS", {
-        fontSize: "14px",
-        fontFamily: "Rajdhani, sans-serif",
-        color: "#8a82a0",
-      })
-      .setOrigin(0, 0);
-    this.hudContainer.add(this.weaponText);
-
-    this.ammoText = this.add
-      .text(40, height - 38, "", {
-        fontSize: "13px",
-        fontFamily: "Rajdhani, sans-serif",
-        color: "#b0a8c0",
-      })
-      .setOrigin(0, 0);
-    this.hudContainer.add(this.ammoText);
-
-    // Trap inventory (bottom left, below ammo)
-    this.trapText = this.add
-      .text(16, height - 20, "", {
-        fontSize: "13px",
-        fontFamily: "Rajdhani, sans-serif",
-        color: "#b0a8c0",
-        lineSpacing: 2,
-      })
-      .setOrigin(0, 1);
-    this.hudContainer.add(this.trapText);
-
-    // Wave counter (top center)
+    // ===== TOP-CENTER: Wave =====
     this.waveText = this.add
-      .text(width / 2, 14, "WAVE 1", {
-        fontSize: "16px",
+      .text(width / 2, 20, "WAVE 1", {
+        fontSize: "28px",
         fontFamily: "Rajdhani, sans-serif",
-        color: "#d0c8e0",
+        color: "#ffffff",
         fontStyle: "bold",
       })
       .setOrigin(0.5, 0);
     this.hudContainer.add(this.waveText);
 
-    // Wave status
     this.waveStatusText = this.add
-      .text(width / 2, 34, "", {
-        fontSize: "11px",
+      .text(width / 2, 52, "", {
+        fontSize: "20px",
         fontFamily: "Rajdhani, sans-serif",
-        color: "#8a82a0",
+        color: "#cccccc",
       })
       .setOrigin(0.5, 0);
     this.hudContainer.add(this.waveStatusText);
 
-    // Wave announcement
-    this.waveAnnouncement = this.add
-      .text(width / 2, height / 2 - 40, "", {
-        fontSize: "40px",
+    // ===== BOTTOM-LEFT: Weapon + Ammo (minimal, no panel) =====
+    this.weaponIcon = this.add.image(24, height - 60, "item-pistol")
+      .setOrigin(0, 0.5)
+      .setScale(3)
+      .setVisible(false);
+    this.hudContainer.add(this.weaponIcon);
+
+    this.weaponText = this.add
+      .text(24, height - 84, "FISTS", {
+        fontSize: "22px",
         fontFamily: "Rajdhani, sans-serif",
-        color: "#d0c8e0",
+        color: "#ffffff",
+        fontStyle: "bold",
+      })
+      .setOrigin(0, 0);
+    this.hudContainer.add(this.weaponText);
+
+    this.ammoText = this.add
+      .text(24, height - 36, "", {
+        fontSize: "20px",
+        fontFamily: "Rajdhani, sans-serif",
+        color: "#ffffff",
+      })
+      .setOrigin(0, 0);
+    this.hudContainer.add(this.ammoText);
+
+    // ===== BOTTOM-RIGHT: Ability + Traps (minimal, no panel) =====
+    this.abilityCDText = this.add
+      .text(width - 24, height - 84, "", {
+        fontSize: "22px",
+        fontFamily: "Rajdhani, sans-serif",
+        color: "#ffffff",
+        fontStyle: "bold",
+      })
+      .setOrigin(1, 0);
+    this.hudContainer.add(this.abilityCDText);
+
+    this.trapText = this.add
+      .text(width - 24, height - 36, "", {
+        fontSize: "20px",
+        fontFamily: "Rajdhani, sans-serif",
+        color: "#ffffff",
+      })
+      .setOrigin(1, 0);
+    this.hudContainer.add(this.trapText);
+
+    // ===== CENTER: Announcements =====
+    this.waveAnnouncement = this.add
+      .text(width / 2, height / 2 - 80, "", {
+        fontSize: "72px",
+        fontFamily: "Rajdhani, sans-serif",
+        color: "#ffffff",
         fontStyle: "bold",
       })
       .setOrigin(0.5)
       .setAlpha(0);
     this.hudContainer.add(this.waveAnnouncement);
 
-    // Countdown text (big 3...2...1 before wave starts)
     this.countdownText = this.add
       .text(width / 2, height / 2, "", {
-        fontSize: "72px",
+        fontSize: "128px",
         fontFamily: "Rajdhani, sans-serif",
         color: "#ffffff",
         fontStyle: "bold",
@@ -2083,88 +2461,154 @@ export class GameScene extends Phaser.Scene {
       .setAlpha(0);
     this.hudContainer.add(this.countdownText);
 
-    // Controls
+    // Bottom-center: Controls hint
     const controls = this.add
-      .text(width / 2, height - 14, "WASD move · SPACE/CLICK punch · F/RIGHT-CLICK fire · ESC pause", {
-        fontSize: "10px",
+      .text(width / 2, height - 8, "WASD move | CLICK punch | RIGHT-CLICK fire | Q ability | SPACE skip | B shop", {
+        fontSize: "14px",
         fontFamily: "Rajdhani, sans-serif",
-        color: "#5a5566",
+        color: "#444455",
       })
       .setOrigin(0.5, 1);
     this.hudContainer.add(controls);
   }
 
-  private updateHUD() {
-    const barX = 42;
-    const barW = 160;
-    const barH = 12;
+  private drawGlowBar(
+    gfx: Phaser.GameObjects.Graphics,
+    x: number, y: number, w: number, h: number,
+    pct: number,
+    baseColor: number, brightColor: number, glowColor: number,
+    radius: number
+  ) {
+    const fillW = w * pct;
+    if (fillW < 1) return;
 
-    // Health
+    // Outer glow (slightly larger, low alpha)
+    gfx.fillStyle(glowColor, 0.25);
+    gfx.fillRoundedRect(x - 2, y - 2, fillW + 4, h + 4, radius + 1);
+
+    // Main fill (base color)
+    gfx.fillStyle(baseColor, 1);
+    gfx.fillRoundedRect(x, y, fillW, h, radius);
+
+    // Top gradient highlight (brighter, covers top 40% of bar)
+    gfx.fillStyle(brightColor, 0.45);
+    gfx.fillRoundedRect(x, y, fillW, Math.floor(h * 0.4), radius);
+
+    // Bottom edge darken (subtle depth)
+    gfx.fillStyle(0x000000, 0.15);
+    gfx.fillRoundedRect(x, y + Math.floor(h * 0.75), fillW, Math.ceil(h * 0.25), radius);
+  }
+
+  private updateHUD() {
+    // Bar positions: after 32px icon + 4px gap
+    const barX = 56;
+    const barW = 220;
+    const barH = 18;
+    const barR = 4;
+
+    // Health bar
     this.healthBar.clear();
-    this.healthBar.fillStyle(0x1a1520, 0.9);
-    this.healthBar.fillRoundedRect(barX - 1, 13, barW + 2, barH + 2, 4);
+    this.healthBar.fillStyle(0x0d0a12, 0.8);
+    this.healthBar.fillRoundedRect(barX - 1, 22, barW + 2, barH + 2, barR + 1);
+    this.healthBar.fillStyle(0x1a1520, 0.6);
+    this.healthBar.fillRoundedRect(barX, 23, barW, barH, barR);
     const hpPct = this.player.stats.health / this.player.stats.maxHealth;
-    const hpColor =
-      hpPct > 0.5 ? 0x33aa33 : hpPct > 0.25 ? 0xbbaa22 : 0xcc3333;
     if (hpPct > 0.001) {
-      this.healthBar.fillStyle(hpColor, 1);
-      this.healthBar.fillRoundedRect(barX, 14, barW * hpPct, barH, 4);
+      if (hpPct > 0.5) {
+        this.drawGlowBar(this.healthBar, barX, 23, barW, barH, hpPct,
+          0xbb2222, 0xee5555, 0xdd3333, barR);
+      } else if (hpPct > 0.25) {
+        this.drawGlowBar(this.healthBar, barX, 23, barW, barH, hpPct,
+          0x992211, 0xcc4433, 0xbb3322, barR);
+      } else {
+        this.drawGlowBar(this.healthBar, barX, 23, barW, barH, hpPct,
+          0x771111, 0xaa3333, 0x991111, barR);
+      }
     }
 
-    // Stamina
+    // Stamina bar
     this.staminaBar.clear();
-    this.staminaBar.fillStyle(0x1a1520, 0.9);
-    this.staminaBar.fillRoundedRect(barX - 1, 31, barW + 2, barH + 2, 4);
+    this.staminaBar.fillStyle(0x0d0a12, 0.8);
+    this.staminaBar.fillRoundedRect(barX - 1, 54, barW + 2, barH + 2, barR + 1);
+    this.staminaBar.fillStyle(0x1a1520, 0.6);
+    this.staminaBar.fillRoundedRect(barX, 55, barW, barH, barR);
     const staPct = this.player.stats.stamina / this.player.stats.maxStamina;
-    const staColor = this.player.burnedOut
-      ? 0x555555
-      : staPct > 0.3
-        ? 0x3388bb
-        : 0xbb7722;
     if (staPct > 0.001) {
-      this.staminaBar.fillStyle(staColor, 1);
-      this.staminaBar.fillRoundedRect(barX, 32, barW * staPct, barH, 4);
+      if (this.player.burnedOut) {
+        this.drawGlowBar(this.staminaBar, barX, 55, barW, barH, staPct,
+          0x444444, 0x666666, 0x555555, barR);
+      } else if (staPct > 0.3) {
+        this.drawGlowBar(this.staminaBar, barX, 55, barW, barH, staPct,
+          0x2d9e2d, 0x55dd55, 0x33cc33, barR);
+      } else {
+        this.drawGlowBar(this.staminaBar, barX, 55, barW, barH, staPct,
+          0xaa6622, 0xdd9944, 0xcc8833, barR);
+      }
     }
 
     this.burnoutText.setVisible(this.player.burnedOut);
-    this.currencyText.setText(`$${this.currency}`);
-    this.killText.setText(`Kills: ${this.kills}`);
 
-    // Weapon HUD
+    // Level text only (no XP bar)
+    this.xpBar.clear();
+    this.levelText.setText(`Lv.${this.levelingSystem.level}`);
+
+    // Apply leveling buffs to player effective stats
+    const effective = this.levelingSystem.getEffectiveStats(this.characterDef.stats);
+    this.player.stats.maxHealth = effective.maxHealth;
+    this.player.stats.maxStamina = effective.maxStamina;
+    this.player.stats.speed = effective.speed;
+    this.player.stats.regen = effective.regen;
+    this.baseDamage = effective.damage;
+    if (!this.damageBoostActive) {
+      this.player.stats.damage = effective.damage;
+    }
+
+    // Top-right: kills + currency (icon-based, no emoji)
+    this.killText.setText(`${this.kills}`);
+    this.currencyText.setText(`${this.currency}`);
+
+    // Bottom-right: ability cooldown
+    if (this.abilityCooldownTimer > 0) {
+      const secs = Math.ceil(this.abilityCooldownTimer / 1000);
+      this.abilityCDText.setText(`[Q] ${this.characterDef.ability.name}  ${secs}s`);
+      this.abilityCDText.setColor("#888888");
+    } else {
+      this.abilityCDText.setText(`[Q] ${this.characterDef.ability.name}  READY`);
+      this.abilityCDText.setColor("#ffffff");
+    }
+
+    // Bottom-left: weapon + ammo
     if (this.equippedWeapon) {
       const wDef = BALANCE.weapons[this.equippedWeapon as keyof typeof BALANCE.weapons];
       this.weaponIcon.setTexture(`item-${this.equippedWeapon}`);
       this.weaponIcon.setVisible(true);
-      const iconW = this.weaponIcon.displayWidth + 6;
       this.weaponText.setText(wDef.name.toUpperCase());
-      this.weaponText.setColor("#d0c8e0");
-      this.weaponText.setX(16 + iconW);
-      this.ammoText.setText(`${this.ammo}/${this.maxAmmo}`);
-      this.ammoText.setX(16 + iconW);
-      this.ammoText.setColor(this.ammo > 0 ? "#b0a8c0" : "#cc3333");
+      this.weaponText.setColor("#ffffff");
+      this.weaponText.setX(36);
+      this.ammoText.setText(`${this.ammo} / ${this.maxAmmo}`);
+      this.ammoText.setColor(this.ammo > 0 ? "#ffffff" : "#cc3333");
     } else {
       this.weaponIcon.setVisible(false);
-      this.weaponText.setX(16);
+      this.weaponText.setX(36);
       this.weaponText.setText("FISTS");
-      this.weaponText.setColor("#8a82a0");
+      this.weaponText.setColor("#ffffff");
       this.ammoText.setText("");
     }
 
-    // Trap inventory HUD — show all types, highlight selected
+    // Bottom-right: trap inventory
     const trapParts: string[] = [];
     let hasAny = false;
     for (let i = 0; i < this.trapTypes.length; i++) {
       const type = this.trapTypes[i];
       const count = this.trapInventory.get(type) ?? 0;
       if (count > 0) hasAny = true;
-      const keyNum = i === 2 ? "0" : `${i + 8}`;
-      const shortName = type === "spikes" ? "SPIKES" : type === "barricade" ? "BARRICADE" : "LANDMINE";
+      const shortName = type === "barricade" ? "BARR" : "MINE";
       const selected = i === this.selectedTrapIndex && count > 0;
       const prefix = selected ? ">" : " ";
-      trapParts.push(`${prefix} [${keyNum}] ${shortName} x${count}`);
+      trapParts.push(`${prefix}${shortName} x${count}`);
     }
     if (hasAny) {
-      this.trapText.setText(`[8/9/0] Select  [T] Place\n${trapParts.join("\n")}`);
+      this.trapText.setText(`[T] Place  ${trapParts.join("  ")}`);
     } else {
       this.trapText.setText("");
     }
@@ -2188,9 +2632,14 @@ export class GameScene extends Phaser.Scene {
           `${remaining} enem${remaining === 1 ? "y" : "ies"} remaining`
         );
       } else if (state === "intermission") {
-        const secs = this.waveManager.getIntermissionTimeLeft();
-        this.waveStatusText.setText(`Next wave in ${secs}s — SHOP OPEN`);
-        countdownSecs = secs;
+        if (this.waveManager.isReadyUp()) {
+          const secs = this.waveManager.getReadyCountdown();
+          this.waveStatusText.setText(`Starting in ${secs}s...`);
+          countdownSecs = secs;
+        } else {
+          const timeLeft = this.waveManager.getIntermissionTimeLeft();
+          this.waveStatusText.setText(`${timeLeft}s  |  SPACE skip  |  B shop`);
+        }
       }
     }
 
@@ -2213,5 +2662,161 @@ export class GameScene extends Phaser.Scene {
     } else if (countdownSecs <= 0 && this.countdownText.alpha > 0) {
       this.countdownText.setAlpha(0);
     }
+  }
+
+  // ------- Level-Up UI -------
+
+  private showLevelUpUI(level: number, options: BuffOption[]) {
+    this.levelUpActive = true;
+    this.physics.pause();
+
+    const { width, height } = this.cameras.main;
+    this.levelUpOverlay = this.add.container(0, 0);
+    this.levelUpOverlay.setDepth(200);
+    this.hudContainer.add(this.levelUpOverlay);
+
+    // Dim overlay
+    const dim = this.add.graphics();
+    dim.fillStyle(0x000000, 0.6);
+    dim.fillRect(0, 0, width, height);
+    this.levelUpOverlay.add(dim);
+
+    // "LEVEL UP" title
+    const title = this.add.text(width / 2, height / 2 - 180, `LEVEL ${level}`, {
+      fontSize: "60px",
+      fontFamily: "Rajdhani, sans-serif",
+      color: "#d4a843",
+      fontStyle: "bold",
+    }).setOrigin(0.5);
+    this.levelUpOverlay.add(title);
+
+    const subtitle = this.add.text(width / 2, height / 2 - 120, "Choose a buff", {
+      fontSize: "26px",
+      fontFamily: "Rajdhani, sans-serif",
+      color: "#aaaaaa",
+    }).setOrigin(0.5);
+    this.levelUpOverlay.add(subtitle);
+
+    // Buff cards
+    const cardW = 280;
+    const cardH = 200;
+    const gap = 40;
+    const totalW = options.length * cardW + (options.length - 1) * gap;
+    const startX = width / 2 - totalW / 2;
+
+    const categoryColors: Record<string, number> = {
+      strength: 0xcc4444,
+      health: 0x33aa33,
+      stamina: 0x3388bb,
+      speed: 0xdddd44,
+      luck: 0xdd88dd,
+    };
+
+    options.forEach((opt, i) => {
+      const cx = startX + i * (cardW + gap) + cardW / 2;
+      const cy = height / 2 + 10;
+
+      // Card background
+      const card = this.add.graphics();
+      card.fillStyle(0x1a1a2e, 0.9);
+      card.fillRoundedRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, 12);
+      card.lineStyle(3, categoryColors[opt.category] ?? 0xffffff, 0.8);
+      card.strokeRoundedRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, 12);
+      this.levelUpOverlay.add(card);
+
+      // Category label
+      const catLabel = this.add.text(cx, cy - 70, opt.category.toUpperCase(), {
+        fontSize: "18px",
+        fontFamily: "Rajdhani, sans-serif",
+        color: "#888888",
+      }).setOrigin(0.5);
+      this.levelUpOverlay.add(catLabel);
+
+      // Buff name
+      const nameText = this.add.text(cx, cy - 30, opt.name, {
+        fontSize: "26px",
+        fontFamily: "Rajdhani, sans-serif",
+        color: "#ffffff",
+        fontStyle: "bold",
+      }).setOrigin(0.5);
+      this.levelUpOverlay.add(nameText);
+
+      // Description
+      const descText = this.add.text(cx, cy + 16, opt.desc, {
+        fontSize: "20px",
+        fontFamily: "Rajdhani, sans-serif",
+        color: "#cccccc",
+      }).setOrigin(0.5);
+      this.levelUpOverlay.add(descText);
+
+      // Tier label
+      const tierText = this.add.text(cx, cy + 56, opt.tier.toUpperCase(), {
+        fontSize: "16px",
+        fontFamily: "Rajdhani, sans-serif",
+        color: "#666666",
+      }).setOrigin(0.5);
+      this.levelUpOverlay.add(tierText);
+
+      // Key hint
+      const keyText = this.add.text(cx, cy + cardH / 2 + 24, `[${i + 1}]`, {
+        fontSize: "26px",
+        fontFamily: "Rajdhani, sans-serif",
+        color: "#d4a843",
+        fontStyle: "bold",
+      }).setOrigin(0.5);
+      this.levelUpOverlay.add(keyText);
+
+      // Click zone
+      const hitZone = this.add.zone(cx, cy, cardW, cardH).setInteractive();
+      hitZone.on("pointerdown", () => this.selectLevelUpBuff(i));
+      this.levelUpOverlay.add(hitZone);
+    });
+
+    // Keyboard shortcuts (number row + numpad)
+    if (this.input.keyboard) {
+      const key1 = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ONE);
+      const key2 = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.TWO);
+      const numpad1 = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.NUMPAD_ONE);
+      const numpad2 = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.NUMPAD_TWO);
+      key1.once("down", () => { if (this.levelUpActive) this.selectLevelUpBuff(0); });
+      key2.once("down", () => { if (this.levelUpActive && options.length > 1) this.selectLevelUpBuff(1); });
+      numpad1.once("down", () => { if (this.levelUpActive) this.selectLevelUpBuff(0); });
+      numpad2.once("down", () => { if (this.levelUpActive && options.length > 1) this.selectLevelUpBuff(1); });
+    }
+  }
+
+  private selectLevelUpBuff(index: number) {
+    if (!this.levelUpActive) return;
+
+    const buff = this.levelingSystem.selectBuff(index);
+    if (!buff) return;
+
+    // If health buff, heal by the increase amount (not to full)
+    if (buff.category === "health") {
+      const effective = this.levelingSystem.getEffectiveStats(this.characterDef.stats);
+      const hpIncrease = effective.maxHealth - this.player.stats.maxHealth;
+      this.player.stats.health = Math.min(
+        effective.maxHealth,
+        this.player.stats.health + hpIncrease
+      );
+    }
+
+    // If stamina buff, increase current stamina proportionally
+    if (buff.category === "stamina") {
+      const effective = this.levelingSystem.getEffectiveStats(this.characterDef.stats);
+      const staIncrease = effective.maxStamina - this.player.stats.maxStamina;
+      this.player.stats.stamina = Math.min(
+        effective.maxStamina,
+        this.player.stats.stamina + staIncrease
+      );
+    }
+
+    // Clean up UI
+    this.levelUpActive = false;
+    this.levelUpOverlay.destroy();
+    this.physics.resume();
+
+    // Flash the buff name
+    this.showWeaponMessage(buff.name.toUpperCase(), "#d4a843");
   }
 }

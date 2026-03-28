@@ -13,13 +13,20 @@ export class Trap extends Phaser.Physics.Arcade.Image {
   trapType: TrapType;
   hp: number;
   private usesLeft: number;
+  private vertical: boolean;
 
-  constructor(scene: Phaser.Scene, x: number, y: number, type: TrapType) {
+  constructor(scene: Phaser.Scene, x: number, y: number, type: TrapType, vertical = false) {
     super(scene, x, y, `trap-${type}`);
 
     this.trapType = type;
+    this.vertical = vertical;
     this.usesLeft = type === "spikes" ? BALANCE.traps.spikes.uses : 1;
     this.hp = type === "barricade" ? BALANCE.traps.barricade.hp : 0;
+
+    // Rotate barricade 90 degrees if vertical
+    if (type === "barricade" && vertical) {
+      this.setAngle(90);
+    }
 
     this.setDepth(2); // just above ground, below characters
   }
@@ -31,9 +38,13 @@ export class Trap extends Phaser.Physics.Arcade.Image {
       if ("setImmovable" in this.body) {
         (this.body as Phaser.Physics.Arcade.Body).setImmovable(true);
       }
-      this.body.setSize(40, 20);
+      if (this.vertical) {
+        this.body.setSize(20, 40);
+      } else {
+        this.body.setSize(40, 20);
+      }
     } else if (this.trapType === "spikes") {
-      this.body.setSize(24, 24);
+      this.body.setSize(40, 40);
     } else {
       // Landmine
       this.body.setSize(16, 16);
@@ -72,15 +83,17 @@ export class Trap extends Phaser.Physics.Arcade.Image {
             );
           }
         });
-        // Explosion visual
-        const boom = scene.add.circle(this.x, this.y, radius, 0xffaa00, 0.3);
+        // Explosion sprite
+        const boom = scene.add.image(this.x, this.y, "fx-explosion");
         boom.setDepth(3);
+        boom.setScale(radius / 8); // scale 16px sprite to match blast radius
+        boom.setAlpha(0.85);
         scene.tweens.add({
           targets: boom,
           alpha: 0,
-          scaleX: 1.5,
-          scaleY: 1.5,
-          duration: 300,
+          scaleX: boom.scaleX * 1.5,
+          scaleY: boom.scaleY * 1.5,
+          duration: 350,
           onComplete: () => boom.destroy(),
         });
         return true; // one-time use
