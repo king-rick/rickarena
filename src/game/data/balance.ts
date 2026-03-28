@@ -153,7 +153,7 @@ export const BALANCE = {
   // Enemy base stats
   enemies: {
     basic: { hp: 20, damage: 10, speed: 45 },
-    fast: { hp: 15, damage: 8, speed: 120 },
+    fast: { hp: 15, damage: 8, speed: 100 },
     tank: { hp: 90, damage: 18, speed: 40 },
   },
 } as const;

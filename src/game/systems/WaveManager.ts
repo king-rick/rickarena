@@ -2,9 +2,9 @@ import Phaser from "phaser";
 import { Enemy, EnemyType } from "../entities/Enemy";
 import { BALANCE } from "../data/balance";
 
-// Village map dimensions (80x65 tiles at 16px)
-const MAP_WIDTH = 80 * 16;   // 1280
-const MAP_HEIGHT = 65 * 16;  // 1040
+// Endicott Estate map dimensions (60x60 tiles at 32px)
+const MAP_WIDTH = 60 * 32;   // 1920
+const MAP_HEIGHT = 60 * 32;  // 1920
 
 export type WaveState =
   | "pre_game" // Brief countdown before wave 1

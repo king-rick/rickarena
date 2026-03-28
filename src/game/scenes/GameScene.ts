@@ -10,6 +10,10 @@ import { WaveManager, WaveState } from "../systems/WaveManager";
 const VILLAGE_MAP_W = 80 * 16;  // 1280px
 const VILLAGE_MAP_H = 65 * 16;  // 1040px
 
+// Endicott Estate map constants (60x60 tiles at 32px)
+const ENDICOTT_MAP_W = 60 * 32;  // 1920px
+const ENDICOTT_MAP_H = 60 * 32;  // 1920px
+
 export class GameScene extends Phaser.Scene {
   player!: Player;
   private characterDef!: CharacterDef;
@@ -53,11 +57,23 @@ export class GameScene extends Phaser.Scene {
 
   // HUD container — scrollFactor(0), scaled 1/zoom so it renders at screen-space
   private hudContainer!: Phaser.GameObjects.Container;
+  private minimap!: Phaser.Cameras.Scene2D.Camera;
+  private minimapDot!: Phaser.GameObjects.Graphics;
 
   // Pause UI (inside hudContainer)
   private pauseOverlay!: Phaser.GameObjects.Graphics;
   private pauseTitle!: Phaser.GameObjects.Text;
   private pauseQuitBtn!: Phaser.GameObjects.Text;
+  private pauseSettingsBtn!: Phaser.GameObjects.Text;
+  private settingsContainer!: Phaser.GameObjects.Container;
+  private settingsOpen = false;
+  private sfxVolume = 0.3;
+  private musicVolume = 1;
+  private sfxMuted = false;
+  private musicMuted = false;
+  private wheelHandler?: (e: WheelEvent) => void;
+  private zoomText!: Phaser.GameObjects.Text;
+  private ambientSounds: Phaser.Sound.BaseSound[] = [];
 
   // HUD elements (inside hudContainer)
   private healthBar!: Phaser.GameObjects.Graphics;
@@ -71,6 +87,7 @@ export class GameScene extends Phaser.Scene {
   private weaponText!: Phaser.GameObjects.Text;
   private weaponIcon!: Phaser.GameObjects.Image;
   private ammoText!: Phaser.GameObjects.Text;
+  private zoomEnabled = false; // toggled in settings
   private trapText!: Phaser.GameObjects.Text;
   private countdownText!: Phaser.GameObjects.Text;
   private shopCashText!: Phaser.GameObjects.Text;
@@ -107,18 +124,55 @@ export class GameScene extends Phaser.Scene {
     this.fireHeld = false;
     this.bloodSplats = [];
 
-    // Draw tilemap — village map
-    const map = this.make.tilemap({ key: "village-map" });
-    const groundTs = map.addTilesetImage("ground", "ts-ground");
-    const roadTs = map.addTilesetImage("road", "ts-road");
-    const waterTs = map.addTilesetImage("water", "ts-water");
-    const rockTs = map.addTilesetImage("rock-slope", "ts-rockslope");
-    const allTilesets = [groundTs!, roadTs!, waterTs!, rockTs!];
+    // Draw tilemap — Endicott Estate
+    const map = this.make.tilemap({ key: "endicott-map" });
+    const grassTs = map.addTilesetImage("cainos-grass", "ts-cainos-grass");
+    const stoneTs = map.addTilesetImage("cainos-stone", "ts-cainos-stone");
+    const plantTs = map.addTilesetImage("basic-plant", "ts-basic-plant");
+    const propsTs = map.addTilesetImage("basic-props", "ts-basic-props");
+    const structTs = map.addTilesetImage("basic-struct", "ts-basic-struct");
+    const wallTs = map.addTilesetImage("basic-wall", "ts-basic-wall");
+    const portTs = map.addTilesetImage("port-town", "ts-port-town");
+    const estateTs = map.addTilesetImage("pixellab-estate", "ts-pixellab-estate");
+    const bpBushTs = map.addTilesetImage("bp-bushes", "ts-bp-bushes");
+    const bpStoneTs = map.addTilesetImage("bp-stone-path", "ts-bp-stone-path");
+    const bpGroundTs = map.addTilesetImage("bp-ground-32", "ts-bp-ground-32");
+    const bpTreesTs = map.addTilesetImage("bp-trees-64", "ts-bp-trees-64");
+    const bpRocksTs = map.addTilesetImage("bp-rocks-64", "ts-bp-rocks-64");
+    const bpDirtTs = map.addTilesetImage("bp-dirt-path", "ts-bp-dirt-path");
+    const nyknckRoadsTs = map.addTilesetImage("nyknck-roads", "ts-nyknck-roads");
+    const kenneyUrbanTs = map.addTilesetImage("kenney-urban", "ts-kenney-urban");
+    const allTilesets = [grassTs!, stoneTs!, plantTs!, propsTs!, structTs!, wallTs!, portTs!, estateTs!, bpBushTs!, bpStoneTs!, bpGroundTs!, bpTreesTs!, bpRocksTs!, bpDirtTs!, nyknckRoadsTs!, kenneyUrbanTs!];
+    // Solid fill behind tilemap to mask seam artifacts at non-integer zoom
+    const groundFill = this.add.rectangle(
+      ENDICOTT_MAP_W / 2, ENDICOTT_MAP_H / 2,
+      ENDICOTT_MAP_W, ENDICOTT_MAP_H,
+      0x5a7a2a // approximate grass color
+    ).setDepth(-3);
+    this.minimap?.ignore(groundFill);
     map.createLayer("ground", allTilesets, 0, 0)?.setDepth(-2);
     map.createLayer("paths", allTilesets, 0, 0)?.setDepth(-1);
     map.createLayer("buildings", allTilesets, 0, 0)?.setDepth(0);
     map.createLayer("decorations", allTilesets, 0, 0)?.setDepth(1);
-    map.createLayer("props", allTilesets, 0, 0)?.setDepth(2);
+    this.cameras.main.setRoundPixels(true);
+
+    // Spawn sprites from Tiled object layer
+    const spritesLayer = map.getObjectLayer("sprites");
+    if (spritesLayer) {
+      for (const obj of spritesLayer.objects) {
+        if (obj.name === "endicott-v1" || obj.name === "fountain" || obj.name === "greenhouse" || obj.name === "gazebo") {
+          const spr = this.add.sprite(0, 0, obj.name);
+          spr.setOrigin(0, 1);
+          spr.setPosition(obj.x!, obj.y!);
+          spr.setDisplaySize(obj.width!, obj.height!);
+          spr.setDepth(2);
+          if (obj.rotation) spr.setAngle(obj.rotation);
+        }
+      }
+    }
+
+    // East tree wall — individual sprites so they overlap naturally
+    this.spawnTreeWall();
 
     // Obstacles — loaded from Tiled object layer
     this.obstacles = this.physics.add.staticGroup();
@@ -146,9 +200,9 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Player
-    const spawnX = VILLAGE_MAP_W / 2;
-    const spawnY = VILLAGE_MAP_H / 2 + 40;
+    // Player — spawn at south gate
+    const spawnX = ENDICOTT_MAP_W / 2;
+    const spawnY = ENDICOTT_MAP_H - 64;
     const stats = this.characterDef.stats;
 
     this.player = new Player(this, spawnX, spawnY, this.characterDef.id, {
@@ -163,12 +217,57 @@ export class GameScene extends Phaser.Scene {
 
     // Camera
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
-    this.cameras.main.setZoom(3);
-    this.cameras.main.setBounds(0, 0, VILLAGE_MAP_W, VILLAGE_MAP_H);
+    this.cameras.main.setZoom(2.5);
+    this.cameras.main.setBounds(0, 0, ENDICOTT_MAP_W, ENDICOTT_MAP_H);
     this.cameras.main.setRoundPixels(true);
 
+    // Minimap — bottom-right corner, shows full map with player dot
+    const mmSize = 140;
+    const mmPadding = 10;
+    const { width: screenW, height: screenH } = this.cameras.main;
+    this.minimap = this.cameras.add(
+      screenW - mmSize - mmPadding,
+      screenH - mmSize - mmPadding,
+      mmSize,
+      mmSize
+    );
+    this.minimap.setZoom(mmSize / ENDICOTT_MAP_W);
+    this.minimap.setBounds(0, 0, ENDICOTT_MAP_W, ENDICOTT_MAP_H);
+    this.minimap.centerOn(ENDICOTT_MAP_W / 2, ENDICOTT_MAP_H / 2);
+    this.minimap.setBackgroundColor(0x0a0a14);
+    this.minimap.setName("minimap");
+
+    // Minimap border (rendered on main camera only)
+    const mmBorder = this.add.graphics();
+    mmBorder.setScrollFactor(0);
+    mmBorder.setDepth(200);
+    mmBorder.lineStyle(2, 0x4a4565, 0.8);
+    mmBorder.strokeRect(
+      screenW - mmSize - mmPadding,
+      screenH - mmSize - mmPadding,
+      mmSize,
+      mmSize
+    );
+    this.minimap.ignore(mmBorder);
+
+    // Zoom percentage text (hidden until zoom is enabled in settings)
+    this.zoomText = this.add.text(
+      screenW - mmPadding,
+      screenH - mmSize - mmPadding - 18,
+      `${Math.round(this.cameras.main.zoom * 100)}%`,
+      { fontSize: "12px", fontFamily: "Rajdhani, sans-serif", color: "#ffffff" }
+    ).setOrigin(1, 0).setDepth(200).setVisible(false);
+    this.minimap.ignore(this.zoomText);
+
+
+    // Player indicator dot for minimap (large enough to see at minimap zoom)
+    this.minimapDot = this.add.graphics();
+    this.minimapDot.setDepth(160);
+    // Main camera shouldn't render the dot (it's only for minimap)
+    this.cameras.main.ignore(this.minimapDot);
+
     // World bounds
-    this.physics.world.setBounds(0, 0, VILLAGE_MAP_W, VILLAGE_MAP_H);
+    this.physics.world.setBounds(0, 0, ENDICOTT_MAP_W, ENDICOTT_MAP_H);
     this.player.body.setCollideWorldBounds(true);
 
     // Collisions
@@ -299,6 +398,8 @@ export class GameScene extends Phaser.Scene {
         this.meleeAttack();
       }
     });
+    this.input.mouse?.disableContextMenu();
+
     this.input.on("pointerup", (pointer: Phaser.Input.Pointer) => {
       if (pointer.rightButtonReleased()) {
         this.fireHeld = false;
@@ -313,6 +414,7 @@ export class GameScene extends Phaser.Scene {
       pKey.on("down", () => {
         if (this.gameOver) return;
         if (this.shopOpen) { this.closeShop(); return; }
+        if (this.settingsOpen) { this.closeSettings(); return; }
         if (this.paused) this.resumeGame();
         else this.pauseGame();
       });
@@ -334,6 +436,9 @@ export class GameScene extends Phaser.Scene {
     // HUD container — lives in world space, tracks camera position each frame
     this.hudContainer = this.add.container(0, 0);
     this.hudContainer.setDepth(150);
+    // Hide HUD from minimap
+    this.minimap.ignore(this.hudContainer);
+    this.hudContainer.add(this.zoomText);
 
     this.baseDamage = this.player.stats.damage;
     this.damageBoostActive = false;
@@ -352,7 +457,9 @@ export class GameScene extends Phaser.Scene {
 
     // Ambient background loops
     if (this.cache.audio.exists("sfx-ambient-birds")) {
-      this.sound.play("sfx-ambient-birds", { volume: 0.15, loop: true });
+      const birds = this.sound.add("sfx-ambient-birds", { volume: 0.15, loop: true });
+      birds.play();
+      this.ambientSounds.push(birds);
     }
 
     this.waveManager.onWaveStart = (wave) => {
@@ -364,7 +471,9 @@ export class GameScene extends Phaser.Scene {
       }
       // Layer in rain ambience starting wave 5
       if (wave === 5 && this.cache.audio.exists("sfx-ambient-rain")) {
-        this.sound.play("sfx-ambient-rain", { volume: 0.08, loop: true });
+        const rain = this.sound.add("sfx-ambient-rain", { volume: 0.08, loop: true });
+        rain.play();
+        this.ambientSounds.push(rain);
       }
       // Clear damage boost from previous wave
       if (this.damageBoostActive) {
@@ -401,8 +510,18 @@ export class GameScene extends Phaser.Scene {
   update(time: number, delta: number) {
     // Always track HUD to camera, even when paused/game over
     const cam = this.cameras.main;
+    // Snap camera to integer pixels to prevent tile seam artifacts
+    cam.scrollX = Math.round(cam.scrollX);
+    cam.scrollY = Math.round(cam.scrollY);
     this.hudContainer.setPosition(cam.worldView.x, cam.worldView.y);
     this.hudContainer.setScale(1 / cam.zoom);
+
+    // Update minimap player dot
+    this.minimapDot.clear();
+    this.minimapDot.fillStyle(0x00ff00, 1);
+    this.minimapDot.fillCircle(this.player.x, this.player.y, 40);
+    this.minimapDot.fillStyle(0xffffff, 1);
+    this.minimapDot.fillCircle(this.player.x, this.player.y, 20);
 
     if (this.gameOver || this.paused) return;
 
@@ -436,8 +555,9 @@ export class GameScene extends Phaser.Scene {
   private lastGroanTime = 0;
 
   private playSound(key: string, volume = 0.5) {
+    if (this.sfxMuted) return;
     if (this.cache.audio.exists(key)) {
-      this.sound.play(key, { volume });
+      this.sound.play(key, { volume: volume * this.sfxVolume });
     }
   }
 
@@ -643,6 +763,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.ammo--;
+
+    // Play shooting animation on the player sprite
+    this.player.playShoot(this.equippedWeapon!);
 
     // Weapon fire sound (alternate between 2 variants)
     const sfxMap: Record<string, string[]> = {
@@ -975,6 +1098,108 @@ export class GameScene extends Phaser.Scene {
 
   // ------- Pause -------
 
+  private spawnTreeWall() {
+    const mapW = ENDICOTT_MAP_W;
+    const mapH = ENDICOTT_MAP_H;
+    const rng = (min: number, max: number) => min + Math.random() * (max - min);
+    const spacingX = 40;
+    const spacingY = 44;
+
+    // Build path exclusion grid — no trees within 10 tiles (320px) of any path
+    const pathBuffer = 320;
+    const map = this.make.tilemap({ key: "endicott-map" });
+    const pathsLayer = map.getLayer("paths");
+    const pathCenters: { x: number; y: number }[] = [];
+    if (pathsLayer) {
+      for (let ty = 0; ty < pathsLayer.height; ty++) {
+        for (let tx = 0; tx < pathsLayer.width; tx++) {
+          const tile = pathsLayer.data[ty][tx];
+          if (tile && tile.index > 0) {
+            pathCenters.push({ x: tx * 32 + 16, y: ty * 32 + 16 });
+          }
+        }
+      }
+    }
+    const isNearPath = (x: number, y: number) => {
+      for (const p of pathCenters) {
+        const dx = x - p.x;
+        const dy = y - p.y;
+        if (dx * dx + dy * dy < pathBuffer * pathBuffer) return true;
+      }
+      return false;
+    };
+
+    // Seeded-ish noise for organic tree line edges
+    // Returns a wavy offset (in pixels) so the boundary isn't a straight line
+    const edgeWobble = (pos: number, seed: number) => {
+      const s1 = Math.sin(pos * 0.008 + seed) * 48;
+      const s2 = Math.sin(pos * 0.023 + seed * 2.7) * 24;
+      const s3 = Math.sin(pos * 0.051 + seed * 5.1) * 12;
+      return s1 + s2 + s3;
+    };
+
+    const placeTree = (x: number, y: number) => {
+      if (isNearPath(x, y)) return;
+      const isDark = Math.random() < 0.3;
+      const sheet = isDark ? "dark-trees-64" : "trees-64";
+      const frame = Math.floor(Math.random() * 16);
+      const tree = this.add.sprite(x + rng(-12, 12), y + rng(-10, 10), sheet, frame);
+      tree.setOrigin(0.5, 0.8);
+      tree.setDepth(y / 10);
+      tree.setScale(rng(0.9, 1.15));
+    };
+
+    const placeSparseTree = (x: number, y: number) => {
+      if (isNearPath(x, y)) return;
+      if (Math.random() < 0.45) return;
+      const isDark = Math.random() < 0.4;
+      const sheet = isDark ? "dark-trees-64" : "trees-64";
+      const frame = Math.floor(Math.random() * 16);
+      const tree = this.add.sprite(x + rng(-8, 8), y + rng(-8, 8), sheet, frame);
+      tree.setOrigin(0.5, 0.8);
+      tree.setDepth(y / 10);
+      tree.setScale(rng(0.85, 1.1));
+    };
+
+    // --- EAST PERIMETER ---
+    // Dense at the far edge, gradually thins toward center
+    const eastEdgeX = 55 * 32; // dense wall starts here
+    for (let baseY = -32; baseY < mapH + 32; baseY += spacingY) {
+      const wobble = edgeWobble(baseY, 42);
+      // Dense zone: eastEdgeX to map edge
+      for (let baseX = eastEdgeX + wobble; baseX < mapW + 32; baseX += spacingX) {
+        placeTree(baseX, baseY);
+      }
+      // Gradient zone: gets sparser the further from the edge
+      const gradientStart = eastEdgeX + wobble - 160; // ~5 tiles of gradient
+      for (let baseX = gradientStart; baseX < eastEdgeX + wobble; baseX += spacingX * 1.3) {
+        const distFromEdge = (eastEdgeX + wobble) - baseX;
+        const skipChance = distFromEdge / 200; // further from edge = more likely to skip
+        if (Math.random() < skipChance) continue;
+        placeSparseTree(baseX, baseY);
+      }
+    }
+
+    // --- SOUTHEAST PERIMETER ---
+    // Tighter band, ~2-3 tiles deep with gradient
+    const southEdgeY = 55 * 32; // dense wall starts here
+    for (let baseX = 30 * 32; baseX < eastEdgeX - 64; baseX += spacingX) {
+      const wobble = edgeWobble(baseX, 97);
+      // Dense zone: southEdgeY to map edge (narrow band)
+      for (let baseY = southEdgeY + wobble; baseY < mapH + 32; baseY += spacingY) {
+        placeTree(baseX, baseY);
+      }
+      // Thin gradient above the dense line
+      const gradientStart = southEdgeY + wobble - 80; // ~2-3 tiles of gradient
+      for (let baseY = gradientStart; baseY < southEdgeY + wobble; baseY += spacingY * 1.5) {
+        const distFromEdge = (southEdgeY + wobble) - baseY;
+        const skipChance = distFromEdge / 100;
+        if (Math.random() < skipChance) continue;
+        placeSparseTree(baseX, baseY);
+      }
+    }
+  }
+
   private createPauseUI() {
     const { width, height } = this.cameras.main;
 
@@ -1015,6 +1240,218 @@ export class GameScene extends Phaser.Scene {
     this.pauseQuitBtn.on("pointerdown", () => {
       this.scene.start("MainMenu");
     });
+
+    // Settings button
+    this.pauseSettingsBtn = this.add
+      .text(width / 2, height / 2 + 50, "[ S ]  Settings", {
+        fontSize: "16px",
+        fontFamily: "Rajdhani, sans-serif",
+        color: "#8a82a0",
+      })
+      .setOrigin(0.5)
+      .setVisible(false)
+      .setInteractive({ useHandCursor: true });
+    this.hudContainer.add(this.pauseSettingsBtn);
+
+    this.pauseSettingsBtn.on("pointerover", () => {
+      this.pauseSettingsBtn.setColor("#d0c8e0");
+    });
+    this.pauseSettingsBtn.on("pointerout", () => {
+      this.pauseSettingsBtn.setColor("#8a82a0");
+    });
+    this.pauseSettingsBtn.on("pointerdown", () => {
+      this.openSettings();
+    });
+
+    this.createSettingsUI();
+  }
+
+  private createSettingsUI() {
+    const { width, height } = this.cameras.main;
+    this.settingsContainer = this.add.container(0, 0);
+    this.settingsContainer.setDepth(170);
+    this.settingsContainer.setVisible(false);
+    this.hudContainer.add(this.settingsContainer);
+
+    const panelW = 320;
+    const panelH = 170;
+    const cx = width / 2;
+    const cy = height / 2;
+    const left = cx - panelW / 2;
+    const top = cy - panelH / 2;
+
+    // Panel background
+    const bg = this.add.graphics();
+    bg.fillStyle(0x12121f, 0.95);
+    bg.fillRoundedRect(left, top, panelW, panelH, 8);
+    bg.lineStyle(1, 0x4a4565, 0.6);
+    bg.strokeRoundedRect(left, top, panelW, panelH, 8);
+    this.settingsContainer.add(bg);
+
+    // Title
+    const title = this.add.text(cx, top + 20, "SETTINGS", {
+      fontSize: "20px", fontFamily: "Rajdhani, sans-serif",
+      color: "#d0c8e0", fontStyle: "bold",
+    }).setOrigin(0.5);
+    this.settingsContainer.add(title);
+
+    let yPos = top + 55;
+    const labelStyle = { fontSize: "14px", fontFamily: "Rajdhani, sans-serif", color: "#b0a8c0" };
+    const valStyle = { fontSize: "14px", fontFamily: "Rajdhani, sans-serif", color: "#d0c8e0" };
+
+    // --- SFX Volume ---
+    this.settingsContainer.add(this.add.text(left + 20, yPos, "Sound Volume", labelStyle));
+    const sfxValText = this.add.text(left + panelW - 20, yPos, "100%", valStyle).setOrigin(1, 0);
+    this.settingsContainer.add(sfxValText);
+    yPos += 22;
+    const sfxSlider = this.createSlider(left + 20, yPos, panelW - 40, this.sfxVolume, (val) => {
+      this.sfxVolume = val;
+      this.sfxMuted = val === 0;
+      sfxValText.setText(`${Math.round(val * 100)}%`);
+      for (const s of this.ambientSounds) {
+        if ("setVolume" in s) (s as Phaser.Sound.WebAudioSound).setVolume(val * 0.15);
+      }
+    });
+    this.settingsContainer.add(sfxSlider);
+    yPos += 30;
+
+    // --- Scroll Zoom Toggle ---
+    const zoomToggle = this.createToggle(left + 20, yPos, "Scroll Zoom", this.zoomEnabled, (on) => {
+      this.zoomEnabled = on;
+      if (on) {
+        this.zoomText.setVisible(true);
+        this.zoomText.setText(`${Math.round(this.cameras.main.zoom * 100)}%`);
+        this.wheelHandler = (e: WheelEvent) => {
+          e.preventDefault();
+          const cam = this.cameras.main;
+          const zoomStops = [1, 1.5, 2, 2.5, 3, 4];
+          const curIdx = zoomStops.reduce((closest, val, idx) =>
+            Math.abs(val - cam.zoom) < Math.abs(zoomStops[closest] - cam.zoom) ? idx : closest, 0);
+          const nextIdx = Phaser.Math.Clamp(curIdx + (e.deltaY > 0 ? -1 : 1), 0, zoomStops.length - 1);
+          cam.setZoom(zoomStops[nextIdx]);
+          this.zoomText.setText(`${Math.round(zoomStops[nextIdx] * 100)}%`);
+        };
+        window.addEventListener("wheel", this.wheelHandler, { passive: false });
+      } else {
+        this.zoomText.setVisible(false);
+        if (this.wheelHandler) {
+          window.removeEventListener("wheel", this.wheelHandler);
+          this.wheelHandler = undefined;
+        }
+        this.cameras.main.setZoom(2.5);
+      }
+    });
+    this.settingsContainer.add(zoomToggle);
+
+    // Back button
+    const backBtn = this.add.text(cx, top + panelH - 25, "[ ESC ]  Back", {
+      fontSize: "14px", fontFamily: "Rajdhani, sans-serif", color: "#8a82a0",
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    backBtn.on("pointerover", () => backBtn.setColor("#d0c8e0"));
+    backBtn.on("pointerout", () => backBtn.setColor("#8a82a0"));
+    backBtn.on("pointerdown", () => this.closeSettings());
+    this.settingsContainer.add(backBtn);
+  }
+
+  private createSlider(x: number, y: number, w: number, initial: number, onChange: (val: number) => void): Phaser.GameObjects.Container {
+    const container = this.add.container(0, 0);
+
+    // Track
+    const track = this.add.graphics();
+    track.fillStyle(0x2a2a3a, 1);
+    track.fillRoundedRect(x, y + 4, w, 6, 3);
+    container.add(track);
+
+    // Fill
+    const fill = this.add.graphics();
+    container.add(fill);
+
+    // Knob
+    const knob = this.add.graphics();
+    container.add(knob);
+
+    const drawSlider = (val: number) => {
+      fill.clear();
+      fill.fillStyle(0x4a90d9, 1);
+      fill.fillRoundedRect(x, y + 4, w * val, 6, 3);
+      knob.clear();
+      knob.fillStyle(0xd0c8e0, 1);
+      knob.fillCircle(x + w * val, y + 7, 7);
+    };
+    drawSlider(initial);
+
+    // Invisible hit area
+    const hitZone = this.add.zone(x + w / 2, y + 7, w + 20, 20).setInteractive({ useHandCursor: true });
+    container.add(hitZone);
+
+    let dragging = false;
+    const updateFromPointer = (px: number) => {
+      const val = Phaser.Math.Clamp((px - x) / w, 0, 1);
+      drawSlider(val);
+      onChange(val);
+    };
+
+    const toLocal = (p: Phaser.Input.Pointer) =>
+      (p.worldX - this.hudContainer.x) / this.hudContainer.scaleX;
+
+    hitZone.on("pointerdown", (p: Phaser.Input.Pointer) => {
+      dragging = true;
+      updateFromPointer(toLocal(p));
+    });
+    this.input.on("pointermove", (p: Phaser.Input.Pointer) => {
+      if (dragging) updateFromPointer(toLocal(p));
+    });
+    this.input.on("pointerup", () => { dragging = false; });
+
+    return container;
+  }
+
+  private createToggle(x: number, y: number, label: string, initial: boolean, onChange: (on: boolean) => void): Phaser.GameObjects.Container {
+    const container = this.add.container(0, 0);
+    let isOn = initial;
+
+    const labelText = this.add.text(x, y, label, {
+      fontSize: "14px", fontFamily: "Rajdhani, sans-serif", color: "#b0a8c0",
+    });
+    container.add(labelText);
+
+    const boxX = x + 220;
+    const box = this.add.graphics();
+    const drawToggle = () => {
+      box.clear();
+      box.fillStyle(isOn ? 0x4a90d9 : 0x2a2a3a, 1);
+      box.fillRoundedRect(boxX, y + 1, 36, 16, 8);
+      box.fillStyle(0xd0c8e0, 1);
+      box.fillCircle(isOn ? boxX + 28 : boxX + 8, y + 9, 6);
+    };
+    drawToggle();
+    container.add(box);
+
+    const hitZone = this.add.zone(boxX + 18, y + 9, 40, 20).setInteractive({ useHandCursor: true });
+    hitZone.on("pointerdown", () => {
+      isOn = !isOn;
+      drawToggle();
+      onChange(isOn);
+    });
+    container.add(hitZone);
+
+    return container;
+  }
+
+  private openSettings() {
+    this.settingsOpen = true;
+    this.pauseTitle.setVisible(false);
+    this.pauseQuitBtn.setVisible(false);
+    this.pauseSettingsBtn.setVisible(false);
+    this.settingsContainer.setVisible(true);
+  }
+
+  private closeSettings() {
+    this.settingsOpen = false;
+    this.settingsContainer.setVisible(false);
+    this.pauseTitle.setVisible(true);
+    this.pauseQuitBtn.setVisible(true);
+    this.pauseSettingsBtn.setVisible(true);
   }
 
   private pauseGame() {
@@ -1024,16 +1461,20 @@ export class GameScene extends Phaser.Scene {
     this.pauseOverlay.setVisible(true);
     this.pauseTitle.setVisible(true);
     this.pauseQuitBtn.setVisible(true);
+    this.pauseSettingsBtn.setVisible(true);
 
-    if (this.input.keyboard) {
-      const qKey = this.input.keyboard.addKey(
-        Phaser.Input.Keyboard.KeyCodes.Q
-      );
-      qKey.once("down", () => {
-        if (this.paused) this.scene.start("MainMenu");
-      });
-    }
+    this.pauseKeyHandler = (event: KeyboardEvent) => {
+      if (event.key === "q" || event.key === "Q") {
+        if (this.paused && !this.settingsOpen) this.scene.start("MainMenu");
+      }
+      if (event.key === "s" || event.key === "S") {
+        if (this.paused && !this.settingsOpen) this.openSettings();
+      }
+    };
+    window.addEventListener("keydown", this.pauseKeyHandler);
   }
+
+  private pauseKeyHandler?: (event: KeyboardEvent) => void;
 
   private resumeGame() {
     this.paused = false;
@@ -1042,9 +1483,13 @@ export class GameScene extends Phaser.Scene {
     this.pauseOverlay.setVisible(false);
     this.pauseTitle.setVisible(false);
     this.pauseQuitBtn.setVisible(false);
+    this.pauseSettingsBtn.setVisible(false);
+    this.settingsContainer.setVisible(false);
+    this.settingsOpen = false;
 
-    if (this.input.keyboard) {
-      this.input.keyboard.removeKey(Phaser.Input.Keyboard.KeyCodes.Q);
+    if (this.pauseKeyHandler) {
+      window.removeEventListener("keydown", this.pauseKeyHandler);
+      this.pauseKeyHandler = undefined;
     }
   }
 

@@ -10,28 +10,31 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "breathing-idle", frames: 4 },
     { type: "cross-punch", frames: 6 },
     { type: "taking-punch", frames: 6 },
-    { type: "falling-back-death", frames: 6 },
+    { type: "falling-back-death", frames: 7 },
+    { type: "shooting-pistol", frames: 4 },
+    { type: "shooting-shotgun", frames: 4 },
+    { type: "high-kick", frames: 7 },
   ],
   dan: [
     { type: "walk", frames: 6 },
     { type: "breathing-idle", frames: 4 },
     { type: "cross-punch", frames: 6 },
     { type: "taking-punch", frames: 6 },
-    { type: "falling-back-death", frames: 6 },
-  ],
-  mason: [
-    { type: "walk", frames: 6 },
-    { type: "breathing-idle", frames: 4 },
-    { type: "cross-punch", frames: 6 },
-    { type: "taking-punch", frames: 6 },
     { type: "falling-back-death", frames: 7 },
+    { type: "shooting-pistol", frames: 4 },
+    { type: "shooting-shotgun", frames: 4 },
+    { type: "throw-grenade", frames: 4 },
   ],
+  // mason: temporarily removed from roster (sprite rework)
   pj: [
     { type: "walk", frames: 6 },
     { type: "breathing-idle", frames: 4 },
     { type: "cross-punch", frames: 6 },
     { type: "taking-punch", frames: 6 },
     { type: "falling-back-death", frames: 7 },
+    { type: "shooting-pistol", frames: 4 },
+    { type: "shooting-shotgun", frames: 4 },
+    { type: "swinging-katana", frames: 4 },
   ],
   jason: [
     { type: "walk", frames: 6 },
@@ -39,10 +42,18 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "cross-punch", frames: 6 },
     { type: "taking-punch", frames: 6 },
     { type: "falling-back-death", frames: 7 },
+    { type: "shooting-pistol", frames: 4 },
+    { type: "shooting-shotgun", frames: 4 },
+    { type: "light-cigarette", frames: 4 },
   ],
   pussy: [
     { type: "walk", frames: 8 },
     { type: "bite", frames: 4 },
+    { type: "falling-back-death", frames: 7 },
+  ],
+  bigzombie: [
+    { type: "walk", frames: 4 },
+    { type: "breathing-idle", frames: 4 },
   ],
 };
 

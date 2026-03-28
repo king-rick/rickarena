@@ -4,7 +4,7 @@ import { BALANCE } from "../data/balance";
 import { hasAnimation, getAnimKey } from "../data/animations";
 
 export type Facing = "down" | "up" | "left" | "right";
-type PlayerAnim = "walk" | "breathing-idle" | "idle" | "cross-punch" | "taking-punch" | "falling-back-death";
+type PlayerAnim = "walk" | "breathing-idle" | "idle" | "cross-punch" | "taking-punch" | "falling-back-death" | "shooting-pistol" | "shooting-shotgun" | "high-kick" | "swinging-katana" | "throw-grenade";
 
 export interface PlayerStats {
   speed: number;
@@ -51,6 +51,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private hasHurtAnim: boolean;
   private hasDeathAnim: boolean;
   private punching = false;
+  private shooting = false; // true during shoot animation — doesn't block movement
   private locked = false; // true during hurt/death — blocks all input
 
   /** True while punch animation is active — grants i-frames */
@@ -177,8 +178,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       else if (dir === "east") this.facing = "right";
       else if (dir === "west") this.facing = "left";
 
-      // Don't interrupt punch animation with walk/idle
-      if (!this.punching) {
+      // Don't interrupt punch or shooting animation with walk/idle
+      if (!this.punching && !this.shooting) {
         const dirChanged = dir !== this.currentDir;
         const animChanged = this.currentAnim !== "walk";
 
@@ -192,10 +193,13 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
             this.setTexture(`${this.characterId}-${dir}`);
           }
         }
+      } else if (this.shooting) {
+        // Still update facing direction during shooting
+        this.currentDir = dir;
       }
 
       this.currentDir = dir;
-    } else if (this.currentAnim === "walk" && !this.punching) {
+    } else if (this.currentAnim === "walk" && !this.punching && !this.shooting) {
       // Stopped moving — switch to idle
       this.currentAnim = "idle";
 
@@ -309,6 +313,55 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       onComplete?.();
     }
   }
+
+  /** Play shooting animation based on weapon type. Doesn't lock movement. */
+  playShoot(weaponType: string) {
+    if (this.locked || this.punching) return;
+
+    // Map weapon type to animation name
+    const animMap: Record<string, string> = {
+      pistol: "shooting-pistol",
+      shotgun: "shooting-shotgun",
+      smg: "shooting-pistol", // SMG reuses pistol animation
+    };
+
+    const animType = animMap[weaponType];
+    if (!animType || !hasAnimation(this.characterId, animType)) return;
+
+    const shootKey = getAnimKey(this.characterId, animType, this.currentDir);
+    if (!this.scene.anims.exists(shootKey)) return;
+
+    this.shooting = true;
+    this.currentAnim = animType as PlayerAnim;
+
+    this.off("animationcomplete", this.handleShootComplete, this);
+    try {
+      this.play(shootKey);
+    } catch {
+      this.shooting = false;
+      return;
+    }
+    this.once("animationcomplete", this.handleShootComplete, this);
+  }
+
+  private handleShootComplete = () => {
+    this.shooting = false;
+    this.currentAnim = "idle";
+
+    // Resume walk or idle based on current movement
+    const vx = this.body?.velocity?.x ?? 0;
+    const vy = this.body?.velocity?.y ?? 0;
+    const isMoving = Math.abs(vx) > 1 || Math.abs(vy) > 1;
+
+    if (isMoving && this.hasWalkAnim) {
+      this.currentAnim = "walk";
+      this.play(getAnimKey(this.characterId, "walk", this.currentDir), true);
+    } else if (this.hasIdleAnim) {
+      this.play(getAnimKey(this.characterId, "breathing-idle", this.currentDir), true);
+    } else {
+      this.setTexture(`${this.characterId}-${this.currentDir}`);
+    }
+  };
 
   useStamina(amount: number): boolean {
     if (this.burnedOut) return false;

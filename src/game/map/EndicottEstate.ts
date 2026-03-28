@@ -1,8 +1,8 @@
 import Phaser from "phaser";
 
-// Map is ~3200x3200px (roughly 3.3 screen widths at 960px viewport)
-export const MAP_WIDTH = 3200;
-export const MAP_HEIGHT = 3200;
+// Map is ~1920x1920px (60x60 tiles at 32px)
+export const MAP_WIDTH = 1920;
+export const MAP_HEIGHT = 1920;
 
 // ─── Colors ───
 const PATH_COLOR = 0x2a2520;

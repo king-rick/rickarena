@@ -46,23 +46,13 @@ export const CHARACTERS: CharacterDef[] = [
     className: "Engineer",
     weaponSpecialty: "Generalist", // decent with everything, best at nothing
     specialtyDesc: "Balanced — +10% damage and +2% crit with all weapons",
-    stats: { hp: 100, damage: 15, speed: 150, stamina: 120, regen: 12, punchRange: 60, punchArc: 110, critChance: 0.04 },
+    stats: { hp: 120, damage: 20, speed: 155, stamina: 130, regen: 14, punchRange: 60, punchArc: 110, critChance: 0.05 },
     ability: { name: "Turret", desc: "Deploy an auto-targeting turret", cooldown: 20 },
     ultimate: { name: "Overcharge", desc: "All turrets and traps get boosted", cooldown: 120 },
     pixelLabId: "26a5c8a9-c68d-4a4b-9466-8fa705300d06",
   },
-  {
-    id: "mason",
-    name: "Mason",
-    fullName: "Mason Costa",
-    className: "Tank",
-    weaponSpecialty: "Shotguns",
-    specialtyDesc: "Shotguns — +30% damage, knockback sends enemies flying",
-    stats: { hp: 150, damage: 18, speed: 120, stamina: 110, regen: 9, punchRange: 65, punchArc: 140, critChance: 0.03 },
-    ability: { name: "Fortress", desc: "Damage shield that taunts nearby enemies", cooldown: 18 },
-    ultimate: { name: "Bass Drop", desc: "AoE ground pound shockwave that stuns and damages all nearby enemies", cooldown: 100 },
-    pixelLabId: "dee453bd-8231-42c9-984d-5c3fbf756789",
-  },
+  // Mason Costa — removed from playable roster temporarily (sprite rework in progress)
+  // pixelLabId: "9b86d8ed-7725-43c3-9d6c-409501b5f70d" (v3)
   {
     id: "pj",
     name: "PJ",

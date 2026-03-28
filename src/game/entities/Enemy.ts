@@ -22,7 +22,7 @@ function angleToDirection(angle: number): string {
 const VARIANT_TINTS: Record<EnemyType, number> = {
   basic: 0xffffff,
   fast: 0xcccc66,
-  tank: 0x6666cc,
+  tank: 0xffffff, // tank uses bigzombie sprite, no tint needed
 };
 
 const VARIANT_SCALES: Record<EnemyType, number> = {
@@ -51,6 +51,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private stuckTimer = 0; // ms since last significant movement
   private lastX = 0;
   private lastY = 0;
+  private spriteId: string; // "pussy" or "bigzombie"
 
   constructor(
     scene: Phaser.Scene,
@@ -59,8 +60,11 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     type: EnemyType,
     waveMultiplier: number = 1
   ) {
-    super(scene, x, y, "pussy-south");
+    const isTank = type === "tank";
+    const spriteId = isTank ? "bigzombie" : "pussy";
+    super(scene, x, y, `${spriteId}-south`);
 
+    this.spriteId = spriteId;
     const baseStats = BALANCE.enemies[type];
     this.enemyType = type;
     this.maxHealth = Math.floor(baseStats.hp * waveMultiplier);
@@ -76,21 +80,26 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.setDepth(5);
 
     // Collision body covering torso + feet for reliable hit detection
-    this.body.setSize(40, 55);
-    this.body.setOffset(44, 55);
+    if (isTank) {
+      this.body.setSize(50, 60);
+      this.body.setOffset(55, 65);
+    } else {
+      this.body.setSize(40, 55);
+      this.body.setOffset(44, 55);
+    }
 
     if (this.baseTint !== 0xffffff) {
       this.setTint(this.baseTint);
     }
 
-    this.hasWalkAnim = hasAnimation("pussy", "walk");
-    this.hasBiteAnim = hasAnimation("pussy", "bite");
+    this.hasWalkAnim = hasAnimation(spriteId, "walk");
+    this.hasBiteAnim = hasAnimation(spriteId, "bite");
     this.lastX = x;
     this.lastY = y;
 
     // Start walk animation if available
     if (this.hasWalkAnim) {
-      this.play(getAnimKey("pussy", "walk", "south"));
+      this.play(getAnimKey(spriteId, "walk", "south"));
     }
 
     this.healthBarGfx = scene.add.graphics();
@@ -149,7 +158,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     if (!this.hasBiteAnim || this.biting) return;
 
     this.biting = true;
-    const biteKey = getAnimKey("pussy", "bite", this.currentDir);
+    const biteKey = getAnimKey(this.spriteId, "bite", this.currentDir);
 
     if (this.scene.anims.exists(biteKey)) {
       this.off("animationcomplete", this.handleBiteComplete, this);
@@ -164,7 +173,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.biting = false;
     // Resume walk animation
     if (this.hasWalkAnim) {
-      this.play(getAnimKey("pussy", "walk", this.currentDir), true);
+      this.play(getAnimKey(this.spriteId, "walk", this.currentDir), true);
     }
   };
 
@@ -223,9 +232,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.currentDir = newDir;
       if (!this.biting) {
         if (this.hasWalkAnim) {
-          this.play(getAnimKey("pussy", "walk", newDir), true);
+          this.play(getAnimKey(this.spriteId, "walk", newDir), true);
         } else {
-          this.setTexture(`pussy-${newDir}`);
+          this.setTexture(`${this.spriteId}-${newDir}`);
         }
       }
       if (this.hitFlashTimer <= 0 && this.baseTint !== 0xffffff) {

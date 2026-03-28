@@ -42,6 +42,10 @@ export class BootScene extends Phaser.Scene {
         `pussy-${dir}`,
         `/assets/sprites/pussy/rotations/${dir}.png`
       );
+      this.load.image(
+        `bigzombie-${dir}`,
+        `/assets/sprites/bigzombie/rotations/${dir}.png`
+      );
     }
 
     // Tiles
@@ -53,6 +57,37 @@ export class BootScene extends Phaser.Scene {
     this.load.image("ts-road", "/assets/tilesets/fantasy/Tileset_Road.png");
     this.load.image("ts-water", "/assets/tilesets/fantasy/Tileset_Water.png");
     this.load.image("ts-rockslope", "/assets/tilesets/fantasy/Tileset_RockSlope_Simple.png");
+
+    // Tilemap — Endicott Estate (32x32 tiles, 60x60)
+    this.load.tilemapTiledJSON("endicott-map", "/assets/maps/endicott.tmj");
+    this.load.image("ts-cainos-grass", "/assets/tilesets/basic-grass.png");
+    this.load.image("ts-cainos-stone", "/assets/tilesets/basic-stone.png");
+    this.load.image("ts-basic-plant", "/assets/tilesets/basic-plant.png");
+    this.load.image("ts-basic-props", "/assets/tilesets/basic-props.png");
+    this.load.image("ts-basic-struct", "/assets/tilesets/basic-struct.png");
+    this.load.image("ts-basic-wall", "/assets/tilesets/basic-wall.png");
+    this.load.image("ts-port-town", "/assets/tilesets/port-town.png");
+    this.load.image("ts-pixellab-estate", "/assets/tilesets/pixellab-estate.png");
+    // BloomPixel tilesets
+    this.load.image("ts-bp-bushes", "/assets/tilesets/bloompixel/bp-bushes.png");
+    this.load.image("ts-bp-stone-path", "/assets/tilesets/bloompixel/bp-stone-path.png");
+    this.load.image("ts-bp-ground-32", "/assets/tilesets/bloompixel/bp-ground-32.png");
+    this.load.image("ts-bp-trees-64", "/assets/tilesets/bloompixel/bp-trees-64.png");
+    this.load.image("ts-bp-rocks-64", "/assets/tilesets/bloompixel/bp-rocks-64.png");
+    this.load.image("ts-bp-dirt-path", "/assets/tilesets/bloompixel/bp-dirt-path.png");
+    // NYKNCK road tiles (16x16 upscaled to 32x32)
+    this.load.image("ts-nyknck-roads", "/assets/tilesets/nyknck-roads.png");
+    // Kenney RPG Urban Pack (16x16 upscaled to 32x32)
+    this.load.image("ts-kenney-urban", "/assets/tilesets/kenney-rpg-urban.png");
+    // Tree spritesheets (64x64 per frame, used as individual sprites for overlap)
+    this.load.spritesheet("trees-64", "/assets/tilesets/bloompixel/bp-trees-64.png", { frameWidth: 64, frameHeight: 64 });
+    this.load.spritesheet("dark-trees-64", "/assets/tilesets/bloompixel/bp-dark-trees-64.png", { frameWidth: 64, frameHeight: 64 });
+
+    // Buildings
+    this.load.image("endicott-v1", "/assets/sprites/endicott-v1.png");
+    this.load.image("fountain", "/assets/sprites/fountain.png");
+    this.load.image("greenhouse", "/assets/sprites/greenhouse.png");
+    this.load.image("gazebo", "/assets/sprites/gazebo.png");
 
     // Item sprites
     this.load.image("item-pistol", "/assets/sprites/items/pistol.png");
@@ -216,6 +251,12 @@ export class BootScene extends Phaser.Scene {
           else if (anim.type === "cross-punch") frameRate = 18;
           else if (anim.type === "taking-punch") frameRate = 14;
           else if (anim.type === "falling-back-death") frameRate = 10;
+          else if (anim.type === "shooting-pistol") frameRate = 12;
+          else if (anim.type === "shooting-shotgun") frameRate = 10;
+          else if (anim.type === "high-kick") frameRate = 16;
+          else if (anim.type === "swinging-katana") frameRate = 14;
+          else if (anim.type === "throw-grenade") frameRate = 10;
+          else if (anim.type === "light-cigarette") frameRate = 6;
 
           this.anims.create({
             key: animKey,
