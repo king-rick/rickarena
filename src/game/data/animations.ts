@@ -54,8 +54,6 @@ export const CHARACTER_ANIMATIONS: Record<
   zombiedog: [
     { type: "walk", frames: 8 },
     { type: "bite", frames: 4 },
-    { type: "death", frames: 4 },
-    { type: "leap", frames: 4 },
   ],
   bigzombie: [
     { type: "walk", frames: 4 },
