@@ -260,39 +260,33 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, ENDICOTT_MAP_W, ENDICOTT_MAP_H);
     this.cameras.main.setRoundPixels(true);
 
-    // Minimap — top-right corner, below kills/currency row
+    // Minimap — bottom-right corner
     const mmSize = 160;
     const mmPadding = 12;
     const { width: screenW, height: screenH } = this.cameras.main;
-    this.minimap = this.cameras.add(
-      screenW - mmSize - mmPadding,
-      80,
-      mmSize,
-      mmSize
-    );
+    const mmX = screenW - mmSize - mmPadding;
+    const mmY = screenH - mmSize - mmPadding;
+    this.minimap = this.cameras.add(mmX, mmY, mmSize, mmSize);
     this.minimap.setZoom(mmSize / ENDICOTT_MAP_W);
     this.minimap.setBounds(0, 0, ENDICOTT_MAP_W, ENDICOTT_MAP_H);
     this.minimap.centerOn(ENDICOTT_MAP_W / 2, ENDICOTT_MAP_H / 2);
     this.minimap.setBackgroundColor(0x0a0a14);
     this.minimap.setName("minimap");
 
-    // Minimap border (rendered on main camera only)
+    // Minimap border — thick, clearly visible
     const mmBorder = this.add.graphics();
     mmBorder.setScrollFactor(0);
     mmBorder.setDepth(200);
-    mmBorder.lineStyle(3, 0x4a4565, 0.8);
-    mmBorder.strokeRect(
-      screenW - mmSize - mmPadding,
-      80,
-      mmSize,
-      mmSize
-    );
+    mmBorder.lineStyle(4, 0x5aabff, 0.9);
+    mmBorder.strokeRect(mmX - 2, mmY - 2, mmSize + 4, mmSize + 4);
+    mmBorder.lineStyle(1, 0x0a0a14, 1);
+    mmBorder.strokeRect(mmX - 3, mmY - 3, mmSize + 6, mmSize + 6);
     this.minimap.ignore(mmBorder);
 
     // Zoom percentage text (hidden)
     this.zoomText = this.add.text(
       screenW - mmPadding,
-      62,
+      mmY - 18,
       `${Math.round(this.cameras.main.zoom * 100)}%`,
       { fontSize: "20px", fontFamily: "Rajdhani, sans-serif", color: "#ffffff" }
     ).setOrigin(1, 0).setDepth(200).setVisible(false);
@@ -2693,12 +2687,12 @@ export class GameScene extends Phaser.Scene {
 
     this.xpBar = this.add.graphics();
 
-    // ===== TOP-RIGHT: Skull + kills, Coin + gold (left of minimap) =====
-    const skullIcon = this.add.image(width - 210, 20, "ui-icon-skull").setOrigin(0, 0).setScale(S);
+    // ===== TOP-RIGHT: Skull + kills, Coin + gold =====
+    const skullIcon = this.add.image(width - 100, 20, "ui-icon-skull").setOrigin(0, 0).setScale(S);
     this.hudContainer.add(skullIcon);
 
     this.killText = this.add
-      .text(width - 174, 22, "0", {
+      .text(width - 64, 22, "0", {
         fontSize: "24px",
         fontFamily: "Rajdhani, sans-serif",
         color: "#ffffff",
@@ -2707,11 +2701,11 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0, 0);
     this.hudContainer.add(this.killText);
 
-    const coinIcon = this.add.image(width - 210, 50, "ui-icon-coin").setOrigin(0, 0).setScale(S);
+    const coinIcon = this.add.image(width - 100, 50, "ui-icon-coin").setOrigin(0, 0).setScale(S);
     this.hudContainer.add(coinIcon);
 
     this.currencyText = this.add
-      .text(width - 174, 52, "0", {
+      .text(width - 64, 52, "0", {
         fontSize: "24px",
         fontFamily: "Rajdhani, sans-serif",
         color: "#e8c840",
@@ -2789,24 +2783,24 @@ export class GameScene extends Phaser.Scene {
       this.slotCounts.push(count);
     }
 
-    // ===== BOTTOM-RIGHT: Ability =====
+    // ===== BOTTOM-LEFT: Ability (above slot strip) =====
     this.abilityNameText = this.add
-      .text(width - 24, height - 56, "", {
-        fontSize: "20px",
+      .text(20, height - slotH - 42, "", {
+        fontSize: "18px",
         fontFamily: "Rajdhani, sans-serif",
         color: "#ffffff",
         fontStyle: "bold",
       })
-      .setOrigin(1, 0);
+      .setOrigin(0, 0);
     this.hudContainer.add(this.abilityNameText);
 
     this.abilityStatusText = this.add
-      .text(width - 24, height - 32, "", {
-        fontSize: "16px",
+      .text(200, height - slotH - 42, "", {
+        fontSize: "18px",
         fontFamily: "Rajdhani, sans-serif",
         color: "#5aabff",
       })
-      .setOrigin(1, 0);
+      .setOrigin(0, 0);
     this.hudContainer.add(this.abilityStatusText);
 
     // ===== CENTER: Announcements =====
