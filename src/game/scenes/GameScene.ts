@@ -107,23 +107,26 @@ export class GameScene extends Phaser.Scene {
   private waveText!: Phaser.GameObjects.Text;
   private waveStatusText!: Phaser.GameObjects.Text;
   private waveAnnouncement!: Phaser.GameObjects.Text;
-  private weaponText!: Phaser.GameObjects.Text;
-  private weaponIcon!: Phaser.GameObjects.Image;
-  private ammoText!: Phaser.GameObjects.Text;
   private zoomEnabled = false; // toggled in settings
-  private trapText!: Phaser.GameObjects.Text;
   private countdownText!: Phaser.GameObjects.Text;
-  private abilityCDText!: Phaser.GameObjects.Text;
+  private abilityNameText!: Phaser.GameObjects.Text;
+  private abilityStatusText!: Phaser.GameObjects.Text;
+  // Slot strip (bottom-left)
+  private slotBgs: Phaser.GameObjects.Graphics[] = [];
+  private slotIcons: Phaser.GameObjects.Image[] = [];
+  private slotLabels: Phaser.GameObjects.Text[] = [];
+  private slotCounts: Phaser.GameObjects.Text[] = [];
   private shopCashText!: Phaser.GameObjects.Text;
   private shopSelectedIndex = 0;
-  private shopItemName!: Phaser.GameObjects.Text;
-  private shopItemDesc!: Phaser.GameObjects.Text;
-  private shopItemPrice!: Phaser.GameObjects.Text;
-  private shopItemStatus!: Phaser.GameObjects.Text;
-  private shopItemIconGfx!: Phaser.GameObjects.Graphics;
-  private shopItemIconImg!: Phaser.GameObjects.Image;
-  private shopDots: Phaser.GameObjects.Graphics[] = [];
-  private shopCategoryText!: Phaser.GameObjects.Text;
+  private shopCards: {
+    bg: Phaser.GameObjects.Graphics;
+    icon: Phaser.GameObjects.Image | null;
+    name: Phaser.GameObjects.Text;
+    desc: Phaser.GameObjects.Text;
+    price: Phaser.GameObjects.Text;
+    key: Phaser.GameObjects.Text;
+    zone: Phaser.GameObjects.Zone;
+  }[] = [];
 
   constructor() {
     super({ key: "Game" });
@@ -257,13 +260,13 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, ENDICOTT_MAP_W, ENDICOTT_MAP_H);
     this.cameras.main.setRoundPixels(true);
 
-    // Minimap — bottom-right corner, shows full map with player dot
+    // Minimap — top-right corner, below kills/currency row
     const mmSize = 160;
     const mmPadding = 12;
     const { width: screenW, height: screenH } = this.cameras.main;
     this.minimap = this.cameras.add(
       screenW - mmSize - mmPadding,
-      screenH - mmSize - mmPadding,
+      80,
       mmSize,
       mmSize
     );
@@ -280,16 +283,16 @@ export class GameScene extends Phaser.Scene {
     mmBorder.lineStyle(3, 0x4a4565, 0.8);
     mmBorder.strokeRect(
       screenW - mmSize - mmPadding,
-      screenH - mmSize - mmPadding,
+      80,
       mmSize,
       mmSize
     );
     this.minimap.ignore(mmBorder);
 
-    // Zoom percentage text (hidden until zoom is enabled in settings)
+    // Zoom percentage text (hidden)
     this.zoomText = this.add.text(
       screenW - mmPadding,
-      screenH - mmSize - mmPadding - 18,
+      62,
       `${Math.round(this.cameras.main.zoom * 100)}%`,
       { fontSize: "20px", fontFamily: "Rajdhani, sans-serif", color: "#ffffff" }
     ).setOrigin(1, 0).setDepth(200).setVisible(false);
@@ -2217,15 +2220,13 @@ export class GameScene extends Phaser.Scene {
     this.shopContainer.setDepth(160);
     this.shopContainer.setVisible(false);
     this.hudContainer.add(this.shopContainer);
-    this.shopDots = [];
+    this.shopCards = [];
 
     const items = BALANCE.shop.items;
-    const panelW = 680;
-    const panelH = 480;
+    const panelW = 900;
+    const panelH = 560;
     const panelLeft = width / 2 - panelW / 2;
     const panelTop = height / 2 - panelH / 2;
-    const cx = width / 2;
-    const cy = height / 2;
 
     // Dim overlay
     const overlay = this.add.graphics();
@@ -2236,239 +2237,244 @@ export class GameScene extends Phaser.Scene {
     // Panel background
     const bg = this.add.graphics();
     bg.fillStyle(0x0a0a14, 0.95);
-    bg.fillRoundedRect(panelLeft, panelTop, panelW, panelH, 16);
-    bg.lineStyle(2, 0x3a3550, 0.8);
-    bg.strokeRoundedRect(panelLeft, panelTop, panelW, panelH, 16);
+    bg.fillRoundedRect(panelLeft, panelTop, panelW, panelH, 12);
+    bg.lineStyle(1, 0x2a2a40, 0.8);
+    bg.strokeRoundedRect(panelLeft, panelTop, panelW, panelH, 12);
     this.shopContainer.add(bg);
 
     // Header: SHOP + cash
-    const shopTitle = this.add.text(cx, panelTop + 32, "SHOP", {
-      fontSize: "32px", fontFamily: "Rajdhani, sans-serif", color: "#ffffff", fontStyle: "bold", letterSpacing: 8,
-    }).setOrigin(0.5).setDepth(161);
+    const shopTitle = this.add.text(panelLeft + 32, panelTop + 28, "SHOP", {
+      fontSize: "36px", fontFamily: "Rajdhani, sans-serif", color: "#ffffff", fontStyle: "bold", letterSpacing: 8,
+    }).setOrigin(0, 0.5);
     this.shopContainer.add(shopTitle);
 
-    this.shopCashText = this.add.text(panelLeft + panelW - 32, panelTop + 32, "$0", {
-      fontSize: "32px", fontFamily: "Rajdhani, sans-serif", color: "#e8c840", fontStyle: "bold",
+    this.shopCashText = this.add.text(panelLeft + panelW - 32, panelTop + 28, "$0", {
+      fontSize: "36px", fontFamily: "Rajdhani, sans-serif", color: "#e8c840", fontStyle: "bold",
     }).setOrigin(1, 0.5);
     this.shopContainer.add(this.shopCashText);
 
-    // Category label (SUPPLIES / WEAPONS / TRAPS)
-    this.shopCategoryText = this.add.text(cx, panelTop + 76, "", {
-      fontSize: "18px", fontFamily: "Rajdhani, sans-serif", color: "#5a5577", fontStyle: "bold", letterSpacing: 4,
-    }).setOrigin(0.5);
-    this.shopContainer.add(this.shopCategoryText);
+    // Header underline
+    const headerLine = this.add.graphics();
+    headerLine.lineStyle(1, 0x2a2a40, 1);
+    headerLine.lineBetween(panelLeft + 24, panelTop + 56, panelLeft + panelW - 24, panelTop + 56);
+    this.shopContainer.add(headerLine);
 
-    // Item icon (graphics fallback for items without sprites)
-    this.shopItemIconGfx = this.add.graphics();
-    this.shopContainer.add(this.shopItemIconGfx);
+    // Three columns
+    const colW = 270;
+    const colX = [panelLeft + 32, panelLeft + 32 + colW + 12, panelLeft + 32 + (colW + 12) * 2];
+    const colHeaders = ["SUPPLIES", "WEAPONS", "TRAPS"];
 
-    // Item icon (image for items with sprites)
-    this.shopItemIconImg = this.add.image(cx, panelTop + 150, "item-pistol")
-      .setOrigin(0.5)
-      .setScale(3.6)
-      .setVisible(false);
-    this.shopContainer.add(this.shopItemIconImg);
+    // Column dividers
+    const dividers = this.add.graphics();
+    dividers.lineStyle(1, 0x1e1e2e, 1);
+    dividers.lineBetween(colX[1] - 6, panelTop + 64, colX[1] - 6, panelTop + panelH - 50);
+    dividers.lineBetween(colX[2] - 6, panelTop + 64, colX[2] - 6, panelTop + panelH - 50);
+    this.shopContainer.add(dividers);
 
-    // Item name (big, centered)
-    this.shopItemName = this.add.text(cx, panelTop + 220, "", {
-      fontSize: "40px", fontFamily: "Rajdhani, sans-serif", color: "#e0daf0", fontStyle: "bold",
-    }).setOrigin(0.5);
-    this.shopContainer.add(this.shopItemName);
-
-    // Description
-    this.shopItemDesc = this.add.text(cx, panelTop + 268, "", {
-      fontSize: "22px", fontFamily: "Rajdhani, sans-serif", color: "#9990aa",
-      wordWrap: { width: panelW - 120 }, align: "center",
-    }).setOrigin(0.5, 0);
-    this.shopContainer.add(this.shopItemDesc);
-
-    // Price
-    this.shopItemPrice = this.add.text(cx, panelTop + 330, "", {
-      fontSize: "36px", fontFamily: "Rajdhani, sans-serif", color: "#e8c840", fontStyle: "bold",
-    }).setOrigin(0.5);
-    this.shopContainer.add(this.shopItemPrice);
-
-    // Status text (LOCKED / PURCHASED / CAN'T AFFORD etc)
-    this.shopItemStatus = this.add.text(cx, panelTop + 372, "", {
-      fontSize: "20px", fontFamily: "Rajdhani, sans-serif", color: "#888899",
-    }).setOrigin(0.5);
-    this.shopContainer.add(this.shopItemStatus);
-
-    // Left/right arrows
-    const arrowL = this.add.text(panelLeft + 28, cy, "\u25C0", {
-      fontSize: "40px", fontFamily: "Rajdhani, sans-serif", color: "#5aabff",
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    arrowL.on("pointerdown", () => this.shopNavigate(-1));
-    this.shopContainer.add(arrowL);
-
-    const arrowR = this.add.text(panelLeft + panelW - 28, cy, "\u25B6", {
-      fontSize: "40px", fontFamily: "Rajdhani, sans-serif", color: "#5aabff",
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    arrowR.on("pointerdown", () => this.shopNavigate(1));
-    this.shopContainer.add(arrowR);
-
-    // Dot indicators
-    const dotSpacing = 18;
-    const dotsStartX = cx - ((items.length - 1) * dotSpacing) / 2;
-    const dotsY = panelTop + panelH - 36;
-    for (let i = 0; i < items.length; i++) {
-      const dot = this.add.graphics();
-      dot.x = dotsStartX + i * dotSpacing;
-      dot.y = dotsY;
-      this.shopContainer.add(dot);
-      this.shopDots.push(dot);
+    // Column headers
+    for (let c = 0; c < 3; c++) {
+      const header = this.add.text(colX[c], panelTop + 74, colHeaders[c], {
+        fontSize: "13px", fontFamily: "Rajdhani, sans-serif", color: "#5a5577", fontStyle: "bold", letterSpacing: 4,
+      });
+      this.shopContainer.add(header);
     }
 
-    // Close hint
-    const closeHint = this.add.text(cx, panelTop + panelH + 28, "[ESC] or [B] to close  \u00B7  [ENTER] to buy  \u00B7  [A/D] browse", {
-      fontSize: "18px", fontFamily: "Rajdhani, sans-serif", color: "#555566",
+    // Item-to-column mapping
+    const iconMap: Record<string, string> = {
+      pistol: "item-pistol", shotgun: "item-shotgun", smg: "item-smg",
+      ammo: "item-ammo", extraClip: "item-ammo-box",
+      barricade: "trap-barricade", landmine: "item-landmine",
+      heal: "item-bandage", dmgBoost: "item-syringe",
+    };
+
+    // Organize items into columns
+    const columns: { idx: number; item: typeof items[number] }[][] = [[], [], []];
+    items.forEach((item, idx) => {
+      const id = item.id;
+      if (id === "heal" || id === "dmgBoost") columns[0].push({ idx, item });
+      else if (["pistol", "shotgun", "smg", "ammo", "extraClip"].includes(id)) columns[1].push({ idx, item });
+      else columns[2].push({ idx, item });
+    });
+
+    // Render item cards
+    const cardH = 72;
+    const cardGap = 6;
+    const cardsStartY = panelTop + 100;
+    let keyNum = 1;
+
+    for (let c = 0; c < 3; c++) {
+      for (let r = 0; r < columns[c].length; r++) {
+        const { idx, item } = columns[c][r];
+        const cx = colX[c];
+        const cy = cardsStartY + r * (cardH + cardGap);
+
+        // Card background
+        const cardBg = this.add.graphics();
+        cardBg.fillStyle(0x141420, 0.8);
+        cardBg.fillRoundedRect(cx, cy, colW, cardH, 3);
+        this.shopContainer.add(cardBg);
+
+        // Key badge
+        const keyText = this.add.text(cx + 8, cy + 8, `[${keyNum}]`, {
+          fontSize: "13px", fontFamily: "Rajdhani, sans-serif", color: "#5aabff",
+        });
+        this.shopContainer.add(keyText);
+
+        // Icon
+        const texKey = iconMap[item.id];
+        let icon: Phaser.GameObjects.Image | null = null;
+        if (texKey && this.textures.exists(texKey)) {
+          icon = this.add.image(cx + 44, cy + cardH / 2, texKey).setScale(2.2);
+          this.shopContainer.add(icon);
+        }
+
+        // Name
+        const nameText = this.add.text(cx + 76, cy + 14, item.name.toUpperCase(), {
+          fontSize: "18px", fontFamily: "Rajdhani, sans-serif", color: "#e0daf0", fontStyle: "bold",
+        });
+        this.shopContainer.add(nameText);
+
+        // Description
+        const descText = this.add.text(cx + 76, cy + 36, item.desc, {
+          fontSize: "13px", fontFamily: "Rajdhani, sans-serif", color: "#7a7a99",
+          wordWrap: { width: colW - 90 },
+        });
+        this.shopContainer.add(descText);
+
+        // Price (right-aligned)
+        const priceText = this.add.text(cx + colW - 10, cy + cardH / 2, "", {
+          fontSize: "20px", fontFamily: "Rajdhani, sans-serif", color: "#e8c840", fontStyle: "bold",
+        }).setOrigin(1, 0.5);
+        this.shopContainer.add(priceText);
+
+        // Click zone
+        const zone = this.add.zone(cx + colW / 2, cy + cardH / 2, colW, cardH)
+          .setInteractive({ useHandCursor: true });
+        zone.on("pointerdown", () => this.buyItem(idx));
+        zone.on("pointerover", () => {
+          this.shopSelectedIndex = idx;
+          this.updateShopDisplay();
+        });
+        this.shopContainer.add(zone);
+
+        this.shopCards.push({ bg: cardBg, icon, name: nameText, desc: descText, price: priceText, key: keyText, zone });
+
+        keyNum++;
+      }
+    }
+
+    // Footer
+    const footer = this.add.text(width / 2, panelTop + panelH - 20, "[ESC/B] Close  \u00B7  Number keys to buy  \u00B7  Click to buy", {
+      fontSize: "16px", fontFamily: "Rajdhani, sans-serif", color: "#444455",
     }).setOrigin(0.5);
-    this.shopContainer.add(closeHint);
+    this.shopContainer.add(footer);
 
-    // Key bindings for shop navigation + purchase
+    // Key bindings — number keys for direct buy
     if (this.input.keyboard) {
-      // A/D and arrows to browse
-      const leftKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.LEFT);
-      const rightKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.RIGHT);
-      leftKey.on("down", () => { if (this.shopOpen) this.shopNavigate(-1); });
-      rightKey.on("down", () => { if (this.shopOpen) this.shopNavigate(1); });
-
-      // Enter to buy selected
       const enterKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER);
       enterKey.on("down", () => { if (this.shopOpen) this.buyItem(this.shopSelectedIndex); });
 
-      // Number keys + numpad for direct buy
+      // Build flat index mapping: keyNum -> original item index
+      const keyToIdx: number[] = [];
+      for (let c = 0; c < 3; c++) {
+        for (let r = 0; r < columns[c].length; r++) {
+          keyToIdx.push(columns[c][r].idx);
+        }
+      }
+
       const keyCodes = [
-        Phaser.Input.Keyboard.KeyCodes.ONE,
-        Phaser.Input.Keyboard.KeyCodes.TWO,
-        Phaser.Input.Keyboard.KeyCodes.THREE,
-        Phaser.Input.Keyboard.KeyCodes.FOUR,
-        Phaser.Input.Keyboard.KeyCodes.FIVE,
-        Phaser.Input.Keyboard.KeyCodes.SIX,
-        Phaser.Input.Keyboard.KeyCodes.SEVEN,
-        Phaser.Input.Keyboard.KeyCodes.EIGHT,
+        Phaser.Input.Keyboard.KeyCodes.ONE, Phaser.Input.Keyboard.KeyCodes.TWO,
+        Phaser.Input.Keyboard.KeyCodes.THREE, Phaser.Input.Keyboard.KeyCodes.FOUR,
+        Phaser.Input.Keyboard.KeyCodes.FIVE, Phaser.Input.Keyboard.KeyCodes.SIX,
+        Phaser.Input.Keyboard.KeyCodes.SEVEN, Phaser.Input.Keyboard.KeyCodes.EIGHT,
         Phaser.Input.Keyboard.KeyCodes.NINE,
-        Phaser.Input.Keyboard.KeyCodes.ZERO,
-        Phaser.Input.Keyboard.KeyCodes.MINUS,
-      ];
-      const numpadCodes = [
-        Phaser.Input.Keyboard.KeyCodes.NUMPAD_ONE,
-        Phaser.Input.Keyboard.KeyCodes.NUMPAD_TWO,
-        Phaser.Input.Keyboard.KeyCodes.NUMPAD_THREE,
-        Phaser.Input.Keyboard.KeyCodes.NUMPAD_FOUR,
-        Phaser.Input.Keyboard.KeyCodes.NUMPAD_FIVE,
-        Phaser.Input.Keyboard.KeyCodes.NUMPAD_SIX,
-        Phaser.Input.Keyboard.KeyCodes.NUMPAD_SEVEN,
-        Phaser.Input.Keyboard.KeyCodes.NUMPAD_EIGHT,
-        Phaser.Input.Keyboard.KeyCodes.NUMPAD_NINE,
-        Phaser.Input.Keyboard.KeyCodes.NUMPAD_ZERO,
       ];
       keyCodes.forEach((code, i) => {
-        if (i < items.length) {
+        if (i < keyToIdx.length) {
           const key = this.input.keyboard!.addKey(code);
-          key.on("down", () => { if (this.shopOpen) this.buyItem(i); });
-        }
-      });
-      numpadCodes.forEach((code, i) => {
-        if (i < items.length) {
-          const key = this.input.keyboard!.addKey(code);
-          key.on("down", () => { if (this.shopOpen) this.buyItem(i); });
+          key.on("down", () => { if (this.shopOpen) this.buyItem(keyToIdx[i]); });
         }
       });
     }
-  }
-
-  private shopNavigate(dir: number) {
-    const items = BALANCE.shop.items;
-    this.shopSelectedIndex = (this.shopSelectedIndex + dir + items.length) % items.length;
-    this.updateShopDisplay();
   }
 
   private updateShopDisplay() {
     const items = BALANCE.shop.items;
-    const item = items[this.shopSelectedIndex];
-    const unlockWave = (item as any).unlockWave;
-    const locked = unlockWave && this.waveManager.wave < unlockWave;
-    const price = this.getItemPrice(this.shopSelectedIndex);
-    const canAfford = this.currency >= price;
 
-    // Category
-    const idx = this.shopSelectedIndex;
-    let category = "SUPPLIES";
-    if (idx >= 3 && idx <= 7) category = "WEAPONS";
-    else if (idx >= 8) category = "TRAPS";
-    this.shopCategoryText.setText(category);
+    // Reorganize to match card order
+    const columns: { idx: number; item: typeof items[number] }[][] = [[], [], []];
+    items.forEach((item, idx) => {
+      const id = item.id;
+      if (id === "heal" || id === "dmgBoost") columns[0].push({ idx, item });
+      else if (["pistol", "shotgun", "smg", "ammo", "extraClip"].includes(id)) columns[1].push({ idx, item });
+      else columns[2].push({ idx, item });
+    });
+    const flat = [...columns[0], ...columns[1], ...columns[2]];
 
-    // Item icon
-    const iconMap: Record<string, string> = {
-      pistol: "item-pistol",
-      shotgun: "item-shotgun",
-      smg: "item-smg",
-      ammo: "item-ammo",
-      extraClip: "item-ammo-box",
-      spikes: "trap-spikes",
-      barricade: "trap-barricade",
-      landmine: "item-landmine",
-      heal: "item-bandage",
-      dmgBoost: "item-syringe",
-    };
-    const consumableColors: Record<string, number> = {
-      fullHeal: 0x33dd99,
-    };
-
-    const { width, height } = this.cameras.main;
-    const panelTop = height / 2 - 240;
-    const iconTexture = iconMap[item.id];
-    this.shopItemIconGfx.clear();
-
-    if (iconTexture && this.textures.exists(iconTexture)) {
-      this.shopItemIconImg.setTexture(iconTexture);
-      this.shopItemIconImg.setVisible(true);
-      this.shopItemIconImg.setAlpha(locked ? 0.3 : 1);
-    } else if (consumableColors[item.id]) {
-      this.shopItemIconImg.setVisible(false);
-      const color = consumableColors[item.id];
-      this.shopItemIconGfx.fillStyle(color, locked ? 0.3 : 0.9);
-      this.shopItemIconGfx.fillRoundedRect(width / 2 - 28, panelTop + 116, 56, 56, 10);
-      this.shopItemIconGfx.lineStyle(2, 0xffffff, locked ? 0.1 : 0.3);
-      this.shopItemIconGfx.strokeRoundedRect(width / 2 - 28, panelTop + 116, 56, 56, 10);
-    } else {
-      this.shopItemIconImg.setVisible(false);
-    }
-
-    // Item info
-    this.shopItemName.setText(item.name.toUpperCase());
-
-    if (locked) {
-      this.shopItemName.setColor("#444055");
-      this.shopItemDesc.setText("???");
-      this.shopItemDesc.setColor("#333044");
-      this.shopItemPrice.setText(`WAVE ${unlockWave}`);
-      this.shopItemPrice.setColor("#553333");
-      this.shopItemStatus.setText("LOCKED");
-      this.shopItemStatus.setColor("#553333");
-    } else {
-      this.shopItemName.setColor("#e0daf0");
-      this.shopItemDesc.setText(item.desc);
-      this.shopItemDesc.setColor("#9990aa");
-      this.shopItemPrice.setText(`$${price}`);
-      this.shopItemPrice.setColor(canAfford ? "#e8c840" : "#663333");
-      this.shopItemStatus.setText(canAfford ? "ENTER TO BUY" : "NOT ENOUGH CASH");
-      this.shopItemStatus.setColor(canAfford ? "#5aabff" : "#663333");
-    }
-
-    // Cash
     this.shopCashText.setText(`$${this.currency}`);
 
-    // Dots
-    this.shopDots.forEach((dot, i) => {
-      dot.clear();
-      if (i === this.shopSelectedIndex) {
-        dot.fillStyle(0x5aabff, 1);
-        dot.fillCircle(0, 0, 5);
+    flat.forEach((entry, cardIdx) => {
+      const card = this.shopCards[cardIdx];
+      if (!card) return;
+      const { idx, item } = entry;
+      const unlockWave = (item as any).unlockWave;
+      const locked = unlockWave && this.waveManager.wave < unlockWave;
+      const price = this.getItemPrice(idx);
+      const canAfford = this.currency >= price;
+      const isEquipped = ["pistol", "shotgun", "smg"].includes(item.id)
+        && this.equippedWeapon === item.id;
+
+      if (locked) {
+        card.name.setColor("#444055");
+        card.desc.setText("???");
+        card.desc.setColor("#333044");
+        card.price.setText(`WAVE ${unlockWave}`);
+        card.price.setColor("#553333");
+        if (card.icon) card.icon.setAlpha(0.3);
+        card.key.setColor("#333044");
+      } else if (isEquipped) {
+        card.name.setColor("#5aabff");
+        card.desc.setText(item.desc);
+        card.desc.setColor("#7a7a99");
+        card.price.setText("EQUIPPED");
+        card.price.setColor("#5aabff");
+        if (card.icon) card.icon.setAlpha(1);
+        card.key.setColor("#5aabff");
       } else {
-        dot.fillStyle(0x333344, 1);
-        dot.fillCircle(0, 0, 3);
+        card.name.setColor("#e0daf0");
+        card.desc.setText(item.desc);
+        card.desc.setColor("#7a7a99");
+        card.price.setText(`$${price}`);
+        card.price.setColor(canAfford ? "#e8c840" : "#663333");
+        if (card.icon) card.icon.setAlpha(canAfford ? 1 : 0.5);
+        card.key.setColor(canAfford ? "#5aabff" : "#333044");
+      }
+
+      // Hover highlight
+      const isSelected = idx === this.shopSelectedIndex;
+      const { width: ww, height: hh } = this.cameras.main;
+      const panelW = 900;
+      const panelTop = hh / 2 - 280;
+      const panelLeft = ww / 2 - panelW / 2;
+      const colW = 270;
+      const colX = [panelLeft + 32, panelLeft + 32 + colW + 12, panelLeft + 32 + (colW + 12) * 2];
+      const cardH = 72;
+      const cardGap = 6;
+      const cardsStartY = panelTop + 100;
+
+      // Find which column and row this card is in
+      let col = 0, row = cardIdx;
+      if (cardIdx >= columns[0].length + columns[1].length) { col = 2; row = cardIdx - columns[0].length - columns[1].length; }
+      else if (cardIdx >= columns[0].length) { col = 1; row = cardIdx - columns[0].length; }
+      const cx = colX[col];
+      const cy = cardsStartY + row * (cardH + cardGap);
+
+      card.bg.clear();
+      card.bg.fillStyle(isSelected ? 0x1e1e30 : 0x141420, 0.8);
+      card.bg.fillRoundedRect(cx, cy, colW, cardH, 3);
+      if (isSelected) {
+        card.bg.lineStyle(1, 0x5aabff, 0.6);
+        card.bg.strokeRoundedRect(cx, cy, colW, cardH, 3);
       }
     });
   }
@@ -2689,12 +2695,12 @@ export class GameScene extends Phaser.Scene {
 
     this.xpBar = this.add.graphics();
 
-    // ===== TOP-RIGHT: Skull + kills, Coin + gold (no panel, just icons + numbers) =====
-    const skullIcon = this.add.image(width - 100, 20, "ui-icon-skull").setOrigin(0, 0).setScale(S);
+    // ===== TOP-RIGHT: Skull + kills, Coin + gold (left of minimap) =====
+    const skullIcon = this.add.image(width - 210, 20, "ui-icon-skull").setOrigin(0, 0).setScale(S);
     this.hudContainer.add(skullIcon);
 
     this.killText = this.add
-      .text(width - 64, 22, "0", {
+      .text(width - 174, 22, "0", {
         fontSize: "24px",
         fontFamily: "Rajdhani, sans-serif",
         color: "#ffffff",
@@ -2703,11 +2709,11 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0, 0);
     this.hudContainer.add(this.killText);
 
-    const coinIcon = this.add.image(width - 100, 50, "ui-icon-coin").setOrigin(0, 0).setScale(S);
+    const coinIcon = this.add.image(width - 210, 50, "ui-icon-coin").setOrigin(0, 0).setScale(S);
     this.hudContainer.add(coinIcon);
 
     this.currencyText = this.add
-      .text(width - 64, 52, "0", {
+      .text(width - 174, 52, "0", {
         fontSize: "24px",
         fontFamily: "Rajdhani, sans-serif",
         color: "#e8c840",
@@ -2736,51 +2742,74 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5, 0);
     this.hudContainer.add(this.waveStatusText);
 
-    // ===== BOTTOM-LEFT: Weapon + Ammo (minimal, no panel) =====
-    this.weaponIcon = this.add.image(24, height - 60, "item-pistol")
-      .setOrigin(0, 0.5)
-      .setScale(3)
-      .setVisible(false);
-    this.hudContainer.add(this.weaponIcon);
+    // ===== BOTTOM-LEFT: Equipment slot strip =====
+    this.slotBgs = [];
+    this.slotIcons = [];
+    this.slotLabels = [];
+    this.slotCounts = [];
 
-    this.weaponText = this.add
-      .text(24, height - 84, "FISTS", {
-        fontSize: "22px",
+    const slotW = 72;
+    const slotH = 80;
+    const slotGap = 8;
+    const slotStartX = 20;
+    const slotY = height - slotH - 16;
+    const slotNames = ["WEAPON", "BARR", "MINE"];
+    const slotTextures = ["item-pistol", "trap-barricade", "item-landmine"];
+
+    for (let i = 0; i < 3; i++) {
+      const sx = slotStartX + i * (slotW + slotGap);
+
+      const bg = this.add.graphics();
+      bg.fillStyle(0x0a0a1a, 0.7);
+      bg.fillRoundedRect(sx, slotY, slotW, slotH, 4);
+      bg.lineStyle(1, 0x2a2a40, 1);
+      bg.strokeRoundedRect(sx, slotY, slotW, slotH, 4);
+      this.hudContainer.add(bg);
+      this.slotBgs.push(bg);
+
+      const icon = this.add.image(sx + slotW / 2, slotY + 28, slotTextures[i])
+        .setScale(2.5)
+        .setAlpha(i === 0 ? 1 : 0.4);
+      this.hudContainer.add(icon);
+      this.slotIcons.push(icon);
+
+      const label = this.add.text(sx + slotW / 2, slotY + 54, slotNames[i], {
+        fontSize: "13px",
         fontFamily: "Rajdhani, sans-serif",
-        color: "#ffffff",
+        color: "#aaaacc",
         fontStyle: "bold",
-      })
-      .setOrigin(0, 0);
-    this.hudContainer.add(this.weaponText);
+      }).setOrigin(0.5, 0);
+      this.hudContainer.add(label);
+      this.slotLabels.push(label);
 
-    this.ammoText = this.add
-      .text(24, height - 36, "", {
-        fontSize: "20px",
+      const count = this.add.text(sx + slotW / 2, slotY + 68, "", {
+        fontSize: "12px",
         fontFamily: "Rajdhani, sans-serif",
-        color: "#ffffff",
-      })
-      .setOrigin(0, 0);
-    this.hudContainer.add(this.ammoText);
+        color: "#e8c840",
+      }).setOrigin(0.5, 0);
+      this.hudContainer.add(count);
+      this.slotCounts.push(count);
+    }
 
-    // ===== BOTTOM-RIGHT: Ability + Traps (minimal, no panel) =====
-    this.abilityCDText = this.add
-      .text(width - 24, height - 84, "", {
-        fontSize: "22px",
+    // ===== BOTTOM-RIGHT: Ability =====
+    this.abilityNameText = this.add
+      .text(width - 24, height - 56, "", {
+        fontSize: "20px",
         fontFamily: "Rajdhani, sans-serif",
         color: "#ffffff",
         fontStyle: "bold",
       })
       .setOrigin(1, 0);
-    this.hudContainer.add(this.abilityCDText);
+    this.hudContainer.add(this.abilityNameText);
 
-    this.trapText = this.add
-      .text(width - 24, height - 36, "", {
-        fontSize: "20px",
+    this.abilityStatusText = this.add
+      .text(width - 24, height - 32, "", {
+        fontSize: "16px",
         fontFamily: "Rajdhani, sans-serif",
-        color: "#ffffff",
+        color: "#5aabff",
       })
       .setOrigin(1, 0);
-    this.hudContainer.add(this.trapText);
+    this.hudContainer.add(this.abilityStatusText);
 
     // ===== CENTER: Announcements =====
     this.waveAnnouncement = this.add
@@ -2911,50 +2940,57 @@ export class GameScene extends Phaser.Scene {
     this.killText.setText(`${this.kills}`);
     this.currencyText.setText(`${this.currency}`);
 
-    // Bottom-right: ability cooldown
+    // Bottom-right: ability
     if (this.abilityCooldownTimer > 0) {
       const secs = Math.ceil(this.abilityCooldownTimer / 1000);
-      this.abilityCDText.setText(`[Q] ${this.characterDef.ability.name}  ${secs}s`);
-      this.abilityCDText.setColor("#888888");
+      this.abilityNameText.setText(`[Q] ${this.characterDef.ability.name}`);
+      this.abilityNameText.setColor("#888888");
+      this.abilityStatusText.setText(`${secs}s`);
+      this.abilityStatusText.setColor("#888899");
     } else {
-      this.abilityCDText.setText(`[Q] ${this.characterDef.ability.name}  READY`);
-      this.abilityCDText.setColor("#ffffff");
+      this.abilityNameText.setText(`[Q] ${this.characterDef.ability.name}`);
+      this.abilityNameText.setColor("#ffffff");
+      this.abilityStatusText.setText("READY");
+      this.abilityStatusText.setColor("#5aabff");
     }
 
-    // Bottom-left: weapon + ammo
+    // Bottom-left: slot strip
+    const { height: hh } = this.cameras.main;
+    const slotW = 72;
+    const slotH = 80;
+    const slotGap = 8;
+    const slotStartX = 20;
+    const slotY = hh - slotH - 16;
+
+    // Slot 0: weapon
     if (this.equippedWeapon) {
       const wDef = BALANCE.weapons[this.equippedWeapon as keyof typeof BALANCE.weapons];
-      this.weaponIcon.setTexture(`item-${this.equippedWeapon}`);
-      this.weaponIcon.setVisible(true);
-      this.weaponText.setText(wDef.name.toUpperCase());
-      this.weaponText.setColor("#ffffff");
-      this.weaponText.setX(36);
-      this.ammoText.setText(`${this.ammo} / ${this.maxAmmo}`);
-      this.ammoText.setColor(this.ammo > 0 ? "#ffffff" : "#cc3333");
+      this.slotIcons[0].setTexture(`item-${this.equippedWeapon}`);
+      this.slotIcons[0].setAlpha(1);
+      this.slotLabels[0].setText(wDef.name.toUpperCase());
+      this.slotCounts[0].setText(`${this.ammo}/${this.maxAmmo}`);
+      this.slotCounts[0].setColor(this.ammo > 0 ? "#e8c840" : "#cc3333");
     } else {
-      this.weaponIcon.setVisible(false);
-      this.weaponText.setX(36);
-      this.weaponText.setText("FISTS");
-      this.weaponText.setColor("#ffffff");
-      this.ammoText.setText("");
+      this.slotIcons[0].setAlpha(0.3);
+      this.slotLabels[0].setText("FISTS");
+      this.slotCounts[0].setText("");
     }
 
-    // Bottom-right: trap inventory
-    const trapParts: string[] = [];
-    let hasAny = false;
-    for (let i = 0; i < this.trapTypes.length; i++) {
+    // Slots 1-2: traps
+    for (let i = 0; i < this.trapTypes.length && i < 2; i++) {
       const type = this.trapTypes[i];
-      const count = this.trapInventory.get(type) ?? 0;
-      if (count > 0) hasAny = true;
-      const shortName = type === "barricade" ? "BARR" : "MINE";
-      const selected = i === this.selectedTrapIndex && count > 0;
-      const prefix = selected ? ">" : " ";
-      trapParts.push(`${prefix}${shortName} x${count}`);
-    }
-    if (hasAny) {
-      this.trapText.setText(`[T] Place  ${trapParts.join("  ")}`);
-    } else {
-      this.trapText.setText("");
+      const cnt = this.trapInventory.get(type) ?? 0;
+      const selected = i === this.selectedTrapIndex && cnt > 0;
+      this.slotIcons[i + 1].setAlpha(cnt > 0 ? 1 : 0.3);
+      this.slotCounts[i + 1].setText(cnt > 0 ? `x${cnt}` : "");
+
+      // Redraw slot border for selection state
+      const sx = slotStartX + (i + 1) * (slotW + slotGap);
+      this.slotBgs[i + 1].clear();
+      this.slotBgs[i + 1].fillStyle(0x0a0a1a, 0.7);
+      this.slotBgs[i + 1].fillRoundedRect(sx, slotY, slotW, slotH, 4);
+      this.slotBgs[i + 1].lineStyle(1, selected ? 0x5aabff : 0x2a2a40, 1);
+      this.slotBgs[i + 1].strokeRoundedRect(sx, slotY, slotW, slotH, 4);
     }
 
     // Wave HUD
