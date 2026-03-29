@@ -37,9 +37,9 @@ export async function POST(request: NextRequest) {
     }
 
     const trimmed = name.trim().toUpperCase();
-    if (!/^[A-Z0-9]{3,5}$/.test(trimmed)) {
+    if (!/^[A-Z0-9]{1,8}$/.test(trimmed)) {
       return NextResponse.json(
-        { error: "Name must be 3-5 alphanumeric characters" },
+        { error: "Name must be 1-8 alphanumeric characters" },
         { status: 400 }
       );
     }

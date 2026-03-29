@@ -13,7 +13,7 @@ export async function ensureLeaderboardTable() {
   await sql`
     CREATE TABLE IF NOT EXISTS leaderboard (
       id SERIAL PRIMARY KEY,
-      name VARCHAR(5) NOT NULL,
+      name VARCHAR(8) NOT NULL,
       kills INTEGER NOT NULL,
       wave INTEGER NOT NULL,
       character_id VARCHAR(50) NOT NULL,
