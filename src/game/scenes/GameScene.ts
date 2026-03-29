@@ -2780,7 +2780,7 @@ export class GameScene extends Phaser.Scene {
       this.slotBgs.push(bg);
 
       const icon = this.add.image(sx + slotW / 2, slotY + 28, slotTextures[i])
-        .setScale(2.5)
+        .setScale(0.6)
         .setAlpha(i === 0 ? 1 : 0.4);
       this.hudContainer.add(icon);
       this.slotIcons.push(icon);
