@@ -42,12 +42,6 @@ export class MainMenuScene extends Phaser.Scene {
       letterSpacing: 16,
     }).setOrigin(0.5);
 
-    this.add.text(cx, 96, "Survive the Pussies.", {
-      fontSize: "22px",
-      fontFamily: "Rajdhani, sans-serif",
-      color: "#555555",
-    }).setOrigin(0.5);
-
     // --- CENTER: Character name + class + sprite ---
     this.nameText = this.add.text(cx, 144, "", {
       fontSize: "64px",
