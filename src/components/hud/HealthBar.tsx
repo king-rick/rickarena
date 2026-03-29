@@ -32,28 +32,28 @@ export const HealthBar = memo(function HealthBar({ type }: Props) {
   if (type === "health") {
     barColor = low ? "#ff0000" : "#ff2244";
     glowColor = low ? "rgba(255, 0, 0, 0.6)" : "rgba(255, 34, 68, 0.4)";
-    iconShadow = "drop-shadow(1px 1px 0px #ff2244)";
+    iconShadow = "drop-shadow(2px 2px 0px #ff2244)";
   } else {
     if (burnedOut) {
       barColor = "#333333";
       glowColor = "rgba(51, 51, 51, 0.3)";
-      iconShadow = "drop-shadow(1px 1px 0px #333333)";
+      iconShadow = "drop-shadow(2px 2px 0px #333333)";
     } else {
       barColor = pct > 30 ? "#22ff88" : "#ff8800";
       glowColor = pct > 30 ? "rgba(34, 255, 136, 0.4)" : "rgba(255, 136, 0, 0.4)";
-      iconShadow = "drop-shadow(1px 1px 0px #22ff88)";
+      iconShadow = "drop-shadow(2px 2px 0px #22ff88)";
     }
   }
 
   return (
-    <div className="flex items-center gap-2">
-      {/* Pixel art icon with accent drop shadow */}
+    <div className="flex items-center gap-3">
+      {/* Pixel art icon */}
       <img
         src={icon}
         alt=""
         style={{
-          width: 36,
-          height: 36,
+          width: 44,
+          height: 44,
           imageRendering: "pixelated",
           flexShrink: 0,
           filter: iconShadow,
@@ -64,11 +64,11 @@ export const HealthBar = memo(function HealthBar({ type }: Props) {
         className="relative"
         style={{
           flex: 1,
-          height: 28,
+          height: 34,
           backgroundImage: "url(/assets/sprites/ui/horror/bar-frame.png)",
           backgroundSize: "100% 100%",
           imageRendering: "pixelated",
-          padding: "5px 6px",
+          padding: "6px 8px",
         }}
       >
         {/* Inner track */}
@@ -78,7 +78,7 @@ export const HealthBar = memo(function HealthBar({ type }: Props) {
             width: "100%",
             height: "100%",
             background: "#0a0a12",
-            boxShadow: low && type === "health" ? "0 0 8px rgba(255, 0, 0, 0.4)" : "none",
+            boxShadow: low && type === "health" ? "0 0 10px rgba(255, 0, 0, 0.5)" : "none",
           }}
         >
           {/* Fill */}
@@ -90,7 +90,7 @@ export const HealthBar = memo(function HealthBar({ type }: Props) {
               height: "100%",
               width: `${pct}%`,
               background: barColor,
-              boxShadow: pct > 0 ? `0 0 10px ${glowColor}` : "none",
+              boxShadow: pct > 0 ? `0 0 12px ${glowColor}` : "none",
               transition: "width 80ms linear",
             }}
           />
@@ -111,12 +111,11 @@ export const HealthBar = memo(function HealthBar({ type }: Props) {
       <span
         style={{
           fontFamily: "HorrorPixel, monospace",
-          fontSize: 16,
+          fontSize: 20,
           color: "#eeeeee",
-          width: 70,
+          width: 90,
           textAlign: "right",
           flexShrink: 0,
-          imageRendering: "pixelated",
         }}
       >
         {Math.ceil(current)}/{max}
@@ -124,11 +123,11 @@ export const HealthBar = memo(function HealthBar({ type }: Props) {
       {type === "stamina" && burnedOut && (
         <span
           style={{
-            fontFamily: "HorrorPixel, monospace",
-            fontSize: 12,
+            fontFamily: "ChainsawCarnage, HorrorPixel, monospace",
+            fontSize: 18,
             color: "#ff2244",
-            letterSpacing: "0.1em",
-            textShadow: "0 0 4px rgba(255, 34, 68, 0.4)",
+            letterSpacing: "0.05em",
+            textShadow: "0 0 6px rgba(255, 34, 68, 0.5)",
           }}
         >
           BURNED OUT

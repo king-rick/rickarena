@@ -256,9 +256,12 @@ export class BootScene extends Phaser.Scene {
   async create() {
     // Ensure HorrorPixel font is loaded before any scene tries to use it
     try {
-      await document.fonts.load("16px HorrorPixel");
+      await Promise.all([
+        document.fonts.load("16px HorrorPixel"),
+        document.fonts.load("16px ChainsawCarnage"),
+      ]);
     } catch {
-      // Font may already be loaded via CSS, continue regardless
+      // Fonts may already be loaded via CSS, continue regardless
     }
 
     // Set nearest-neighbor filtering on all sprite textures so they stay crisp

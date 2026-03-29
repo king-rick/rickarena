@@ -12,20 +12,20 @@ export const AbilityIndicator = memo(function AbilityIndicator() {
 
   return (
     <div
-      className="flex items-center gap-3"
+      className="flex items-center gap-4"
       style={{
         backgroundImage: "url(/assets/sprites/ui/horror/panel-frame.png)",
         backgroundSize: "100% 100%",
         imageRendering: "pixelated",
-        padding: "8px 14px",
+        padding: "10px 18px",
       }}
     >
       {/* Key badge */}
       <span
         style={{
           fontFamily: "HorrorPixel, monospace",
-          fontSize: 14,
-          color: ready ? "#ff4466" : "#333344",
+          fontSize: 18,
+          color: ready ? "#ff4466" : "#444455",
           textShadow: ready ? "0 0 6px rgba(255, 68, 102, 0.4)" : "none",
         }}
       >
@@ -34,17 +34,17 @@ export const AbilityIndicator = memo(function AbilityIndicator() {
       <span
         style={{
           fontFamily: "HorrorPixel, monospace",
-          fontSize: 13,
-          color: ready ? "#eeeeee" : "#444455",
+          fontSize: 18,
+          color: ready ? "#eeeeee" : "#555566",
         }}
       >
         {name}
       </span>
       <span
         style={{
-          fontFamily: "HorrorPixel, monospace",
-          fontSize: 13,
-          color: ready ? "#ff4466" : "#444455",
+          fontFamily: "ChainsawCarnage, HorrorPixel, monospace",
+          fontSize: 20,
+          color: ready ? "#ff4466" : "#555566",
           textShadow: ready ? "0 0 8px rgba(255, 68, 102, 0.4)" : "none",
         }}
       >

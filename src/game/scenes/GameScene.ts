@@ -31,6 +31,7 @@ export class GameScene extends Phaser.Scene {
   private currency = 0;
   private kills = 0;
   private gameOver = false;
+  private gameOverContainer!: Phaser.GameObjects.Container;
   private paused = false;
   private damageBoostActive = false;
   private baseDamage = 0;
@@ -1513,35 +1514,40 @@ export class GameScene extends Phaser.Scene {
 
     const { width, height } = this.cameras.main;
 
+    // Game-over container at max depth so it renders above everything (trees, etc.)
+    this.gameOverContainer = this.add.container(0, 0);
+    this.gameOverContainer.setDepth(500);
+    this.hudContainer.add(this.gameOverContainer);
+    const goContainer = this.gameOverContainer;
+
     const overlay = this.add.graphics();
-    overlay.fillStyle(0x000000, 0.7);
+    overlay.fillStyle(0x000000, 0.75);
     overlay.fillRect(0, 0, width, height);
     overlay.setAlpha(0);
-    this.hudContainer.add(overlay);
+    goContainer.add(overlay);
 
     // Graveyard splash background (centered, scaled to cover, dimmed)
     const splash = this.add.image(width / 2, height / 2, "ui-splash-graveyard")
       .setAlpha(0)
       .setDisplaySize(width, height);
     splash.setTint(0x666688);
-    this.hudContainer.add(splash);
+    goContainer.add(splash);
 
     const diedText = this.add
       .text(width / 2, height / 2 - 80, "YOU DIED", {
-        fontSize: "80px",
-        fontFamily: "HorrorPixel, monospace",
-        color: "#cc3333",
-        fontStyle: "bold",
+        fontSize: "100px",
+        fontFamily: "ChainsawCarnage, HorrorPixel, monospace",
+        color: "#cc2233",
       })
       .setOrigin(0.5)
       .setAlpha(0);
-    this.hudContainer.add(diedText);
+    goContainer.add(diedText);
 
     const waveReached = this.waveManager.wave;
     const statsText = this.add
       .text(
         width / 2,
-        height / 2 + 40,
+        height / 2 + 50,
         `Wave ${waveReached}  |  ${this.kills} kills`,
         {
           fontSize: "36px",
@@ -1551,7 +1557,7 @@ export class GameScene extends Phaser.Scene {
       )
       .setOrigin(0.5)
       .setAlpha(0);
-    this.hudContainer.add(statsText);
+    goContainer.add(statsText);
 
     // Fade in death screen, then check if score qualifies for leaderboard
     // Splash background fades to lower alpha so it doesn't overpower text
@@ -1617,7 +1623,7 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setAlpha(0);
-    this.hudContainer.add(promptText);
+    this.gameOverContainer.add(promptText);
 
     // Typed name display with blinking cursor
     const nameText = this.add
@@ -1629,7 +1635,7 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setAlpha(0);
-    this.hudContainer.add(nameText);
+    this.gameOverContainer.add(nameText);
 
     // Hint text
     const hintText = this.add
@@ -1640,7 +1646,7 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setAlpha(0);
-    this.hudContainer.add(hintText);
+    this.gameOverContainer.add(hintText);
 
     // Fade in the entry UI
     const entryElements = [promptText, nameText, hintText];
@@ -1758,14 +1764,13 @@ export class GameScene extends Phaser.Scene {
     // Title
     const title = this.add
       .text(width / 2, 60, "LEADERBOARD", {
-        ...fontBase,
-        fontSize: "48px",
-        color: "#cc3333",
-        fontStyle: "bold",
+        fontFamily: "ChainsawCarnage, HorrorPixel, monospace",
+        fontSize: "64px",
+        color: "#cc2233",
       })
       .setOrigin(0.5)
       .setAlpha(0);
-    this.hudContainer.add(title);
+    this.gameOverContainer.add(title);
     boardContainer.push(title);
 
     // Column headers
@@ -1792,7 +1797,7 @@ export class GameScene extends Phaser.Scene {
         })
         .setOrigin(0, 0.5)
         .setAlpha(0);
-      this.hudContainer.add(ht);
+      this.gameOverContainer.add(ht);
       boardContainer.push(ht);
     }
 
@@ -1801,7 +1806,7 @@ export class GameScene extends Phaser.Scene {
     sep.lineStyle(1, 0x666666, 0.5);
     sep.lineBetween(rankX, headerY + 16, waveX + 60, headerY + 16);
     sep.setAlpha(0);
-    this.hudContainer.add(sep);
+    this.gameOverContainer.add(sep);
     boardContainer.push(sep);
 
     // Rows
@@ -1832,7 +1837,7 @@ export class GameScene extends Phaser.Scene {
           })
           .setOrigin(0, 0.5)
           .setAlpha(0);
-        this.hudContainer.add(rt);
+        this.gameOverContainer.add(rt);
         boardContainer.push(rt);
       }
 
@@ -1842,7 +1847,7 @@ export class GameScene extends Phaser.Scene {
         bar.fillStyle(0xffcc00, 0.1);
         bar.fillRect(rankX - 10, y - rowHeight / 2, waveX + 70 - rankX, rowHeight);
         bar.setAlpha(0);
-        this.hudContainer.add(bar);
+        this.gameOverContainer.add(bar);
         boardContainer.push(bar);
       }
     }
@@ -1857,7 +1862,7 @@ export class GameScene extends Phaser.Scene {
         })
         .setOrigin(0.5)
         .setAlpha(0);
-      this.hudContainer.add(emptyText);
+      this.gameOverContainer.add(emptyText);
       boardContainer.push(emptyText);
     }
 
@@ -1870,7 +1875,7 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setAlpha(0);
-    this.hudContainer.add(continueText);
+    this.gameOverContainer.add(continueText);
     boardContainer.push(continueText);
 
     // Fade in the leaderboard
@@ -2369,12 +2374,12 @@ export class GameScene extends Phaser.Scene {
 
     // Header: SHOP + cash
     const shopTitle = this.add.text(panelLeft + 32, panelTop + 28, "SHOP", {
-      fontSize: "28px", fontFamily: "HorrorPixel, monospace", color: "#ff2244", letterSpacing: 10,
+      fontSize: "42px", fontFamily: "ChainsawCarnage, HorrorPixel, monospace", color: "#ff2244", letterSpacing: 8,
     }).setOrigin(0, 0.5);
     this.shopContainer.add(shopTitle);
 
     this.shopCashText = this.add.text(panelLeft + panelW - 32, panelTop + 28, "$0", {
-      fontSize: "28px", fontFamily: "HorrorPixel, monospace", color: "#e8c840",
+      fontSize: "36px", fontFamily: "HorrorPixel, monospace", color: "#e8c840",
     }).setOrigin(1, 0.5);
     this.shopContainer.add(this.shopCashText);
 
@@ -2398,7 +2403,7 @@ export class GameScene extends Phaser.Scene {
     // Column headers
     for (let c = 0; c < 3; c++) {
       const header = this.add.text(colX[c], panelTop + 74, colHeaders[c], {
-        fontSize: "12px", fontFamily: "HorrorPixel, monospace", color: "#664455", letterSpacing: 4,
+        fontSize: "16px", fontFamily: "HorrorPixel, monospace", color: "#775566", letterSpacing: 4,
       });
       this.shopContainer.add(header);
     }
@@ -2443,7 +2448,7 @@ export class GameScene extends Phaser.Scene {
 
         // Key badge
         const keyText = this.add.text(cx + 8, cy + 8, `[${keyNum}]`, {
-          fontSize: "11px", fontFamily: "HorrorPixel, monospace", color: "#ff4466",
+          fontSize: "15px", fontFamily: "HorrorPixel, monospace", color: "#ff4466",
         });
         this.shopContainer.add(keyText);
 
@@ -2451,26 +2456,26 @@ export class GameScene extends Phaser.Scene {
         const texKey = iconMap[item.id];
         let icon: Phaser.GameObjects.Image | null = null;
         if (texKey && this.textures.exists(texKey)) {
-          icon = this.add.image(cx + 44, cy + cardH / 2, texKey).setScale(2.2);
+          icon = this.add.image(cx + 44, cy + cardH / 2, texKey).setScale(2.4);
           this.shopContainer.add(icon);
         }
 
         // Name
-        const nameText = this.add.text(cx + 76, cy + 14, item.name.toUpperCase(), {
-          fontSize: "14px", fontFamily: "HorrorPixel, monospace", color: "#e0daf0",
+        const nameText = this.add.text(cx + 76, cy + 12, item.name.toUpperCase(), {
+          fontSize: "20px", fontFamily: "HorrorPixel, monospace", color: "#e0daf0",
         });
         this.shopContainer.add(nameText);
 
         // Description
         const descText = this.add.text(cx + 76, cy + 36, item.desc, {
-          fontSize: "11px", fontFamily: "HorrorPixel, monospace", color: "#7a7a99",
+          fontSize: "15px", fontFamily: "HorrorPixel, monospace", color: "#8a8aaa",
           wordWrap: { width: colW - 90 },
         });
         this.shopContainer.add(descText);
 
         // Price (right-aligned)
         const priceText = this.add.text(cx + colW - 10, cy + cardH / 2, "", {
-          fontSize: "16px", fontFamily: "HorrorPixel, monospace", color: "#e8c840",
+          fontSize: "22px", fontFamily: "HorrorPixel, monospace", color: "#e8c840",
         }).setOrigin(1, 0.5);
         this.shopContainer.add(priceText);
 
@@ -2492,7 +2497,7 @@ export class GameScene extends Phaser.Scene {
 
     // Footer
     const footer = this.add.text(width / 2, panelTop + panelH - 20, "[ESC/B] Close  \u00B7  WASD/Arrows navigate  \u00B7  Enter buy", {
-      fontSize: "11px", fontFamily: "HorrorPixel, monospace", color: "#444455",
+      fontSize: "16px", fontFamily: "HorrorPixel, monospace", color: "#555566",
     }).setOrigin(0.5);
     this.shopContainer.add(footer);
 

@@ -11,21 +11,20 @@ export const TopStats = memo(function TopStats() {
   return (
     <div className="flex items-center gap-6">
       {/* Level */}
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-2">
         <span
           style={{
             fontFamily: "HorrorPixel, monospace",
-            fontSize: 14,
-            color: "#556677",
-            letterSpacing: "0.05em",
+            fontSize: 18,
+            color: "#667788",
           }}
         >
           LV
         </span>
         <span
           style={{
-            fontFamily: "HorrorPixel, monospace",
-            fontSize: 22,
+            fontFamily: "ChainsawCarnage, HorrorPixel, monospace",
+            fontSize: 32,
             color: "#ff8800",
             textShadow: "0 0 8px rgba(255, 136, 0, 0.3)",
           }}
@@ -34,21 +33,21 @@ export const TopStats = memo(function TopStats() {
         </span>
       </div>
       {/* Kills */}
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-2">
         <img
           src="/assets/sprites/ui/icon-skull.png"
           alt=""
           style={{
-            width: 36,
-            height: 36,
+            width: 44,
+            height: 44,
             imageRendering: "pixelated",
-            filter: "drop-shadow(1px 1px 0px #ff4466)",
+            filter: "drop-shadow(2px 2px 0px #ff4466)",
           }}
         />
         <span
           style={{
             fontFamily: "HorrorPixel, monospace",
-            fontSize: 22,
+            fontSize: 28,
             color: "#eeeeee",
           }}
         >
@@ -56,21 +55,21 @@ export const TopStats = memo(function TopStats() {
         </span>
       </div>
       {/* Currency */}
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-2">
         <img
           src="/assets/sprites/ui/icon-coin.png"
           alt=""
           style={{
-            width: 36,
-            height: 36,
+            width: 44,
+            height: 44,
             imageRendering: "pixelated",
-            filter: "drop-shadow(1px 1px 0px #ffcc00)",
+            filter: "drop-shadow(2px 2px 0px #ffcc00)",
           }}
         />
         <span
           style={{
             fontFamily: "HorrorPixel, monospace",
-            fontSize: 22,
+            fontSize: 28,
             color: "#ffcc00",
             textShadow: "0 0 6px rgba(255, 204, 0, 0.25)",
           }}

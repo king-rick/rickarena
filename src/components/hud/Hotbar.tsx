@@ -19,7 +19,6 @@ export const Hotbar = memo(function Hotbar() {
   const barricadeCount = useSyncExternalStore(hudState.subscribe, () => hudState.getField("barricadeCount"));
   const mineCount = useSyncExternalStore(hudState.subscribe, () => hudState.getField("mineCount"));
 
-  // Only show slots for items the player actually has
   const slots: SlotInfo[] = [];
 
   if (equippedWeapon) {
@@ -50,11 +49,10 @@ export const Hotbar = memo(function Hotbar() {
     });
   }
 
-  // Nothing in inventory, don't render hotbar
   if (slots.length === 0) return null;
 
   return (
-    <div className="flex" style={{ gap: 5 }}>
+    <div className="flex" style={{ gap: 6 }}>
       {slots.map((slot) => {
         const active = activeSlot === slot.slotIndex;
         const slotBg = active
@@ -66,23 +64,23 @@ export const Hotbar = memo(function Hotbar() {
             key={slot.slotIndex}
             className="relative flex flex-col items-center justify-center"
             style={{
-              width: 72,
-              height: 72,
+              width: 84,
+              height: 84,
               backgroundImage: `url(${slotBg})`,
               backgroundSize: "100% 100%",
               imageRendering: "pixelated",
-              boxShadow: active ? "0 0 12px rgba(255, 34, 68, 0.35)" : "none",
+              boxShadow: active ? "0 0 14px rgba(255, 34, 68, 0.4)" : "none",
             }}
           >
             {/* Key number */}
             <span
               className="absolute"
               style={{
-                top: 4,
-                left: 6,
-                fontSize: 11,
+                top: 5,
+                left: 7,
+                fontSize: 14,
                 fontFamily: "HorrorPixel, monospace",
-                color: active ? "#ff4466" : "#444455",
+                color: active ? "#ff4466" : "#555566",
               }}
             >
               {slot.key}
@@ -91,9 +89,9 @@ export const Hotbar = memo(function Hotbar() {
             <span
               style={{
                 fontFamily: "HorrorPixel, monospace",
-                fontSize: 11,
+                fontSize: 14,
                 marginTop: 8,
-                color: active ? "#eeeeee" : "#667788",
+                color: active ? "#eeeeee" : "#778899",
               }}
             >
               {slot.label}
@@ -103,7 +101,7 @@ export const Hotbar = memo(function Hotbar() {
               <span
                 style={{
                   fontFamily: "HorrorPixel, monospace",
-                  fontSize: 11,
+                  fontSize: 14,
                   color: slot.countDanger ? "#ff0000" : "#ffcc00",
                   textShadow: slot.countDanger ? "0 0 4px rgba(255, 0, 0, 0.4)" : "none",
                 }}

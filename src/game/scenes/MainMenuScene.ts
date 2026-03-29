@@ -30,70 +30,64 @@ export class MainMenuScene extends Phaser.Scene {
     bg.fillStyle(0x080810, 1);
     bg.fillRect(0, 0, width, height);
 
-    // Subtle vignette
-    const vignette = this.add.graphics();
-    vignette.fillStyle(0x000000, 0.3);
-    vignette.fillRect(0, 0, width, height);
-    vignette.fillStyle(0x080810, 0);
-
-    // Title
-    this.add.text(cx, 48, "RICKARENA", {
-      fontSize: "52px",
-      fontFamily: "HorrorPixel, monospace",
+    // Title — ChainsawCarnage display font
+    this.add.text(cx, 60, "RICKARENA", {
+      fontSize: "96px",
+      fontFamily: "ChainsawCarnage, HorrorPixel, monospace",
       color: "#ff2244",
-      letterSpacing: 20,
+      letterSpacing: 12,
     }).setOrigin(0.5);
 
     // Subtitle
-    this.add.text(cx, 100, "CHOOSE YOUR FIGHTER", {
-      fontSize: "16px",
+    this.add.text(cx, 120, "CHOOSE YOUR FIGHTER", {
+      fontSize: "20px",
       fontFamily: "HorrorPixel, monospace",
-      color: "#553344",
-      letterSpacing: 8,
+      color: "#664455",
+      letterSpacing: 6,
     }).setOrigin(0.5);
 
     // Center panel frame (9-slice horror panel behind the character)
-    const panelW = 480;
-    const panelH = 520;
-    const panelImg = this.add.nineslice(
-      cx, cy + 20,
+    const panelW = 520;
+    const panelH = 540;
+    this.add.nineslice(
+      cx, cy + 30,
       "ui-horror-panel",
       undefined,
       panelW, panelH,
       20, 20, 20, 20
     ).setOrigin(0.5).setAlpha(0.7);
 
-    // Character name (large, centered)
-    this.nameText = this.add.text(cx, 160, "", {
-      fontSize: "56px",
-      fontFamily: "HorrorPixel, monospace",
+    // Character name — ChainsawCarnage
+    this.nameText = this.add.text(cx, 175, "", {
+      fontSize: "72px",
+      fontFamily: "ChainsawCarnage, HorrorPixel, monospace",
       color: "#ffffff",
-      letterSpacing: 10,
+      letterSpacing: 8,
     }).setOrigin(0.5).setDepth(5);
 
     // Class name
-    this.classText = this.add.text(cx, 220, "", {
-      fontSize: "20px",
+    this.classText = this.add.text(cx, 235, "", {
+      fontSize: "28px",
       fontFamily: "HorrorPixel, monospace",
       color: "#ff4466",
       letterSpacing: 6,
     }).setOrigin(0.5).setDepth(5);
 
     // Sprite (dead center)
-    const spriteY = cy + 10;
+    const spriteY = cy + 20;
     this.showcase = this.add.sprite(cx, spriteY, "rick-south")
-      .setScale(4.8)
+      .setScale(5.0)
       .setDepth(2);
 
     // Arrows flanking sprite
-    this.arrowLeft = this.add.text(cx - 220, spriteY + 20, "\u25C0", {
-      fontSize: "48px",
+    this.arrowLeft = this.add.text(cx - 240, spriteY + 20, "\u25C0", {
+      fontSize: "56px",
       fontFamily: "HorrorPixel, monospace",
       color: "#ff4466",
     }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(3);
 
-    this.arrowRight = this.add.text(cx + 220, spriteY + 20, "\u25B6", {
-      fontSize: "48px",
+    this.arrowRight = this.add.text(cx + 240, spriteY + 20, "\u25B6", {
+      fontSize: "56px",
       fontFamily: "HorrorPixel, monospace",
       color: "#ff4466",
     }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(3);
@@ -114,7 +108,7 @@ export class MainMenuScene extends Phaser.Scene {
     });
 
     // Dot indicators below sprite
-    const dotSpacing = 28;
+    const dotSpacing = 32;
     const dotsStartX = cx - ((CHARACTERS.length - 1) * dotSpacing) / 2;
     const dotsY = spriteY + 280;
     for (let i = 0; i < CHARACTERS.length; i++) {
@@ -125,34 +119,35 @@ export class MainMenuScene extends Phaser.Scene {
     }
 
     // Specialty text (below dots)
-    this.specialtyText = this.add.text(cx, dotsY + 36, "", {
-      fontSize: "16px",
+    this.specialtyText = this.add.text(cx, dotsY + 40, "", {
+      fontSize: "22px",
       fontFamily: "HorrorPixel, monospace",
-      color: "#888899",
-      wordWrap: { width: 440 },
+      color: "#999aaa",
+      wordWrap: { width: 500 },
       align: "center",
     }).setOrigin(0.5, 0).setDepth(5);
 
     // Ability text (below specialty)
-    this.abilityText = this.add.text(cx, dotsY + 80, "", {
-      fontSize: "15px",
+    this.abilityText = this.add.text(cx, dotsY + 90, "", {
+      fontSize: "20px",
       fontFamily: "HorrorPixel, monospace",
-      color: "#aa88bb",
-      wordWrap: { width: 440 },
+      color: "#bb99cc",
+      wordWrap: { width: 500 },
       align: "center",
-      lineSpacing: 6,
+      lineSpacing: 8,
     }).setOrigin(0.5, 0).setDepth(5);
 
     // Bottom controls
-    this.add.text(cx, height - 80, "A/D  or  \u2190/\u2192  to select", {
-      fontSize: "14px",
+    this.add.text(cx, height - 90, "A/D  or  \u2190/\u2192  to select", {
+      fontSize: "18px",
       fontFamily: "HorrorPixel, monospace",
-      color: "#333344",
+      color: "#444455",
     }).setOrigin(0.5);
 
-    const prompt = this.add.text(cx, height - 44, "ENTER TO PLAY", {
-      fontSize: "28px",
-      fontFamily: "HorrorPixel, monospace",
+    // Enter prompt — ChainsawCarnage
+    const prompt = this.add.text(cx, height - 48, "ENTER TO PLAY", {
+      fontSize: "44px",
+      fontFamily: "ChainsawCarnage, HorrorPixel, monospace",
       color: "#ff2244",
     }).setOrigin(0.5);
 
@@ -204,7 +199,7 @@ export class MainMenuScene extends Phaser.Scene {
       dot.clear();
       if (i === this.selectedIndex) {
         dot.fillStyle(0xff2244, 1);
-        dot.fillCircle(0, 0, 7);
+        dot.fillCircle(0, 0, 8);
       } else {
         dot.fillStyle(0x333344, 1);
         dot.fillCircle(0, 0, 5);

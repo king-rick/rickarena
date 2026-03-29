@@ -35,11 +35,11 @@ export const WaveInfo = memo(function WaveInfo() {
     <div className="flex flex-col items-center">
       <span
         style={{
-          fontFamily: "HorrorPixel, monospace",
-          fontSize: 20,
+          fontFamily: "ChainsawCarnage, HorrorPixel, monospace",
+          fontSize: 28,
           color: accent,
           letterSpacing: "0.08em",
-          textShadow: `0 0 10px ${accent}44`,
+          textShadow: `0 0 12px ${accent}55`,
         }}
       >
         {label}
@@ -47,8 +47,8 @@ export const WaveInfo = memo(function WaveInfo() {
       <span
         style={{
           fontFamily: "HorrorPixel, monospace",
-          fontSize: 12,
-          color: "#667788",
+          fontSize: 16,
+          color: "#778899",
           marginTop: 6,
         }}
       >

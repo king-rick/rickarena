@@ -29,7 +29,7 @@ export function HUDOverlay({ canvasRect }: Props) {
 
   if (!hudVisible || gameOver) return null;
 
-  const pad = Math.round(canvasRect.width * 0.012);
+  const pad = Math.round(canvasRect.width * 0.018);
 
   return (
     <div
@@ -51,8 +51,8 @@ export function HUDOverlay({ canvasRect }: Props) {
         style={{
           top: pad,
           left: pad,
-          width: Math.round(canvasRect.width * 0.28),
-          gap: 6,
+          width: Math.round(canvasRect.width * 0.32),
+          gap: 8,
         }}
       >
         <HealthBar type="health" />
