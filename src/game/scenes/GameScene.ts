@@ -250,7 +250,7 @@ export class GameScene extends Phaser.Scene {
 
     // Camera (1080p — wider view than 540p at same zoom)
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
-    this.cameras.main.setZoom(3.4);
+    this.cameras.main.setZoom(5.0);
     this.cameras.main.setBounds(0, 0, ENDICOTT_MAP_W, ENDICOTT_MAP_H);
     this.cameras.main.setRoundPixels(true);
 
@@ -1710,7 +1710,7 @@ export class GameScene extends Phaser.Scene {
           window.removeEventListener("wheel", this.wheelHandler);
           this.wheelHandler = undefined;
         }
-        this.cameras.main.setZoom(3.4);
+        this.cameras.main.setZoom(5.0);
       }
     });
     this.settingsContainer.add(zoomToggle);
