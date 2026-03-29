@@ -119,6 +119,9 @@ export class GameScene extends Phaser.Scene {
   private slotCounts: Phaser.GameObjects.Text[] = [];
   private shopCashText!: Phaser.GameObjects.Text;
   private shopSelectedIndex = 0;
+  private shopNavCol = 0;
+  private shopNavRow = 0;
+  private shopGrid: number[][] = []; // [col][row] -> original item index
   private shopCards: {
     bg: Phaser.GameObjects.Graphics;
     icon: Phaser.GameObjects.Image | null;
@@ -581,7 +584,12 @@ export class GameScene extends Phaser.Scene {
 
     if (this.gameOver || this.paused) return;
 
-    this.player.update();
+    // Freeze player movement while shop is open
+    if (this.shopOpen) {
+      this.player.body.setVelocity(0, 0);
+    } else {
+      this.player.update();
+    }
     this.waveManager.update(delta);
 
     // Footsteps while player is moving
@@ -2308,6 +2316,9 @@ export class GameScene extends Phaser.Scene {
       else columns[2].push({ idx, item });
     });
 
+    // Build navigation grid: [col][row] -> original item index
+    this.shopGrid = columns.map(col => col.map(entry => entry.idx));
+
     // Render item cards
     const cardH = 72;
     const cardGap = 6;
@@ -2376,12 +2387,12 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Footer
-    const footer = this.add.text(width / 2, panelTop + panelH - 20, "[ESC/B] Close  \u00B7  Number keys to buy  \u00B7  Click to buy", {
+    const footer = this.add.text(width / 2, panelTop + panelH - 20, "[ESC/B] Close  \u00B7  WASD/Arrows to navigate  \u00B7  Enter to buy", {
       fontSize: "16px", fontFamily: "Rajdhani, sans-serif", color: "#444455",
     }).setOrigin(0.5);
     this.shopContainer.add(footer);
 
-    // Key bindings — number keys for direct buy
+    // Key bindings — number keys for direct buy + WASD/arrow navigation
     if (this.input.keyboard) {
       const enterKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER);
       enterKey.on("down", () => { if (this.shopOpen) this.buyItem(this.shopSelectedIndex); });
@@ -2405,6 +2416,38 @@ export class GameScene extends Phaser.Scene {
         if (i < keyToIdx.length) {
           const key = this.input.keyboard!.addKey(code);
           key.on("down", () => { if (this.shopOpen) this.buyItem(keyToIdx[i]); });
+        }
+      });
+
+      // WASD / Arrow navigation through shop grid
+      this.input.keyboard.on("keydown", (event: KeyboardEvent) => {
+        if (!this.shopOpen || this.shopGrid.length === 0) return;
+        let col = this.shopNavCol;
+        let row = this.shopNavRow;
+        let moved = false;
+
+        if (event.key === "a" || event.key === "A" || event.key === "ArrowLeft") {
+          col = Math.max(0, col - 1);
+          moved = true;
+        } else if (event.key === "d" || event.key === "D" || event.key === "ArrowRight") {
+          col = Math.min(this.shopGrid.length - 1, col + 1);
+          moved = true;
+        } else if (event.key === "w" || event.key === "W" || event.key === "ArrowUp") {
+          row = Math.max(0, row - 1);
+          moved = true;
+        } else if (event.key === "s" || event.key === "S" || event.key === "ArrowDown") {
+          row = Math.min((this.shopGrid[col]?.length ?? 1) - 1, row + 1);
+          moved = true;
+        }
+
+        if (moved) {
+          // Clamp row if new column is shorter
+          if (!this.shopGrid[col] || this.shopGrid[col].length === 0) return;
+          row = Math.min(row, this.shopGrid[col].length - 1);
+          this.shopNavCol = col;
+          this.shopNavRow = row;
+          this.shopSelectedIndex = this.shopGrid[col][row];
+          this.updateShopDisplay();
         }
       });
     }
@@ -2499,6 +2542,9 @@ export class GameScene extends Phaser.Scene {
 
   private openShop() {
     this.shopOpen = true;
+    this.shopNavCol = 0;
+    this.shopNavRow = 0;
+    this.shopSelectedIndex = this.shopGrid[0]?.[0] ?? 0;
     this.shopContainer.setVisible(true);
     this.updateShopDisplay();
   }
