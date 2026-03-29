@@ -21,13 +21,13 @@ function angleToDirection(angle: number): string {
 
 const VARIANT_TINTS: Record<EnemyType, number> = {
   basic: 0xffffff,
-  fast: 0xcccc66,
-  tank: 0xffffff, // tank uses bigzombie sprite, no tint needed
+  fast: 0xffffff, // zombiedog sprite, no tint needed
+  tank: 0xffffff, // bigzombie sprite, no tint needed
 };
 
 const VARIANT_SCALES: Record<EnemyType, number> = {
   basic: 0.2,
-  fast: 0.18,
+  fast: 0.2,
   tank: 0.25,
 };
 
@@ -61,7 +61,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     waveMultiplier: number = 1
   ) {
     const isTank = type === "tank";
-    const spriteId = isTank ? "bigzombie" : "pussy";
+    const isFast = type === "fast";
+    const spriteId = isTank ? "bigzombie" : isFast ? "zombiedog" : "pussy";
     super(scene, x, y, `${spriteId}-south`);
 
     this.spriteId = spriteId;
@@ -83,6 +84,10 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     if (isTank) {
       this.body.setSize(50, 60);
       this.body.setOffset(55, 65);
+    } else if (isFast) {
+      // Dog — lower, wider hitbox
+      this.body.setSize(50, 40);
+      this.body.setOffset(55, 80);
     } else {
       this.body.setSize(40, 55);
       this.body.setOffset(44, 55);

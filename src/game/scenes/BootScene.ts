@@ -46,6 +46,10 @@ export class BootScene extends Phaser.Scene {
         `bigzombie-${dir}`,
         `/assets/sprites/bigzombie/rotations/${dir}.png`
       );
+      this.load.image(
+        `zombiedog-${dir}`,
+        `/assets/sprites/zombiedog/rotations/${dir}.png`
+      );
     }
 
     // Tiles
@@ -276,6 +280,9 @@ export class BootScene extends Phaser.Scene {
           else if (anim.type === "swinging-katana") frameRate = 14;
           else if (anim.type === "throw-grenade") frameRate = 10;
           else if (anim.type === "light-cigarette") frameRate = 6;
+          else if (anim.type === "bite") frameRate = 12;
+          else if (anim.type === "death") frameRate = 10;
+          else if (anim.type === "leap") frameRate = 12;
 
           this.anims.create({
             key: animKey,

@@ -43,6 +43,7 @@ export class GameScene extends Phaser.Scene {
   private levelText!: Phaser.GameObjects.Text;
   private levelUpOverlay!: Phaser.GameObjects.Container;
   private levelUpActive = false;
+  private pendingLevelUps: { level: number; options: BuffOption[] }[] = [];
 
   // Weapon state
   private equippedWeapon: string | null = null; // null = fists
@@ -145,6 +146,7 @@ export class GameScene extends Phaser.Scene {
     this.ammo = 0;
     this.fireHeld = false;
     this.bloodSplats = [];
+    this.pendingLevelUps = [];
 
     // Slow gameplay by 25%
     this.time.timeScale = 0.75;
@@ -242,10 +244,10 @@ export class GameScene extends Phaser.Scene {
       damage: stats.damage,
     });
 
-    // RPG Leveling system
+    // RPG Leveling system — level-ups are queued and shown during intermission
     this.levelingSystem = new LevelingSystem();
     this.levelingSystem.onLevelUp = (level, options) => {
-      this.showLevelUpUI(level, options);
+      this.pendingLevelUps.push({ level, options });
     };
 
     // Camera (1080p — wider view than 540p at same zoom)
@@ -554,10 +556,10 @@ export class GameScene extends Phaser.Scene {
 
     this.waveManager.onIntermissionStart = () => {
       this.showIntermissionAnnouncement();
-      // Open shop after "WAVE CLEAR" fades a bit
+      // Show queued level-ups first, then open shop
       this.time.delayedCall(1000, () => {
         if (this.waveManager.state === "intermission") {
-          this.openShop();
+          this.showNextPendingLevelUp();
         }
       });
     };
@@ -1227,8 +1229,14 @@ export class GameScene extends Phaser.Scene {
     // Place in front of player based on facing direction
     const angle = this.getFacingAngle();
     const placeDist = 40;
-    const placeX = this.player.x + Math.cos(angle) * placeDist;
-    const placeY = this.player.y + Math.sin(angle) * placeDist;
+    let placeX = this.player.x + Math.cos(angle) * placeDist;
+    let placeY = this.player.y + Math.sin(angle) * placeDist;
+
+    // Snap barricades to 32px grid so they line up cleanly
+    if (trapType === "barricade") {
+      placeX = Math.round(placeX / 32) * 32;
+      placeY = Math.round(placeY / 32) * 32;
+    }
 
     const trap = new Trap(this, placeX, placeY, trapType, trapType === "barricade" && this.barricadeVertical);
 
@@ -2668,7 +2676,6 @@ export class GameScene extends Phaser.Scene {
 
   private showLevelUpUI(level: number, options: BuffOption[]) {
     this.levelUpActive = true;
-    this.physics.pause();
 
     const { width, height } = this.cameras.main;
     this.levelUpOverlay = this.add.container(0, 0);
@@ -2814,9 +2821,25 @@ export class GameScene extends Phaser.Scene {
     // Clean up UI
     this.levelUpActive = false;
     this.levelUpOverlay.destroy();
-    this.physics.resume();
 
     // Flash the buff name
     this.showWeaponMessage(buff.name.toUpperCase(), "#d4a843");
+
+    // Show next pending level-up or open shop
+    this.time.delayedCall(300, () => {
+      this.showNextPendingLevelUp();
+    });
+  }
+
+  private showNextPendingLevelUp() {
+    if (this.pendingLevelUps.length > 0) {
+      const next = this.pendingLevelUps.shift()!;
+      this.showLevelUpUI(next.level, next.options);
+    } else {
+      // All level-ups processed, open shop
+      if (this.waveManager.state === "intermission") {
+        this.openShop();
+      }
+    }
   }
 }
