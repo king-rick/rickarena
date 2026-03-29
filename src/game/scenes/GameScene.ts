@@ -1462,16 +1462,388 @@ export class GameScene extends Phaser.Scene {
       .setAlpha(0);
     this.hudContainer.add(statsText);
 
-    // Fade in death screen
+    // Fade in death screen, then show leaderboard entry
     this.tweens.add({
       targets: [overlay, diedText, statsText],
       alpha: 1,
       duration: 800,
       ease: "Cubic.easeIn",
       onComplete: () => {
-        // Return to menu after showing stats
-        this.time.delayedCall(2500, () => {
+        this.time.delayedCall(1200, () => {
+          this.showLeaderboardEntry(overlay, waveReached);
+        });
+      },
+    });
+  }
+
+  // ---------- Leaderboard ----------
+
+  private showLeaderboardEntry(overlay: Phaser.GameObjects.Graphics, waveReached: number) {
+    const { width, height } = this.cameras.main;
+    const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const letters = [0, 0, 0]; // indices into ALPHABET
+    let cursorPos = 0;
+    let submitted = false;
+
+    const fontBase = {
+      fontFamily: "Rajdhani, sans-serif",
+    };
+
+    // "ENTER YOUR NAME" prompt
+    const promptText = this.add
+      .text(width / 2, height / 2 + 100, "ENTER YOUR NAME", {
+        ...fontBase,
+        fontSize: "28px",
+        color: "#999999",
+      })
+      .setOrigin(0.5)
+      .setAlpha(0);
+    this.hudContainer.add(promptText);
+
+    // Letter displays — 3 characters with spacing
+    const letterSpacing = 60;
+    const startX = width / 2 - letterSpacing;
+    const letterY = height / 2 + 155;
+
+    const letterTexts: Phaser.GameObjects.Text[] = [];
+    for (let i = 0; i < 3; i++) {
+      const lt = this.add
+        .text(startX + i * letterSpacing, letterY, ALPHABET[letters[i]], {
+          ...fontBase,
+          fontSize: "52px",
+          color: i === 0 ? "#ffffff" : "#666666",
+          fontStyle: "bold",
+        })
+        .setOrigin(0.5)
+        .setAlpha(0);
+      this.hudContainer.add(lt);
+      letterTexts.push(lt);
+    }
+
+    // Up/down arrows for active letter
+    const arrowUp = this.add
+      .text(startX, letterY - 42, "\u25B2", {
+        ...fontBase,
+        fontSize: "22px",
+        color: "#cc3333",
+      })
+      .setOrigin(0.5)
+      .setAlpha(0);
+    this.hudContainer.add(arrowUp);
+
+    const arrowDown = this.add
+      .text(startX, letterY + 42, "\u25BC", {
+        ...fontBase,
+        fontSize: "22px",
+        color: "#cc3333",
+      })
+      .setOrigin(0.5)
+      .setAlpha(0);
+    this.hudContainer.add(arrowDown);
+
+    // Hint text
+    const hintText = this.add
+      .text(
+        width / 2,
+        height / 2 + 220,
+        "\u2191\u2193 change letter    \u2190\u2192 move    ENTER submit",
+        {
+          ...fontBase,
+          fontSize: "18px",
+          color: "#666666",
+        }
+      )
+      .setOrigin(0.5)
+      .setAlpha(0);
+    this.hudContainer.add(hintText);
+
+    // Fade in the entry UI
+    const entryElements = [promptText, ...letterTexts, arrowUp, arrowDown, hintText];
+    this.tweens.add({
+      targets: entryElements,
+      alpha: 1,
+      duration: 400,
+      ease: "Cubic.easeIn",
+    });
+
+    const updateDisplay = () => {
+      for (let i = 0; i < 3; i++) {
+        letterTexts[i].setText(ALPHABET[letters[i]]);
+        letterTexts[i].setColor(i === cursorPos ? "#ffffff" : "#666666");
+      }
+      arrowUp.setX(startX + cursorPos * letterSpacing);
+      arrowDown.setX(startX + cursorPos * letterSpacing);
+    };
+
+    // Blink cursor
+    this.time.addEvent({
+      delay: 400,
+      loop: true,
+      callback: () => {
+        if (submitted) return;
+        const lt = letterTexts[cursorPos];
+        lt.setAlpha(lt.alpha > 0.5 ? 0.3 : 1);
+      },
+    });
+
+    // Key handler
+    const keyHandler = (event: KeyboardEvent) => {
+      if (submitted) return;
+
+      switch (event.key) {
+        case "ArrowUp":
+        case "w":
+          letters[cursorPos] = (letters[cursorPos] + 1) % 26;
+          updateDisplay();
+          break;
+        case "ArrowDown":
+        case "s":
+          letters[cursorPos] = (letters[cursorPos] - 1 + 26) % 26;
+          updateDisplay();
+          break;
+        case "ArrowLeft":
+        case "a":
+          if (cursorPos > 0) {
+            letterTexts[cursorPos].setAlpha(1);
+            cursorPos--;
+            updateDisplay();
+          }
+          break;
+        case "ArrowRight":
+        case "d":
+          if (cursorPos < 2) {
+            letterTexts[cursorPos].setAlpha(1);
+            cursorPos++;
+            updateDisplay();
+          }
+          break;
+        case "Enter":
+          submitted = true;
+          this.input.keyboard?.off("keydown", keyHandler);
+          const name = letters.map((i) => ALPHABET[i]).join("");
+          // Stop blinking — make all letters solid
+          letterTexts.forEach((lt) => lt.setAlpha(1));
+          hintText.setText("SUBMITTING...");
+          hintText.setColor("#cc3333");
+          this.submitLeaderboardScore(
+            name,
+            this.kills,
+            waveReached,
+            this.characterDef.id,
+            overlay,
+            entryElements
+          );
+          break;
+      }
+    };
+
+    this.input.keyboard?.on("keydown", keyHandler);
+  }
+
+  private async submitLeaderboardScore(
+    name: string,
+    kills: number,
+    wave: number,
+    characterId: string,
+    overlay: Phaser.GameObjects.Graphics,
+    entryElements: Phaser.GameObjects.GameObject[]
+  ) {
+    let submittedId: number | null = null;
+
+    try {
+      const response = await fetch("/api/leaderboard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          kills,
+          wave,
+          character_id: characterId,
+        }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        submittedId = data.id;
+      }
+    } catch (e) {
+      console.error("Failed to submit leaderboard score:", e);
+    }
+
+    // Fetch the leaderboard
+    let leaderboard: { id: number; name: string; kills: number; wave: number; character_id: string }[] = [];
+    try {
+      const response = await fetch("/api/leaderboard");
+      if (response.ok) {
+        leaderboard = await response.json();
+      }
+    } catch (e) {
+      console.error("Failed to fetch leaderboard:", e);
+    }
+
+    this.showLeaderboardDisplay(leaderboard, submittedId, entryElements);
+  }
+
+  private showLeaderboardDisplay(
+    leaderboard: { id: number; name: string; kills: number; wave: number; character_id: string }[],
+    highlightId: number | null,
+    entryElements: Phaser.GameObjects.GameObject[]
+  ) {
+    const { width, height } = this.cameras.main;
+    const fontBase = { fontFamily: "Rajdhani, sans-serif" };
+
+    // Fade out entry UI elements (not the overlay/died/stats — keep those)
+    this.tweens.add({
+      targets: entryElements,
+      alpha: 0,
+      duration: 300,
+      ease: "Cubic.easeOut",
+    });
+
+    const boardContainer: Phaser.GameObjects.GameObject[] = [];
+
+    // Title
+    const title = this.add
+      .text(width / 2, 60, "LEADERBOARD", {
+        ...fontBase,
+        fontSize: "48px",
+        color: "#cc3333",
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5)
+      .setAlpha(0);
+    this.hudContainer.add(title);
+    boardContainer.push(title);
+
+    // Column headers
+    const headerY = 110;
+    const rankX = width / 2 - 240;
+    const nameX = width / 2 - 160;
+    const killsX = width / 2 + 60;
+    const waveX = width / 2 + 180;
+
+    const headers = [
+      { text: "#", x: rankX },
+      { text: "NAME", x: nameX },
+      { text: "KILLS", x: killsX },
+      { text: "WAVE", x: waveX },
+    ];
+
+    for (const h of headers) {
+      const ht = this.add
+        .text(h.x, headerY, h.text, {
+          ...fontBase,
+          fontSize: "22px",
+          color: "#999999",
+          fontStyle: "bold",
+        })
+        .setOrigin(0, 0.5)
+        .setAlpha(0);
+      this.hudContainer.add(ht);
+      boardContainer.push(ht);
+    }
+
+    // Separator line
+    const sep = this.add.graphics();
+    sep.lineStyle(1, 0x666666, 0.5);
+    sep.lineBetween(rankX, headerY + 16, waveX + 60, headerY + 16);
+    sep.setAlpha(0);
+    this.hudContainer.add(sep);
+    boardContainer.push(sep);
+
+    // Rows
+    const rowStartY = headerY + 36;
+    const rowHeight = 32;
+    const maxRows = Math.min(leaderboard.length, 20);
+
+    for (let i = 0; i < maxRows; i++) {
+      const entry = leaderboard[i];
+      const y = rowStartY + i * rowHeight;
+      const isHighlighted = entry.id === highlightId;
+      const color = isHighlighted ? "#ffcc00" : "#cccccc";
+      const fontSize = isHighlighted ? "22px" : "20px";
+
+      const rowData = [
+        { text: `${i + 1}`, x: rankX },
+        { text: entry.name, x: nameX },
+        { text: `${entry.kills}`, x: killsX },
+        { text: `${entry.wave}`, x: waveX },
+      ];
+
+      for (const rd of rowData) {
+        const rt = this.add
+          .text(rd.x, y, rd.text, {
+            ...fontBase,
+            fontSize,
+            color,
+          })
+          .setOrigin(0, 0.5)
+          .setAlpha(0);
+        this.hudContainer.add(rt);
+        boardContainer.push(rt);
+      }
+
+      // Highlight bar behind the player's row
+      if (isHighlighted) {
+        const bar = this.add.graphics();
+        bar.fillStyle(0xffcc00, 0.1);
+        bar.fillRect(rankX - 10, y - rowHeight / 2, waveX + 70 - rankX, rowHeight);
+        bar.setAlpha(0);
+        this.hudContainer.add(bar);
+        boardContainer.push(bar);
+      }
+    }
+
+    // If leaderboard is empty, show a message
+    if (maxRows === 0) {
+      const emptyText = this.add
+        .text(width / 2, rowStartY + 40, "No scores yet. You're the first!", {
+          ...fontBase,
+          fontSize: "24px",
+          color: "#666666",
+        })
+        .setOrigin(0.5)
+        .setAlpha(0);
+      this.hudContainer.add(emptyText);
+      boardContainer.push(emptyText);
+    }
+
+    // "Press any key to continue" prompt
+    const continueText = this.add
+      .text(width / 2, height - 50, "PRESS ANY KEY TO CONTINUE", {
+        ...fontBase,
+        fontSize: "22px",
+        color: "#666666",
+      })
+      .setOrigin(0.5)
+      .setAlpha(0);
+    this.hudContainer.add(continueText);
+    boardContainer.push(continueText);
+
+    // Fade in the leaderboard
+    this.tweens.add({
+      targets: boardContainer,
+      alpha: 1,
+      duration: 500,
+      delay: 400,
+      ease: "Cubic.easeIn",
+      onComplete: () => {
+        // Blink the continue text
+        this.tweens.add({
+          targets: continueText,
+          alpha: 0.3,
+          yoyo: true,
+          repeat: -1,
+          duration: 600,
+        });
+
+        // Wait for any key to return to menu
+        const returnHandler = () => {
+          this.input.keyboard?.off("keydown", returnHandler);
           this.scene.start("MainMenu");
+        };
+        // Small delay so the submit Enter key doesn't immediately trigger
+        this.time.delayedCall(500, () => {
+          this.input.keyboard?.on("keydown", returnHandler);
         });
       },
     });

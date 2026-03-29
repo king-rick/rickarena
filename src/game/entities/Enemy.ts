@@ -45,13 +45,18 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private currentDir: Direction = "south";
   private hasWalkAnim: boolean;
   private hasBiteAnim: boolean;
+  private hasDeathAnim: boolean;
+  private hasLeapAnim: boolean;
   private biting = false;
+  private leaping = false;
+  private dying = false;
+  private leapCooldown = 0; // ms until next leap allowed
   private baseTint: number;
   private stunTimer = 0; // ms remaining where enemy is slowed/stopped
   private stuckTimer = 0; // ms since last significant movement
   private lastX = 0;
   private lastY = 0;
-  private spriteId: string; // "pussy" or "bigzombie"
+  private spriteId: string; // "pussy", "zombiedog", or "bigzombie"
 
   constructor(
     scene: Phaser.Scene,
@@ -99,6 +104,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     this.hasWalkAnim = hasAnimation(spriteId, "walk");
     this.hasBiteAnim = hasAnimation(spriteId, "bite");
+    this.hasDeathAnim = hasAnimation(spriteId, "death");
+    this.hasLeapAnim = hasAnimation(spriteId, "leap");
+    this.leapCooldown = 2000 + Math.random() * 2000; // stagger initial leap timing
     this.lastX = x;
     this.lastY = y;
 
@@ -132,10 +140,16 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   }
 
   private die() {
+    if (this.dying) return;
+    this.dying = true;
+
+    // Stop moving
+    this.body.setVelocity(0, 0);
+    this.body.enable = false;
+
     // Blood splat — stays on the ground
     const blood = this.scene.add.graphics();
     blood.setDepth(0.5);
-    // Small scattered droplets
     for (let i = 0; i < 4; i++) {
       const angle = Math.random() * Math.PI * 2;
       const dist = 4 + Math.random() * 12;
@@ -145,17 +159,33 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       blood.fillStyle(0x880000, 0.35 + Math.random() * 0.15);
       blood.fillCircle(px, py, size);
     }
-    // Small center pool
     blood.fillStyle(0x660000, 0.3);
     blood.fillCircle(this.x, this.y, 3 + Math.random() * 2);
 
-    // Register blood for cleanup after 3 waves
     const gameScene = this.scene as any;
     if (gameScene.bloodSplats) {
       gameScene.bloodSplats.push({ gfx: blood, spawnWave: gameScene.waveManager?.wave ?? 1 });
     }
 
     this.healthBarGfx.destroy();
+
+    // Play death animation if available, then destroy
+    if (this.hasDeathAnim) {
+      const deathKey = getAnimKey(this.spriteId, "death", this.currentDir);
+      if (this.scene.anims.exists(deathKey)) {
+        this.play(deathKey);
+        this.once("animationcomplete", () => {
+          // Fade out then destroy
+          this.scene.tweens.add({
+            targets: this,
+            alpha: 0,
+            duration: 300,
+            onComplete: () => this.destroy(),
+          });
+        });
+        return;
+      }
+    }
     this.destroy();
   }
 
@@ -183,8 +213,37 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
   };
 
+  /** Start a lunge attack toward the player */
+  private startLeap(angle: number) {
+    if (this.leaping || this.biting || this.dying) return;
+
+    this.leaping = true;
+    this.leapCooldown = 3000 + Math.random() * 2000; // 3-5s cooldown
+
+    const leapKey = getAnimKey(this.spriteId, "leap", this.currentDir);
+    if (this.scene.anims.exists(leapKey)) {
+      this.play(leapKey);
+    }
+
+    // Lunge forward at 2.5x speed
+    const leapSpeed = this.speed * 2.5;
+    this.body.setVelocity(
+      Math.cos(angle) * leapSpeed,
+      Math.sin(angle) * leapSpeed
+    );
+
+    // End leap after 300ms
+    this.scene.time.delayedCall(300, () => {
+      if (!this.active) return;
+      this.leaping = false;
+      if (this.hasWalkAnim && !this.biting && !this.dying) {
+        this.play(getAnimKey(this.spriteId, "walk", this.currentDir), true);
+      }
+    });
+  }
+
   update(_time: number, delta: number) {
-    if (!this.active || !this.body) return;
+    if (!this.active || !this.body || this.dying) return;
 
     // Get player reference from scene
     const player = (this.scene as any).player as
@@ -197,13 +256,17 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.stunTimer -= delta;
     }
 
+    // Leap cooldown
+    if (this.leapCooldown > 0) {
+      this.leapCooldown -= delta;
+    }
+
     // Stuck detection — if barely moved in 3 seconds, teleport near the player
     this.stuckTimer += delta;
     if (this.stuckTimer >= 3000) {
       const dx = Math.abs(this.x - this.lastX);
       const dy = Math.abs(this.y - this.lastY);
       if (dx < 10 && dy < 10) {
-        // Stuck — teleport to a spot ~200px from the player, outside camera view
         const teleportAngle = Math.random() * Math.PI * 2;
         const teleportDist = 200 + Math.random() * 100;
         this.setPosition(
@@ -223,8 +286,15 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       player.x,
       player.y
     );
+    const dist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
 
-    if (this.stunTimer <= 0) {
+    // Leap attack — dogs lunge when within range and off cooldown
+    if (this.hasLeapAnim && !this.leaping && !this.biting && this.stunTimer <= 0
+        && this.leapCooldown <= 0 && dist > 40 && dist < 120) {
+      this.startLeap(angle);
+    }
+
+    if (this.stunTimer <= 0 && !this.leaping) {
       // Chase player
       this.body.setVelocity(
         Math.cos(angle) * this.speed,
@@ -232,11 +302,11 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       );
     }
 
-    // Update sprite direction (don't interrupt bite)
+    // Update sprite direction (don't interrupt bite or leap)
     const newDir = angleToDirection(angle) as Direction;
     if (newDir !== this.currentDir) {
       this.currentDir = newDir;
-      if (!this.biting) {
+      if (!this.biting && !this.leaping) {
         if (this.hasWalkAnim) {
           this.play(getAnimKey(this.spriteId, "walk", newDir), true);
         } else {
