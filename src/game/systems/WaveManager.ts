@@ -126,6 +126,12 @@ export class WaveManager {
     this.readyCountdown = 3000;
   }
 
+  /** Skip the pre-game countdown and start wave 1 immediately */
+  skipPreGame() {
+    if (this.state !== "pre_game") return;
+    this.startWave();
+  }
+
   /** Whether the player has readied up */
   isReadyUp(): boolean {
     return this.readyUp;

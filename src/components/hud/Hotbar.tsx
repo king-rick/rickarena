@@ -3,6 +3,8 @@
 import { memo, useSyncExternalStore } from "react";
 import { hudState } from "@/game/HUDState";
 
+const BODY = "var(--font-special-elite), 'Special Elite', serif";
+
 interface SlotInfo {
   slotIndex: number;
   label: string;
@@ -56,8 +58,8 @@ export const Hotbar = memo(function Hotbar() {
       {slots.map((slot) => {
         const active = activeSlot === slot.slotIndex;
         const slotBg = active
-          ? "/assets/sprites/ui/horror/slot-active.png"
-          : "/assets/sprites/ui/horror/slot-inactive.png";
+          ? "/assets/sprites/ui/horror/slot-dark-active.png"
+          : "/assets/sprites/ui/horror/slot-dark-inactive.png";
 
         return (
           <div
@@ -72,23 +74,21 @@ export const Hotbar = memo(function Hotbar() {
               boxShadow: active ? "0 0 14px rgba(255, 34, 68, 0.4)" : "none",
             }}
           >
-            {/* Key number */}
             <span
               className="absolute"
               style={{
                 top: 5,
                 left: 7,
                 fontSize: 14,
-                fontFamily: "HorrorPixel, monospace",
+                fontFamily: BODY,
                 color: active ? "#ff4466" : "#555566",
               }}
             >
               {slot.key}
             </span>
-            {/* Slot label */}
             <span
               style={{
-                fontFamily: "HorrorPixel, monospace",
+                fontFamily: BODY,
                 fontSize: 14,
                 marginTop: 8,
                 color: active ? "#eeeeee" : "#778899",
@@ -96,13 +96,12 @@ export const Hotbar = memo(function Hotbar() {
             >
               {slot.label}
             </span>
-            {/* Count */}
             {slot.count && (
               <span
                 style={{
-                  fontFamily: "HorrorPixel, monospace",
+                  fontFamily: BODY,
                   fontSize: 14,
-                  color: slot.countDanger ? "#ff0000" : "#ffcc00",
+                  color: slot.countDanger ? "#ff0000" : "#ffffff",
                   textShadow: slot.countDanger ? "0 0 4px rgba(255, 0, 0, 0.4)" : "none",
                 }}
               >

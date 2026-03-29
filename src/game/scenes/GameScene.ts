@@ -31,7 +31,6 @@ export class GameScene extends Phaser.Scene {
   private currency = 0;
   private kills = 0;
   private gameOver = false;
-  private gameOverContainer!: Phaser.GameObjects.Container;
   private paused = false;
   private damageBoostActive = false;
   private baseDamage = 0;
@@ -41,9 +40,6 @@ export class GameScene extends Phaser.Scene {
 
   // RPG Leveling
   private levelingSystem!: LevelingSystem;
-  private xpBar!: Phaser.GameObjects.Graphics;
-  private levelText!: Phaser.GameObjects.Text;
-  private levelUpOverlay!: Phaser.GameObjects.Container;
   private levelUpActive = false;
   private pendingLevelUps: { level: number; options: BuffOption[] }[] = [];
 
@@ -82,61 +78,24 @@ export class GameScene extends Phaser.Scene {
 
   // Shop
   private shopOpen = false;
-  private shopContainer!: Phaser.GameObjects.Container;
 
   // HUD container — scrollFactor(0), scaled 1/zoom so it renders at screen-space
   private hudContainer!: Phaser.GameObjects.Container;
   private minimap!: Phaser.Cameras.Scene2D.Camera;
   private minimapDot!: Phaser.GameObjects.Graphics;
-
-  // Pause UI (inside hudContainer)
-  private pauseOverlay!: Phaser.GameObjects.Graphics;
-  private pauseTitle!: Phaser.GameObjects.Text;
-  private pauseQuitBtn!: Phaser.GameObjects.Text;
-  private pauseRestartBtn!: Phaser.GameObjects.Text;
-  private pauseSettingsBtn!: Phaser.GameObjects.Text;
-  private settingsContainer!: Phaser.GameObjects.Container;
   private settingsOpen = false;
   private sfxVolume = 0.3;
   private musicVolume = 1;
   private sfxMuted = false;
   private musicMuted = false;
   private wheelHandler?: (e: WheelEvent) => void;
-  private zoomText!: Phaser.GameObjects.Text;
+  private zoomEnabled = false;
   private ambientSounds: Phaser.Sound.BaseSound[] = [];
-
-  // HUD elements (inside hudContainer)
-  private healthBar!: Phaser.GameObjects.Graphics;
-  private staminaBar!: Phaser.GameObjects.Graphics;
-  private burnoutText!: Phaser.GameObjects.Text;
-  private currencyText!: Phaser.GameObjects.Text;
-  private killText!: Phaser.GameObjects.Text;
-  private waveText!: Phaser.GameObjects.Text;
-  private waveStatusText!: Phaser.GameObjects.Text;
-  private waveAnnouncement!: Phaser.GameObjects.Text;
-  private zoomEnabled = false; // toggled in settings
-  private countdownText!: Phaser.GameObjects.Text;
-  private abilityNameText!: Phaser.GameObjects.Text;
-  private abilityStatusText!: Phaser.GameObjects.Text;
-  // Slot strip (bottom-left)
-  private slotBgs: Phaser.GameObjects.Graphics[] = [];
-  private slotIcons: Phaser.GameObjects.Image[] = [];
-  private slotLabels: Phaser.GameObjects.Text[] = [];
-  private slotCounts: Phaser.GameObjects.Text[] = [];
-  private shopCashText!: Phaser.GameObjects.Text;
+  private devMode = false;
   private shopSelectedIndex = 0;
   private shopNavCol = 0;
   private shopNavRow = 0;
   private shopGrid: number[][] = []; // [col][row] -> original item index
-  private shopCards: {
-    bg: Phaser.GameObjects.Graphics;
-    icon: Phaser.GameObjects.Image | null;
-    name: Phaser.GameObjects.Text;
-    desc: Phaser.GameObjects.Text;
-    price: Phaser.GameObjects.Text;
-    key: Phaser.GameObjects.Text;
-    zone: Phaser.GameObjects.Zone;
-  }[] = [];
 
   constructor() {
     super({ key: "Game" });
@@ -284,24 +243,8 @@ export class GameScene extends Phaser.Scene {
     this.minimap.setBackgroundColor(0x0a0a14);
     this.minimap.setName("minimap");
 
-    // Minimap border — thick, clearly visible
-    const mmBorder = this.add.graphics();
-    mmBorder.setScrollFactor(0);
-    mmBorder.setDepth(200);
-    mmBorder.lineStyle(4, 0xff2244, 0.9);
-    mmBorder.strokeRect(mmX - 2, mmY - 2, mmSize + 4, mmSize + 4);
-    mmBorder.lineStyle(1, 0x0a0a14, 1);
-    mmBorder.strokeRect(mmX - 3, mmY - 3, mmSize + 6, mmSize + 6);
-    this.minimap.ignore(mmBorder);
-
-    // Zoom percentage text (hidden)
-    this.zoomText = this.add.text(
-      screenW - mmPadding,
-      mmY - 18,
-      `${Math.round(this.cameras.main.zoom * 100)}%`,
-      { fontSize: "20px", fontFamily: "HorrorPixel, monospace", color: "#ffffff" }
-    ).setOrigin(1, 0).setDepth(200).setVisible(false);
-    this.minimap.ignore(this.zoomText);
+    // Push minimap position to React for border rendering
+    hudState.update({ minimapX: mmX, minimapY: mmY, minimapSize: mmSize });
 
 
     // Player indicator dot for minimap (large enough to see at minimap zoom)
@@ -392,6 +335,11 @@ export class GameScene extends Phaser.Scene {
       );
       space.on("down", () => {
         if (this.gameOver || this.paused) return;
+        if (this.levelUpActive) return; // Don't punch while picking buffs
+        if (this.waveManager.state === "pre_game") {
+          this.waveManager.skipPreGame();
+          return;
+        }
         if (this.waveManager.state === "intermission" && !this.waveManager.isReadyUp()) {
           this.closeShop();
           this.waveManager.triggerReady();
@@ -477,7 +425,7 @@ export class GameScene extends Phaser.Scene {
       pKey.on("down", () => {
         if (this.gameOver) return;
         if (this.shopOpen) { this.closeShop(); return; }
-        if (this.settingsOpen) { this.closeSettings(); return; }
+        if (this.settingsOpen) { this.settingsOpen = false; hudState.update({ settingsOpen: false }); return; }
         if (this.paused) this.resumeGame();
         else this.pauseGame();
       });
@@ -509,21 +457,70 @@ export class GameScene extends Phaser.Scene {
         const orient = this.barricadeVertical ? "VERTICAL" : "HORIZONTAL";
         this.showWeaponMessage(`BARRICADE: ${orient}`, "#dddd44");
       });
+
+      // Dev mode — backtick key, localhost only
+      if (typeof window !== "undefined" && window.location.hostname === "localhost") {
+        const backtick = this.input.keyboard.addKey(
+          Phaser.Input.Keyboard.KeyCodes.BACKTICK
+        );
+        backtick.on("down", () => {
+          this.devMode = !this.devMode;
+          if (this.devMode) {
+            this.showWeaponMessage("DEV MODE ON", "#ff00ff");
+          } else {
+            this.showWeaponMessage("DEV MODE OFF", "#888888");
+          }
+        });
+
+        // F1: give $9999
+        const f1 = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F1);
+        f1.on("down", () => {
+          if (!this.devMode) return;
+          this.currency += 9999;
+          this.showWeaponMessage("DEV: +$9999", "#ff00ff");
+        });
+
+        // F2: skip to next wave
+        const f2 = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F2);
+        f2.on("down", () => {
+          if (!this.devMode) return;
+          // Kill all enemies
+          this.enemies.getChildren().forEach((e) => {
+            if (e.active) (e as Enemy).takeDamage(99999);
+          });
+          this.showWeaponMessage("DEV: WAVE SKIP", "#ff00ff");
+        });
+
+        // F3: full heal
+        const f3 = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F3);
+        f3.on("down", () => {
+          if (!this.devMode) return;
+          this.player.stats.health = this.player.stats.maxHealth;
+          this.player.stats.stamina = this.player.stats.maxStamina;
+          this.player.burnedOut = false;
+          this.showWeaponMessage("DEV: FULL HEAL", "#ff00ff");
+        });
+
+        // F4: god mode toggle (invincible)
+        const f4 = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F4);
+        f4.on("down", () => {
+          if (!this.devMode) return;
+          this.player.invincible = !this.player.invincible;
+          this.showWeaponMessage(this.player.invincible ? "DEV: GOD MODE ON" : "DEV: GOD MODE OFF", "#ff00ff");
+        });
+      }
     }
 
-    // HUD container — lives in world space, tracks camera position each frame
+    // HUD container — still needed for game-over and level-up that use Phaser overlays
     this.hudContainer = this.add.container(0, 0);
     this.hudContainer.setDepth(150);
-    // Hide HUD from minimap
     this.minimap.ignore(this.hudContainer);
-    this.hudContainer.add(this.zoomText);
 
     this.baseDamage = this.player.stats.damage;
     this.damageBoostActive = false;
 
-    this.createHUD();
-    this.createPauseUI();
-    this.createShopUI();
+    this.initShop();
+    this.registerReactActions();
 
     // Wave manager
     this.waveManager = new WaveManager({
@@ -598,8 +595,8 @@ export class GameScene extends Phaser.Scene {
 
     if (this.gameOver || this.paused) return;
 
-    // Freeze player movement while shop is open
-    if (this.shopOpen) {
+    // Freeze player movement while shop or level-up overlay is open
+    if (this.shopOpen || this.levelUpActive) {
       this.player.body.setVelocity(0, 0);
     } else {
       this.player.update();
@@ -1274,7 +1271,7 @@ export class GameScene extends Phaser.Scene {
     const cam = this.cameras.main;
     const txt = this.add.text(
       this.player.x, this.player.y - 80, msg,
-      { fontFamily: "HorrorPixel, monospace", fontSize: "22px", color, fontStyle: "bold" }
+      { fontFamily: "Special Elite, serif", fontSize: "22px", color, fontStyle: "bold" }
     ).setDepth(100).setOrigin(0.5);
 
     this.tweens.add({
@@ -1400,7 +1397,7 @@ export class GameScene extends Phaser.Scene {
 
   private showCritEffect(x: number, y: number) {
     const txt = this.add.text(x, y - 20, "CRIT!", {
-      fontFamily: "HorrorPixel, monospace",
+      fontFamily: "Special Elite, serif",
       fontSize: "14px",
       color: "#ff4444",
       fontStyle: "bold",
@@ -1466,6 +1463,7 @@ export class GameScene extends Phaser.Scene {
   private handleEnemyContact: Phaser.Types.Physics.Arcade.ArcadePhysicsCallback =
     (_player, enemyObj) => {
       if (this.gameOver) return;
+      if (this.player.invincible) return; // dev god mode
       if (this.player.isPunching) return; // i-frames during punch
 
       const now = this.time.now;
@@ -1512,86 +1510,37 @@ export class GameScene extends Phaser.Scene {
       e.body?.setVelocity(0, 0);
     });
 
-    const { width, height } = this.cameras.main;
-
-    // Game-over container at max depth so it renders above everything (trees, etc.)
-    this.gameOverContainer = this.add.container(0, 0);
-    this.gameOverContainer.setDepth(500);
-    this.hudContainer.add(this.gameOverContainer);
-    const goContainer = this.gameOverContainer;
-
-    const overlay = this.add.graphics();
-    overlay.fillStyle(0x000000, 0.75);
-    overlay.fillRect(0, 0, width, height);
-    overlay.setAlpha(0);
-    goContainer.add(overlay);
-
-    // Graveyard splash background (centered, scaled to cover, dimmed)
-    const splash = this.add.image(width / 2, height / 2, "ui-splash-graveyard")
-      .setAlpha(0)
-      .setDisplaySize(width, height);
-    splash.setTint(0x666688);
-    goContainer.add(splash);
-
-    const diedText = this.add
-      .text(width / 2, height / 2 - 80, "YOU DIED", {
-        fontSize: "100px",
-        fontFamily: "ChainsawCarnage, HorrorPixel, monospace",
-        color: "#cc2233",
-      })
-      .setOrigin(0.5)
-      .setAlpha(0);
-    goContainer.add(diedText);
-
     const waveReached = this.waveManager.wave;
-    const statsText = this.add
-      .text(
-        width / 2,
-        height / 2 + 50,
-        `Wave ${waveReached}  |  ${this.kills} kills`,
-        {
-          fontSize: "36px",
-          fontFamily: "HorrorPixel, monospace",
-          color: "#cccccc",
-        }
-      )
-      .setOrigin(0.5)
-      .setAlpha(0);
-    goContainer.add(statsText);
 
-    // Fade in death screen, then check if score qualifies for leaderboard
-    // Splash background fades to lower alpha so it doesn't overpower text
-    this.tweens.add({
-      targets: splash,
-      alpha: 0.35,
-      duration: 1000,
-      ease: "Cubic.easeIn",
+    // Push death screen to React
+    hudState.update({
+      gameOver: true,
+      gameOverPhase: "death",
+      gameOverWave: waveReached,
+      gameOverKills: this.kills,
+      gameOverCharName: this.characterDef.name,
     });
-    this.tweens.add({
-      targets: [overlay, diedText, statsText],
-      alpha: 1,
-      duration: 800,
-      ease: "Cubic.easeIn",
-      onComplete: () => {
-        this.time.delayedCall(1200, () => {
-          this.checkLeaderboardQualification(overlay, waveReached);
-        });
-      },
+
+    // After delay, check if score qualifies for leaderboard
+    this.time.delayedCall(2000, () => {
+      this.checkLeaderboardQualification(waveReached);
     });
   }
 
-  /** Check if the player's score qualifies for top 5 before showing entry */
-  private async checkLeaderboardQualification(overlay: Phaser.GameObjects.Graphics, waveReached: number) {
+  private async checkLeaderboardQualification(waveReached: number) {
     try {
       const response = await fetch("/api/leaderboard");
       if (response.ok) {
         const leaderboard = await response.json();
-        // Qualifies if fewer than 5 entries or score beats the lowest
         if (leaderboard.length >= 5) {
           const lowest = leaderboard[leaderboard.length - 1];
           if (this.kills < lowest.kills || (this.kills === lowest.kills && waveReached <= lowest.wave)) {
             // Doesn't qualify — skip entry, show leaderboard directly
-            this.showLeaderboardDisplay(leaderboard, null, []);
+            hudState.update({
+              gameOverPhase: "leaderboard",
+              leaderboard,
+              leaderboardHighlightId: null,
+            });
             return;
           }
         }
@@ -1599,127 +1548,18 @@ export class GameScene extends Phaser.Scene {
     } catch (e) {
       // On error, allow entry anyway
     }
-    this.showLeaderboardEntry(overlay, waveReached);
+    // Qualifies — show name entry
+    hudState.update({ gameOverPhase: "entry" });
   }
 
-  // ---------- Leaderboard ----------
-
-  private showLeaderboardEntry(overlay: Phaser.GameObjects.Graphics, waveReached: number) {
-    const { width, height } = this.cameras.main;
-    let nameStr = "";
-    let submitted = false;
-    const MAX_LEN = 8;
-
-    const fontBase = {
-      fontFamily: "HorrorPixel, monospace",
-    };
-
-    // "ENTER YOUR NAME" prompt
-    const promptText = this.add
-      .text(width / 2, height / 2 + 100, "ENTER YOUR NAME", {
-        ...fontBase,
-        fontSize: "28px",
-        color: "#999999",
-      })
-      .setOrigin(0.5)
-      .setAlpha(0);
-    this.gameOverContainer.add(promptText);
-
-    // Typed name display with blinking cursor
-    const nameText = this.add
-      .text(width / 2, height / 2 + 155, "_", {
-        ...fontBase,
-        fontSize: "52px",
-        color: "#ffffff",
-        fontStyle: "bold",
-      })
-      .setOrigin(0.5)
-      .setAlpha(0);
-    this.gameOverContainer.add(nameText);
-
-    // Hint text
-    const hintText = this.add
-      .text(width / 2, height / 2 + 220, "TYPE YOUR NAME    ENTER TO SUBMIT", {
-        ...fontBase,
-        fontSize: "18px",
-        color: "#666666",
-      })
-      .setOrigin(0.5)
-      .setAlpha(0);
-    this.gameOverContainer.add(hintText);
-
-    // Fade in the entry UI
-    const entryElements = [promptText, nameText, hintText];
-    this.tweens.add({
-      targets: entryElements,
-      alpha: 1,
-      duration: 400,
-      ease: "Cubic.easeIn",
-    });
-
-    // Blink cursor
-    let cursorVisible = true;
-    this.time.addEvent({
-      delay: 400,
-      loop: true,
-      callback: () => {
-        if (submitted) return;
-        cursorVisible = !cursorVisible;
-        nameText.setText(nameStr + (cursorVisible ? "_" : ""));
-      },
-    });
-
-    // Key handler — type letters directly
-    const keyHandler = (event: KeyboardEvent) => {
-      if (submitted) return;
-
-      if (event.key === "Enter") {
-        if (nameStr.length === 0) return; // need at least 1 char
-        submitted = true;
-        this.input.keyboard?.off("keydown", keyHandler);
-        nameText.setText(nameStr);
-        hintText.setText("SUBMITTING...");
-        hintText.setColor("#cc3333");
-        this.submitLeaderboardScore(
-          nameStr,
-          this.kills,
-          waveReached,
-          this.characterDef.id,
-          overlay,
-          entryElements
-        );
-      } else if (event.key === "Backspace") {
-        nameStr = nameStr.slice(0, -1);
-        nameText.setText(nameStr + "_");
-      } else if (/^[a-zA-Z0-9]$/.test(event.key) && nameStr.length < MAX_LEN) {
-        nameStr += event.key.toUpperCase();
-        nameText.setText(nameStr + "_");
-      }
-    };
-
-    this.input.keyboard?.on("keydown", keyHandler);
-  }
-
-  private async submitLeaderboardScore(
-    name: string,
-    kills: number,
-    wave: number,
-    characterId: string,
-    overlay: Phaser.GameObjects.Graphics,
-    entryElements: Phaser.GameObjects.GameObject[]
-  ) {
+  private async submitLeaderboardScore(name: string, kills: number, wave: number, characterId: string) {
     let submittedId: number | null = null;
 
     try {
       const response = await fetch("/api/leaderboard", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          kills,
-          wave,
-          character_id: characterId,
-        }),
+        body: JSON.stringify({ name, kills, wave, character_id: characterId }),
       });
       if (response.ok) {
         const data = await response.json();
@@ -1729,7 +1569,7 @@ export class GameScene extends Phaser.Scene {
       console.error("Failed to submit leaderboard score:", e);
     }
 
-    // Fetch the leaderboard
+    // Fetch updated leaderboard
     let leaderboard: { id: number; name: string; kills: number; wave: number; character_id: string }[] = [];
     try {
       const response = await fetch("/api/leaderboard");
@@ -1740,175 +1580,12 @@ export class GameScene extends Phaser.Scene {
       console.error("Failed to fetch leaderboard:", e);
     }
 
-    this.showLeaderboardDisplay(leaderboard, submittedId, entryElements);
-  }
-
-  private showLeaderboardDisplay(
-    leaderboard: { id: number; name: string; kills: number; wave: number; character_id: string }[],
-    highlightId: number | null,
-    entryElements: Phaser.GameObjects.GameObject[]
-  ) {
-    const { width, height } = this.cameras.main;
-    const fontBase = { fontFamily: "HorrorPixel, monospace" };
-
-    // Fade out entry UI elements (not the overlay/died/stats — keep those)
-    this.tweens.add({
-      targets: entryElements,
-      alpha: 0,
-      duration: 300,
-      ease: "Cubic.easeOut",
-    });
-
-    const boardContainer: Phaser.GameObjects.GameObject[] = [];
-
-    // Title
-    const title = this.add
-      .text(width / 2, 60, "LEADERBOARD", {
-        fontFamily: "ChainsawCarnage, HorrorPixel, monospace",
-        fontSize: "64px",
-        color: "#cc2233",
-      })
-      .setOrigin(0.5)
-      .setAlpha(0);
-    this.gameOverContainer.add(title);
-    boardContainer.push(title);
-
-    // Column headers
-    const headerY = 110;
-    const rankX = width / 2 - 240;
-    const nameX = width / 2 - 160;
-    const killsX = width / 2 + 60;
-    const waveX = width / 2 + 180;
-
-    const headers = [
-      { text: "#", x: rankX },
-      { text: "NAME", x: nameX },
-      { text: "KILLS", x: killsX },
-      { text: "WAVE", x: waveX },
-    ];
-
-    for (const h of headers) {
-      const ht = this.add
-        .text(h.x, headerY, h.text, {
-          ...fontBase,
-          fontSize: "22px",
-          color: "#999999",
-          fontStyle: "bold",
-        })
-        .setOrigin(0, 0.5)
-        .setAlpha(0);
-      this.gameOverContainer.add(ht);
-      boardContainer.push(ht);
-    }
-
-    // Separator line
-    const sep = this.add.graphics();
-    sep.lineStyle(1, 0x666666, 0.5);
-    sep.lineBetween(rankX, headerY + 16, waveX + 60, headerY + 16);
-    sep.setAlpha(0);
-    this.gameOverContainer.add(sep);
-    boardContainer.push(sep);
-
-    // Rows
-    const rowStartY = headerY + 36;
-    const rowHeight = 32;
-    const maxRows = Math.min(leaderboard.length, 20);
-
-    for (let i = 0; i < maxRows; i++) {
-      const entry = leaderboard[i];
-      const y = rowStartY + i * rowHeight;
-      const isHighlighted = entry.id === highlightId;
-      const color = isHighlighted ? "#ffcc00" : "#cccccc";
-      const fontSize = isHighlighted ? "22px" : "20px";
-
-      const rowData = [
-        { text: `${i + 1}`, x: rankX },
-        { text: entry.name, x: nameX },
-        { text: `${entry.kills}`, x: killsX },
-        { text: `${entry.wave}`, x: waveX },
-      ];
-
-      for (const rd of rowData) {
-        const rt = this.add
-          .text(rd.x, y, rd.text, {
-            ...fontBase,
-            fontSize,
-            color,
-          })
-          .setOrigin(0, 0.5)
-          .setAlpha(0);
-        this.gameOverContainer.add(rt);
-        boardContainer.push(rt);
-      }
-
-      // Highlight bar behind the player's row
-      if (isHighlighted) {
-        const bar = this.add.graphics();
-        bar.fillStyle(0xffcc00, 0.1);
-        bar.fillRect(rankX - 10, y - rowHeight / 2, waveX + 70 - rankX, rowHeight);
-        bar.setAlpha(0);
-        this.gameOverContainer.add(bar);
-        boardContainer.push(bar);
-      }
-    }
-
-    // If leaderboard is empty, show a message
-    if (maxRows === 0) {
-      const emptyText = this.add
-        .text(width / 2, rowStartY + 40, "No scores yet. You're the first!", {
-          ...fontBase,
-          fontSize: "24px",
-          color: "#666666",
-        })
-        .setOrigin(0.5)
-        .setAlpha(0);
-      this.gameOverContainer.add(emptyText);
-      boardContainer.push(emptyText);
-    }
-
-    // "Press any key to continue" prompt
-    const continueText = this.add
-      .text(width / 2, height - 50, "PRESS ANY KEY TO CONTINUE", {
-        ...fontBase,
-        fontSize: "22px",
-        color: "#666666",
-      })
-      .setOrigin(0.5)
-      .setAlpha(0);
-    this.gameOverContainer.add(continueText);
-    boardContainer.push(continueText);
-
-    // Fade in the leaderboard
-    this.tweens.add({
-      targets: boardContainer,
-      alpha: 1,
-      duration: 500,
-      delay: 400,
-      ease: "Cubic.easeIn",
-      onComplete: () => {
-        // Blink the continue text
-        this.tweens.add({
-          targets: continueText,
-          alpha: 0.3,
-          yoyo: true,
-          repeat: -1,
-          duration: 600,
-        });
-
-        // Wait for any key to return to menu
-        const returnHandler = () => {
-          this.input.keyboard?.off("keydown", returnHandler);
-          this.scene.start("MainMenu");
-        };
-        // Small delay so the submit Enter key doesn't immediately trigger
-        this.time.delayedCall(500, () => {
-          this.input.keyboard?.on("keydown", returnHandler);
-        });
-      },
+    hudState.update({
+      gameOverPhase: "leaderboard",
+      leaderboard,
+      leaderboardHighlightId: submittedId,
     });
   }
-
-  // ------- Pause -------
 
   private spawnTreeWall() {
     const mapW = ENDICOTT_MAP_W;
@@ -2012,634 +1689,182 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private createPauseUI() {
-    const { width, height } = this.cameras.main;
+  // ------- Pause / Settings (React-rendered, action-driven) -------
 
-    this.pauseOverlay = this.add.graphics();
-    this.pauseOverlay.fillStyle(0x000000, 0.6);
-    this.pauseOverlay.fillRect(0, 0, width, height);
-    this.pauseOverlay.setVisible(false);
-    this.hudContainer.add(this.pauseOverlay);
-
-    this.pauseTitle = this.add
-      .text(width / 2, height / 2 - 80, "PAUSED", {
-        fontSize: "64px",
-        fontFamily: "HorrorPixel, monospace",
-        color: "#d0c8e0",
-        fontStyle: "bold",
-      })
-      .setOrigin(0.5)
-      .setVisible(false);
-    this.hudContainer.add(this.pauseTitle);
-
-    this.pauseQuitBtn = this.add
-      .text(width / 2, height / 2 + 40, "[ Q ]  Quit to Menu", {
-        fontSize: "30px",
-        fontFamily: "HorrorPixel, monospace",
-        color: "#8a82a0",
-      })
-      .setOrigin(0.5)
-      .setVisible(false)
-      .setInteractive({ useHandCursor: true });
-    this.hudContainer.add(this.pauseQuitBtn);
-
-    this.pauseQuitBtn.on("pointerover", () => {
-      this.pauseQuitBtn.setColor("#d0c8e0");
-    });
-    this.pauseQuitBtn.on("pointerout", () => {
-      this.pauseQuitBtn.setColor("#8a82a0");
-    });
-    this.pauseQuitBtn.on("pointerdown", () => {
-      this.scene.start("MainMenu");
-    });
-
-    // Restart button
-    this.pauseRestartBtn = this.add
-      .text(width / 2, height / 2 + 80, "[ R ]  Restart", {
-        fontSize: "30px",
-        fontFamily: "HorrorPixel, monospace",
-        color: "#8a82a0",
-      })
-      .setOrigin(0.5)
-      .setVisible(false)
-      .setInteractive({ useHandCursor: true });
-    this.hudContainer.add(this.pauseRestartBtn);
-
-    this.pauseRestartBtn.on("pointerover", () => {
-      this.pauseRestartBtn.setColor("#d0c8e0");
-    });
-    this.pauseRestartBtn.on("pointerout", () => {
-      this.pauseRestartBtn.setColor("#8a82a0");
-    });
-    this.pauseRestartBtn.on("pointerdown", () => {
-      this.scene.restart({ characterId: this.characterDef.id });
-    });
-
-    // Settings button
-    this.pauseSettingsBtn = this.add
-      .text(width / 2, height / 2 + 140, "[ S ]  Settings", {
-        fontSize: "30px",
-        fontFamily: "HorrorPixel, monospace",
-        color: "#8a82a0",
-      })
-      .setOrigin(0.5)
-      .setVisible(false)
-      .setInteractive({ useHandCursor: true });
-    this.hudContainer.add(this.pauseSettingsBtn);
-
-    this.pauseSettingsBtn.on("pointerover", () => {
-      this.pauseSettingsBtn.setColor("#d0c8e0");
-    });
-    this.pauseSettingsBtn.on("pointerout", () => {
-      this.pauseSettingsBtn.setColor("#8a82a0");
-    });
-    this.pauseSettingsBtn.on("pointerdown", () => {
-      this.openSettings();
-    });
-
-    this.createSettingsUI();
-  }
-
-  private createSettingsUI() {
-    const { width, height } = this.cameras.main;
-    this.settingsContainer = this.add.container(0, 0);
-    this.settingsContainer.setDepth(170);
-    this.settingsContainer.setVisible(false);
-    this.hudContainer.add(this.settingsContainer);
-
-    const panelW = 640;
-    const panelH = 340;
-    const cx = width / 2;
-    const cy = height / 2;
-    const left = cx - panelW / 2;
-    const top = cy - panelH / 2;
-
-    // Panel background
-    const bg = this.add.graphics();
-    bg.fillStyle(0x12121f, 0.95);
-    bg.fillRoundedRect(left, top, panelW, panelH, 12);
-    bg.lineStyle(2, 0x4a4565, 0.6);
-    bg.strokeRoundedRect(left, top, panelW, panelH, 12);
-    this.settingsContainer.add(bg);
-
-    // Title
-    const title = this.add.text(cx, top + 40, "SETTINGS", {
-      fontSize: "36px", fontFamily: "HorrorPixel, monospace",
-      color: "#d0c8e0", fontStyle: "bold",
-    }).setOrigin(0.5);
-    this.settingsContainer.add(title);
-
-    let yPos = top + 110;
-    const labelStyle = { fontSize: "26px", fontFamily: "HorrorPixel, monospace", color: "#b0a8c0" };
-    const valStyle = { fontSize: "26px", fontFamily: "HorrorPixel, monospace", color: "#d0c8e0" };
-
-    // --- SFX Volume ---
-    this.settingsContainer.add(this.add.text(left + 40, yPos, "Sound Volume", labelStyle));
-    const sfxValText = this.add.text(left + panelW - 40, yPos, "100%", valStyle).setOrigin(1, 0);
-    this.settingsContainer.add(sfxValText);
-    yPos += 44;
-    const sfxSlider = this.createSlider(left + 40, yPos, panelW - 80, this.sfxVolume, (val) => {
-      this.sfxVolume = val;
-      this.sfxMuted = val === 0;
-      sfxValText.setText(`${Math.round(val * 100)}%`);
-      for (const s of this.ambientSounds) {
-        if ("setVolume" in s) (s as Phaser.Sound.WebAudioSound).setVolume(val * 0.15);
-      }
-    });
-    this.settingsContainer.add(sfxSlider);
-    yPos += 60;
-
-    // --- Scroll Zoom Toggle ---
-    const zoomToggle = this.createToggle(left + 40, yPos, "Scroll Zoom", this.zoomEnabled, (on) => {
-      this.zoomEnabled = on;
-      if (on) {
-        this.zoomText.setVisible(true);
-        this.zoomText.setText(`${Math.round(this.cameras.main.zoom * 100)}%`);
-        this.wheelHandler = (e: WheelEvent) => {
-          e.preventDefault();
-          const cam = this.cameras.main;
-          const zoomStops = [2, 2.5, 3, 3.5, 4, 5];
-          const curIdx = zoomStops.reduce((closest, val, idx) =>
-            Math.abs(val - cam.zoom) < Math.abs(zoomStops[closest] - cam.zoom) ? idx : closest, 0);
-          const nextIdx = Phaser.Math.Clamp(curIdx + (e.deltaY > 0 ? -1 : 1), 0, zoomStops.length - 1);
-          cam.setZoom(zoomStops[nextIdx]);
-          this.zoomText.setText(`${Math.round(zoomStops[nextIdx] * 100)}%`);
-        };
-        window.addEventListener("wheel", this.wheelHandler, { passive: false });
-      } else {
-        this.zoomText.setVisible(false);
-        if (this.wheelHandler) {
-          window.removeEventListener("wheel", this.wheelHandler);
-          this.wheelHandler = undefined;
+  private registerReactActions() {
+    // Pause actions from React
+    hudState.registerPauseAction((action: string, payload?: any) => {
+      switch (action) {
+        case "quit": this.scene.start("MainMenu"); break;
+        case "restart": this.scene.restart({ characterId: this.characterDef.id }); break;
+        case "resume": this.resumeGame(); break;
+        case "openSettings": this.settingsOpen = true; break;
+        case "closeSettings": this.settingsOpen = false; break;
+        case "setVolume": {
+          const val = payload as number;
+          this.sfxVolume = val;
+          this.sfxMuted = val === 0;
+          for (const s of this.ambientSounds) {
+            if ("setVolume" in s) (s as Phaser.Sound.WebAudioSound).setVolume(val * 0.15);
+          }
+          break;
         }
-        this.cameras.main.setZoom(5.0);
+        case "toggleZoom": {
+          this.zoomEnabled = !this.zoomEnabled;
+          if (this.zoomEnabled) {
+            hudState.update({ zoomVisible: true, zoomPercent: Math.round(this.cameras.main.zoom * 100) });
+            this.wheelHandler = (e: WheelEvent) => {
+              e.preventDefault();
+              const cam = this.cameras.main;
+              const zoomStops = [2, 2.5, 3, 3.5, 4, 5];
+              const curIdx = zoomStops.reduce((closest, val, idx) =>
+                Math.abs(val - cam.zoom) < Math.abs(zoomStops[closest] - cam.zoom) ? idx : closest, 0);
+              const nextIdx = Phaser.Math.Clamp(curIdx + (e.deltaY > 0 ? -1 : 1), 0, zoomStops.length - 1);
+              cam.setZoom(zoomStops[nextIdx]);
+              hudState.update({ zoomPercent: Math.round(zoomStops[nextIdx] * 100) });
+            };
+            window.addEventListener("wheel", this.wheelHandler, { passive: false });
+          } else {
+            hudState.update({ zoomVisible: false });
+            if (this.wheelHandler) {
+              window.removeEventListener("wheel", this.wheelHandler);
+              this.wheelHandler = undefined;
+            }
+            this.cameras.main.setZoom(5.0);
+          }
+          break;
+        }
       }
     });
-    this.settingsContainer.add(zoomToggle);
 
-    // Back button
-    const backBtn = this.add.text(cx, top + panelH - 50, "[ ESC ]  Back", {
-      fontSize: "26px", fontFamily: "HorrorPixel, monospace", color: "#8a82a0",
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    backBtn.on("pointerover", () => backBtn.setColor("#d0c8e0"));
-    backBtn.on("pointerout", () => backBtn.setColor("#8a82a0"));
-    backBtn.on("pointerdown", () => this.closeSettings());
-    this.settingsContainer.add(backBtn);
-  }
-
-  private createSlider(x: number, y: number, w: number, initial: number, onChange: (val: number) => void): Phaser.GameObjects.Container {
-    const container = this.add.container(0, 0);
-
-    // Track
-    const track = this.add.graphics();
-    track.fillStyle(0x2a2a3a, 1);
-    track.fillRoundedRect(x, y + 8, w, 12, 6);
-    container.add(track);
-
-    // Fill
-    const fill = this.add.graphics();
-    container.add(fill);
-
-    // Knob
-    const knob = this.add.graphics();
-    container.add(knob);
-
-    const drawSlider = (val: number) => {
-      fill.clear();
-      fill.fillStyle(0x4a90d9, 1);
-      fill.fillRoundedRect(x, y + 8, w * val, 12, 6);
-      knob.clear();
-      knob.fillStyle(0xd0c8e0, 1);
-      knob.fillCircle(x + w * val, y + 14, 12);
-    };
-    drawSlider(initial);
-
-    // Invisible hit area
-    const hitZone = this.add.zone(x + w / 2, y + 14, w + 30, 36).setInteractive({ useHandCursor: true });
-    container.add(hitZone);
-
-    let dragging = false;
-    const updateFromPointer = (px: number) => {
-      const val = Phaser.Math.Clamp((px - x) / w, 0, 1);
-      drawSlider(val);
-      onChange(val);
-    };
-
-    const toLocal = (p: Phaser.Input.Pointer) =>
-      (p.worldX - this.hudContainer.x) / this.hudContainer.scaleX;
-
-    hitZone.on("pointerdown", (p: Phaser.Input.Pointer) => {
-      dragging = true;
-      updateFromPointer(toLocal(p));
+    // Level-up actions from React
+    hudState.registerLevelUpAction((action: string, payload?: any) => {
+      if (action === "select") this.selectLevelUpBuff(payload as number);
     });
-    this.input.on("pointermove", (p: Phaser.Input.Pointer) => {
-      if (dragging) updateFromPointer(toLocal(p));
+
+    // Game-over actions from React
+    hudState.registerGameOverAction((action: string, payload?: any) => {
+      if (action === "submitName") {
+        this.submitLeaderboardScore(payload as string, this.kills, this.waveManager.wave, this.characterDef.id);
+      } else if (action === "returnToMenu") {
+        this.scene.start("MainMenu");
+      }
     });
-    this.input.on("pointerup", () => { dragging = false; });
-
-    return container;
-  }
-
-  private createToggle(x: number, y: number, label: string, initial: boolean, onChange: (on: boolean) => void): Phaser.GameObjects.Container {
-    const container = this.add.container(0, 0);
-    let isOn = initial;
-
-    const labelText = this.add.text(x, y, label, {
-      fontSize: "26px", fontFamily: "HorrorPixel, monospace", color: "#b0a8c0",
-    });
-    container.add(labelText);
-
-    const boxX = x + 440;
-    const box = this.add.graphics();
-    const drawToggle = () => {
-      box.clear();
-      box.fillStyle(isOn ? 0x4a90d9 : 0x2a2a3a, 1);
-      box.fillRoundedRect(boxX, y + 2, 64, 28, 14);
-      box.fillStyle(0xd0c8e0, 1);
-      box.fillCircle(isOn ? boxX + 50 : boxX + 14, y + 16, 10);
-    };
-    drawToggle();
-    container.add(box);
-
-    const hitZone = this.add.zone(boxX + 32, y + 16, 72, 36).setInteractive({ useHandCursor: true });
-    hitZone.on("pointerdown", () => {
-      isOn = !isOn;
-      drawToggle();
-      onChange(isOn);
-    });
-    container.add(hitZone);
-
-    return container;
-  }
-
-  private openSettings() {
-    this.settingsOpen = true;
-    this.pauseTitle.setVisible(false);
-    this.pauseQuitBtn.setVisible(false);
-    this.pauseRestartBtn.setVisible(false);
-    this.pauseSettingsBtn.setVisible(false);
-    this.settingsContainer.setVisible(true);
-  }
-
-  private closeSettings() {
-    this.settingsOpen = false;
-    this.settingsContainer.setVisible(false);
-    this.pauseTitle.setVisible(true);
-    this.pauseQuitBtn.setVisible(true);
-    this.pauseRestartBtn.setVisible(true);
-    this.pauseSettingsBtn.setVisible(true);
   }
 
   private pauseGame() {
     this.paused = true;
     this.physics.pause();
-
-    this.pauseOverlay.setVisible(true);
-    this.pauseTitle.setVisible(true);
-    this.pauseQuitBtn.setVisible(true);
-    this.pauseRestartBtn.setVisible(true);
-    this.pauseSettingsBtn.setVisible(true);
-
-    this.pauseKeyHandler = (event: KeyboardEvent) => {
-      if (event.key === "q" || event.key === "Q") {
-        if (this.paused && !this.settingsOpen) this.scene.start("MainMenu");
-      }
-      if (event.key === "r" || event.key === "R") {
-        if (this.paused && !this.settingsOpen) this.scene.restart({ characterId: this.characterDef.id });
-      }
-      if (event.key === "s" || event.key === "S") {
-        if (this.paused && !this.settingsOpen) this.openSettings();
-      }
-    };
-    window.addEventListener("keydown", this.pauseKeyHandler);
+    hudState.update({ paused: true });
   }
-
-  private pauseKeyHandler?: (event: KeyboardEvent) => void;
 
   private resumeGame() {
     this.paused = false;
-    this.physics.resume();
-
-    this.pauseOverlay.setVisible(false);
-    this.pauseTitle.setVisible(false);
-    this.pauseQuitBtn.setVisible(false);
-    this.pauseRestartBtn.setVisible(false);
-    this.pauseSettingsBtn.setVisible(false);
-    this.settingsContainer.setVisible(false);
     this.settingsOpen = false;
-
-    if (this.pauseKeyHandler) {
-      window.removeEventListener("keydown", this.pauseKeyHandler);
-      this.pauseKeyHandler = undefined;
-    }
+    this.physics.resume();
+    hudState.update({ paused: false, settingsOpen: false });
   }
 
-  // ------- Shop -------
+  // ------- Shop (React overlay — data push only) -------
 
-  private createShopUI() {
-    const { width, height } = this.cameras.main;
-    this.shopContainer = this.add.container(0, 0);
-    this.shopContainer.setDepth(160);
-    this.shopContainer.setVisible(false);
-    this.hudContainer.add(this.shopContainer);
-    this.shopCards = [];
+  private readonly shopIconMap: Record<string, string> = {
+    pistol: "/assets/sprites/items/pistol.png",
+    shotgun: "/assets/sprites/items/shotgun.png",
+    smg: "/assets/sprites/items/smg.png",
+    ammo: "/assets/sprites/items/ammo.png",
+    extraClip: "/assets/sprites/items/ammo-box.png",
+    barricade: "/assets/sprites/items/trap-barricade.png",
+    landmine: "/assets/sprites/items/landmine.png",
+    heal: "/assets/sprites/items/bandage.png",
+    dmgBoost: "/assets/sprites/items/syringe.png",
+  };
 
+  private initShop() {
     const items = BALANCE.shop.items;
-    const panelW = 900;
-    const panelH = 560;
-    const panelLeft = width / 2 - panelW / 2;
-    const panelTop = height / 2 - panelH / 2;
-
-    // Dim overlay
-    const overlay = this.add.graphics();
-    overlay.fillStyle(0x000000, 0.8);
-    overlay.fillRect(0, 0, width, height);
-    this.shopContainer.add(overlay);
-
-    // Horror panel frame (9-slice)
-    const panelBg = this.add.nineslice(
-      width / 2, height / 2,
-      "ui-horror-panel",
-      undefined,
-      panelW, panelH,
-      20, 20, 20, 20
-    ).setOrigin(0.5).setAlpha(0.95);
-    this.shopContainer.add(panelBg);
-
-    // Dark fill inside panel for readability
-    const bgOverlay = this.add.graphics();
-    bgOverlay.fillStyle(0x080810, 0.7);
-    bgOverlay.fillRect(panelLeft + 8, panelTop + 8, panelW - 16, panelH - 16);
-    this.shopContainer.add(bgOverlay);
-
-    // Header: SHOP + cash
-    const shopTitle = this.add.text(panelLeft + 32, panelTop + 28, "SHOP", {
-      fontSize: "42px", fontFamily: "ChainsawCarnage, HorrorPixel, monospace", color: "#ff2244", letterSpacing: 8,
-    }).setOrigin(0, 0.5);
-    this.shopContainer.add(shopTitle);
-
-    this.shopCashText = this.add.text(panelLeft + panelW - 32, panelTop + 28, "$0", {
-      fontSize: "36px", fontFamily: "HorrorPixel, monospace", color: "#e8c840",
-    }).setOrigin(1, 0.5);
-    this.shopContainer.add(this.shopCashText);
-
-    // Header divider
-    const headerLine = this.add.image(width / 2, panelTop + 54, "ui-horror-divider")
-      .setDisplaySize(panelW - 48, 6);
-    this.shopContainer.add(headerLine);
-
-    // Three columns
-    const colW = 270;
-    const colX = [panelLeft + 32, panelLeft + 32 + colW + 12, panelLeft + 32 + (colW + 12) * 2];
-    const colHeaders = ["SUPPLIES", "WEAPONS", "TRAPS"];
-
-    // Column dividers
-    const dividers = this.add.graphics();
-    dividers.lineStyle(1, 0x331122, 0.6);
-    dividers.lineBetween(colX[1] - 6, panelTop + 64, colX[1] - 6, panelTop + panelH - 50);
-    dividers.lineBetween(colX[2] - 6, panelTop + 64, colX[2] - 6, panelTop + panelH - 50);
-    this.shopContainer.add(dividers);
-
-    // Column headers
-    for (let c = 0; c < 3; c++) {
-      const header = this.add.text(colX[c], panelTop + 74, colHeaders[c], {
-        fontSize: "16px", fontFamily: "HorrorPixel, monospace", color: "#775566", letterSpacing: 4,
-      });
-      this.shopContainer.add(header);
-    }
-
-    // Item-to-column mapping
-    const iconMap: Record<string, string> = {
-      pistol: "item-pistol", shotgun: "item-shotgun", smg: "item-smg",
-      ammo: "item-ammo", extraClip: "item-ammo-box",
-      barricade: "trap-barricade", landmine: "item-landmine",
-      heal: "item-bandage", dmgBoost: "item-syringe",
-    };
-
-    // Organize items into columns
-    const columns: { idx: number; item: typeof items[number] }[][] = [[], [], []];
-    items.forEach((item, idx) => {
-      const id = item.id;
-      if (id === "heal" || id === "dmgBoost") columns[0].push({ idx, item });
-      else if (["pistol", "shotgun", "smg", "ammo", "extraClip"].includes(id)) columns[1].push({ idx, item });
-      else columns[2].push({ idx, item });
-    });
 
     // Build navigation grid: [col][row] -> original item index
-    this.shopGrid = columns.map(col => col.map(entry => entry.idx));
-
-    // Render item cards
-    const cardH = 72;
-    const cardGap = 6;
-    const cardsStartY = panelTop + 100;
-    let keyNum = 1;
-
-    for (let c = 0; c < 3; c++) {
-      for (let r = 0; r < columns[c].length; r++) {
-        const { idx, item } = columns[c][r];
-        const cx = colX[c];
-        const cy = cardsStartY + r * (cardH + cardGap);
-
-        // Card background
-        const cardBg = this.add.graphics();
-        cardBg.fillStyle(0x141420, 0.8);
-        cardBg.fillRoundedRect(cx, cy, colW, cardH, 3);
-        this.shopContainer.add(cardBg);
-
-        // Key badge
-        const keyText = this.add.text(cx + 8, cy + 8, `[${keyNum}]`, {
-          fontSize: "15px", fontFamily: "HorrorPixel, monospace", color: "#ff4466",
-        });
-        this.shopContainer.add(keyText);
-
-        // Icon
-        const texKey = iconMap[item.id];
-        let icon: Phaser.GameObjects.Image | null = null;
-        if (texKey && this.textures.exists(texKey)) {
-          icon = this.add.image(cx + 44, cy + cardH / 2, texKey).setScale(2.4);
-          this.shopContainer.add(icon);
-        }
-
-        // Name
-        const nameText = this.add.text(cx + 76, cy + 12, item.name.toUpperCase(), {
-          fontSize: "20px", fontFamily: "HorrorPixel, monospace", color: "#e0daf0",
-        });
-        this.shopContainer.add(nameText);
-
-        // Description
-        const descText = this.add.text(cx + 76, cy + 36, item.desc, {
-          fontSize: "15px", fontFamily: "HorrorPixel, monospace", color: "#8a8aaa",
-          wordWrap: { width: colW - 90 },
-        });
-        this.shopContainer.add(descText);
-
-        // Price (right-aligned)
-        const priceText = this.add.text(cx + colW - 10, cy + cardH / 2, "", {
-          fontSize: "22px", fontFamily: "HorrorPixel, monospace", color: "#e8c840",
-        }).setOrigin(1, 0.5);
-        this.shopContainer.add(priceText);
-
-        // Click zone
-        const zone = this.add.zone(cx + colW / 2, cy + cardH / 2, colW, cardH)
-          .setInteractive({ useHandCursor: true });
-        zone.on("pointerdown", () => this.buyItem(idx));
-        zone.on("pointerover", () => {
-          this.shopSelectedIndex = idx;
-          this.updateShopDisplay();
-        });
-        this.shopContainer.add(zone);
-
-        this.shopCards.push({ bg: cardBg, icon, name: nameText, desc: descText, price: priceText, key: keyText, zone });
-
-        keyNum++;
-      }
-    }
-
-    // Footer
-    const footer = this.add.text(width / 2, panelTop + panelH - 20, "[ESC/B] Close  \u00B7  WASD/Arrows navigate  \u00B7  Enter buy", {
-      fontSize: "16px", fontFamily: "HorrorPixel, monospace", color: "#555566",
-    }).setOrigin(0.5);
-    this.shopContainer.add(footer);
-
-    // Key bindings — number keys for direct buy + WASD/arrow navigation
-    if (this.input.keyboard) {
-      const enterKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER);
-      enterKey.on("down", () => { if (this.shopOpen) this.buyItem(this.shopSelectedIndex); });
-
-      // Build flat index mapping: keyNum -> original item index
-      const keyToIdx: number[] = [];
-      for (let c = 0; c < 3; c++) {
-        for (let r = 0; r < columns[c].length; r++) {
-          keyToIdx.push(columns[c][r].idx);
-        }
-      }
-
-      const keyCodes = [
-        Phaser.Input.Keyboard.KeyCodes.ONE, Phaser.Input.Keyboard.KeyCodes.TWO,
-        Phaser.Input.Keyboard.KeyCodes.THREE, Phaser.Input.Keyboard.KeyCodes.FOUR,
-        Phaser.Input.Keyboard.KeyCodes.FIVE, Phaser.Input.Keyboard.KeyCodes.SIX,
-        Phaser.Input.Keyboard.KeyCodes.SEVEN, Phaser.Input.Keyboard.KeyCodes.EIGHT,
-        Phaser.Input.Keyboard.KeyCodes.NINE,
-      ];
-      keyCodes.forEach((code, i) => {
-        if (i < keyToIdx.length) {
-          const key = this.input.keyboard!.addKey(code);
-          key.on("down", () => { if (this.shopOpen) this.buyItem(keyToIdx[i]); });
-        }
-      });
-
-      // WASD / Arrow navigation through shop grid
-      this.input.keyboard.on("keydown", (event: KeyboardEvent) => {
-        if (!this.shopOpen || this.shopGrid.length === 0) return;
-        let col = this.shopNavCol;
-        let row = this.shopNavRow;
-        let moved = false;
-
-        if (event.key === "a" || event.key === "A" || event.key === "ArrowLeft") {
-          col = Math.max(0, col - 1);
-          moved = true;
-        } else if (event.key === "d" || event.key === "D" || event.key === "ArrowRight") {
-          col = Math.min(this.shopGrid.length - 1, col + 1);
-          moved = true;
-        } else if (event.key === "w" || event.key === "W" || event.key === "ArrowUp") {
-          row = Math.max(0, row - 1);
-          moved = true;
-        } else if (event.key === "s" || event.key === "S" || event.key === "ArrowDown") {
-          row = Math.min((this.shopGrid[col]?.length ?? 1) - 1, row + 1);
-          moved = true;
-        }
-
-        if (moved) {
-          // Clamp row if new column is shorter
-          if (!this.shopGrid[col] || this.shopGrid[col].length === 0) return;
-          row = Math.min(row, this.shopGrid[col].length - 1);
-          this.shopNavCol = col;
-          this.shopNavRow = row;
-          this.shopSelectedIndex = this.shopGrid[col][row];
-          this.updateShopDisplay();
-        }
-      });
-    }
-  }
-
-  private updateShopDisplay() {
-    const items = BALANCE.shop.items;
-
-    // Reorganize to match card order
-    const columns: { idx: number; item: typeof items[number] }[][] = [[], [], []];
+    const columns: { idx: number }[][] = [[], [], []];
     items.forEach((item, idx) => {
       const id = item.id;
-      if (id === "heal" || id === "dmgBoost") columns[0].push({ idx, item });
-      else if (["pistol", "shotgun", "smg", "ammo", "extraClip"].includes(id)) columns[1].push({ idx, item });
-      else columns[2].push({ idx, item });
+      if (id === "heal" || id === "dmgBoost") columns[0].push({ idx });
+      else if (["pistol", "shotgun", "smg", "ammo", "extraClip"].includes(id)) columns[1].push({ idx });
+      else columns[2].push({ idx });
     });
-    const flat = [...columns[0], ...columns[1], ...columns[2]];
+    this.shopGrid = columns.map(col => col.map(entry => entry.idx));
 
-    this.shopCashText.setText(`$${this.currency}`);
+    // Register React -> Phaser callback
+    hudState.registerShopAction((action, payload) => {
+      if (action === "buy" && payload !== undefined) {
+        this.buyItem(payload);
+      } else if (action === "buySelected") {
+        this.buyItem(this.shopSelectedIndex);
+      } else if (action === "buyKey" && payload !== undefined) {
+        // Number key direct buy: build flat index
+        const flat = [...columns[0], ...columns[1], ...columns[2]];
+        const idx = payload - 1; // 1-indexed to 0-indexed
+        if (idx >= 0 && idx < flat.length) {
+          this.buyItem(flat[idx].idx);
+        }
+      } else if (action === "hover" && payload !== undefined) {
+        this.shopSelectedIndex = payload;
+        this.pushShopData();
+      } else if (action === "close") {
+        this.closeShop();
+      } else if (action === "nav" && payload !== undefined) {
+        this.navigateShop(payload);
+      }
+    });
+  }
 
-    flat.forEach((entry, cardIdx) => {
-      const card = this.shopCards[cardIdx];
-      if (!card) return;
-      const { idx, item } = entry;
+  private navigateShop(direction: number) {
+    if (!this.shopOpen || this.shopGrid.length === 0) return;
+    let col = this.shopNavCol;
+    let row = this.shopNavRow;
+
+    if (direction === 0) row = Math.max(0, row - 1); // up
+    else if (direction === 1) row = Math.min((this.shopGrid[col]?.length ?? 1) - 1, row + 1); // down
+    else if (direction === 2) col = Math.max(0, col - 1); // left
+    else if (direction === 3) col = Math.min(this.shopGrid.length - 1, col + 1); // right
+
+    if (!this.shopGrid[col] || this.shopGrid[col].length === 0) return;
+    row = Math.min(row, this.shopGrid[col].length - 1);
+    this.shopNavCol = col;
+    this.shopNavRow = row;
+    this.shopSelectedIndex = this.shopGrid[col][row];
+    this.pushShopData();
+  }
+
+  /** Push current shop item state to React via HUDState */
+  private pushShopData() {
+    const items = BALANCE.shop.items;
+    const shopItems = items.map((item, idx) => {
       const unlockWave = (item as any).unlockWave;
-      const locked = unlockWave && this.waveManager.wave < unlockWave;
+      const locked = unlockWave ? this.waveManager.wave < unlockWave : false;
       const price = this.getItemPrice(idx);
       const canAfford = this.currency >= price;
-      const isEquipped = ["pistol", "shotgun", "smg"].includes(item.id)
-        && this.equippedWeapon === item.id;
+      const isEquipped = ["pistol", "shotgun", "smg"].includes(item.id) && this.equippedWeapon === item.id;
+      const id = item.id;
+      let category: "supplies" | "weapons" | "traps" = "supplies";
+      if (["pistol", "shotgun", "smg", "ammo", "extraClip"].includes(id)) category = "weapons";
+      else if (["barricade", "landmine"].includes(id)) category = "traps";
 
-      if (locked) {
-        card.name.setColor("#444055");
-        card.desc.setText("???");
-        card.desc.setColor("#333044");
-        card.price.setText(`WAVE ${unlockWave}`);
-        card.price.setColor("#553333");
-        if (card.icon) card.icon.setAlpha(0.3);
-        card.key.setColor("#333044");
-      } else if (isEquipped) {
-        card.name.setColor("#ff4466");
-        card.desc.setText(item.desc);
-        card.desc.setColor("#7a7a99");
-        card.price.setText("EQUIPPED");
-        card.price.setColor("#ff4466");
-        if (card.icon) card.icon.setAlpha(1);
-        card.key.setColor("#ff4466");
-      } else {
-        card.name.setColor("#e0daf0");
-        card.desc.setText(item.desc);
-        card.desc.setColor("#7a7a99");
-        card.price.setText(`$${price}`);
-        card.price.setColor(canAfford ? "#e8c840" : "#663333");
-        if (card.icon) card.icon.setAlpha(canAfford ? 1 : 0.5);
-        card.key.setColor(canAfford ? "#ff4466" : "#333044");
-      }
+      return {
+        id: item.id,
+        name: item.name,
+        desc: item.desc,
+        price,
+        icon: this.shopIconMap[item.id] || "",
+        locked,
+        unlockWave: unlockWave || undefined,
+        equipped: isEquipped,
+        canAfford,
+        category,
+      };
+    });
 
-      // Hover highlight
-      const isSelected = idx === this.shopSelectedIndex;
-      const { width: ww, height: hh } = this.cameras.main;
-      const panelW = 900;
-      const panelTop = hh / 2 - 280;
-      const panelLeft = ww / 2 - panelW / 2;
-      const colW = 270;
-      const colX = [panelLeft + 32, panelLeft + 32 + colW + 12, panelLeft + 32 + (colW + 12) * 2];
-      const cardH = 72;
-      const cardGap = 6;
-      const cardsStartY = panelTop + 100;
-
-      // Find which column and row this card is in
-      let col = 0, row = cardIdx;
-      if (cardIdx >= columns[0].length + columns[1].length) { col = 2; row = cardIdx - columns[0].length - columns[1].length; }
-      else if (cardIdx >= columns[0].length) { col = 1; row = cardIdx - columns[0].length; }
-      const cx = colX[col];
-      const cy = cardsStartY + row * (cardH + cardGap);
-
-      card.bg.clear();
-      card.bg.fillStyle(isSelected ? 0x1a0a10 : 0x0c0c14, 0.8);
-      card.bg.fillRoundedRect(cx, cy, colW, cardH, 3);
-      if (isSelected) {
-        card.bg.lineStyle(1, 0xff2244, 0.5);
-        card.bg.strokeRoundedRect(cx, cy, colW, cardH, 3);
-      }
+    hudState.update({
+      shopItems,
+      shopSelectedIndex: this.shopSelectedIndex,
     });
   }
 
@@ -2654,13 +1879,13 @@ export class GameScene extends Phaser.Scene {
     this.shopNavCol = 0;
     this.shopNavRow = 0;
     this.shopSelectedIndex = this.shopGrid[0]?.[0] ?? 0;
-    this.shopContainer.setVisible(true);
-    this.updateShopDisplay();
+    this.pushShopData();
+    this.updateHUD();
   }
 
   private closeShop() {
     this.shopOpen = false;
-    this.shopContainer.setVisible(false);
+    this.updateHUD();
   }
 
   private buyItem(index: number) {
@@ -2722,6 +1947,7 @@ export class GameScene extends Phaser.Scene {
         this.ammo = ammoAmount;
         this.maxAmmo = ammoAmount;
         this.hasExtraClip = false; // reset on new weapon
+        this.activeSlot = 1; // Auto-switch to weapon slot
         this.showWeaponMessage(weaponDef.name.toUpperCase() + " EQUIPPED", "#dddd44");
         break;
       }
@@ -2764,304 +1990,31 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.playSound("sfx-buy", 0.4);
-    this.updateShopDisplay();
+    this.pushShopData();
     this.updateHUD();
 
-    // Flash feedback
-    const { width, height } = this.cameras.main;
-    const flash = this.add
-      .text(width / 2, height / 2 + 160, "PURCHASED", {
-        fontSize: "24px",
-        fontFamily: "HorrorPixel, monospace",
-        color: "#44cc44",
-        fontStyle: "bold",
-      })
-      .setOrigin(0.5);
-    this.shopContainer.add(flash);
-    this.tweens.add({
-      targets: flash,
-      alpha: 0,
-      y: height / 2 + 130,
-      duration: 800,
-      onComplete: () => flash.destroy(),
+    // Flash feedback via React
+    hudState.update({ shopMessage: "PURCHASED", shopMessageColor: "#44cc44" });
+    this.time.delayedCall(1200, () => {
+      hudState.update({ shopMessage: "", shopMessageColor: "" });
     });
   }
 
   // ------- Wave Announcements -------
 
   private showWaveAnnouncement(wave: number) {
-    const { width, height } = this.cameras.main;
-
-    this.waveAnnouncement.setText(`WAVE ${wave}`);
-    this.waveAnnouncement.setAlpha(1);
-    this.waveAnnouncement.setScale(0.5);
-    this.waveAnnouncement.setPosition(width / 2, height / 2 - 40);
-
-    this.tweens.add({
-      targets: this.waveAnnouncement,
-      scaleX: 1,
-      scaleY: 1,
-      alpha: 0,
-      duration: 1500,
-      ease: "Cubic.easeOut",
-    });
+    hudState.update({ waveAnnouncement: `WAVE ${wave}`, waveAnnouncementKey: Date.now() });
   }
 
   private showIntermissionAnnouncement() {
-    const { width, height } = this.cameras.main;
-
-    this.waveAnnouncement.setText("WAVE CLEAR");
-    this.waveAnnouncement.setAlpha(1);
-    this.waveAnnouncement.setScale(1);
-    this.waveAnnouncement.setPosition(width / 2, height / 2 - 40);
-
-    this.tweens.add({
-      targets: this.waveAnnouncement,
-      alpha: 0,
-      duration: 2000,
-      ease: "Cubic.easeOut",
-    });
+    hudState.update({ waveAnnouncement: "WAVE CLEAR", waveAnnouncementKey: Date.now() });
   }
 
   // ------- HUD -------
 
-  private createHUD() {
-    const { width, height } = this.cameras.main;
-    const S = 2; // scale factor for 1080p (base was 540p)
+  // All HUD rendering is handled by React. See HUDOverlay.tsx and components/hud/*.
 
-    // ===== TOP-LEFT: HP + Stamina bars (no panel, just bars) =====
-    const hpIcon = this.add.image(20, 20, "ui-icon-heart").setOrigin(0, 0).setScale(S);
-    this.hudContainer.add(hpIcon);
-
-    this.healthBar = this.add.graphics();
-    this.hudContainer.add(this.healthBar);
-
-    const staIcon = this.add.image(20, 52, "ui-icon-lightning").setOrigin(0, 0).setScale(S);
-    this.hudContainer.add(staIcon);
-
-    this.staminaBar = this.add.graphics();
-    this.hudContainer.add(this.staminaBar);
-
-    this.burnoutText = this.add
-      .text(60, 82, "BURNED OUT", {
-        fontSize: "18px",
-        fontFamily: "HorrorPixel, monospace",
-        color: "#ff4444",
-        fontStyle: "bold",
-      })
-      .setVisible(false);
-    this.hudContainer.add(this.burnoutText);
-
-    this.levelText = this.add.text(20, 82, "Lv.1", {
-      fontSize: "18px",
-      fontFamily: "HorrorPixel, monospace",
-      color: "#d4a843",
-      fontStyle: "bold",
-    });
-    this.hudContainer.add(this.levelText);
-
-    this.xpBar = this.add.graphics();
-
-    // ===== TOP-RIGHT: Skull + kills, Coin + gold =====
-    const skullIcon = this.add.image(width - 100, 20, "ui-icon-skull").setOrigin(0, 0).setScale(S);
-    this.hudContainer.add(skullIcon);
-
-    this.killText = this.add
-      .text(width - 64, 22, "0", {
-        fontSize: "24px",
-        fontFamily: "HorrorPixel, monospace",
-        color: "#ffffff",
-        fontStyle: "bold",
-      })
-      .setOrigin(0, 0);
-    this.hudContainer.add(this.killText);
-
-    const coinIcon = this.add.image(width - 100, 50, "ui-icon-coin").setOrigin(0, 0).setScale(S);
-    this.hudContainer.add(coinIcon);
-
-    this.currencyText = this.add
-      .text(width - 64, 52, "0", {
-        fontSize: "24px",
-        fontFamily: "HorrorPixel, monospace",
-        color: "#e8c840",
-        fontStyle: "bold",
-      })
-      .setOrigin(0, 0);
-    this.hudContainer.add(this.currencyText);
-
-    // ===== TOP-CENTER: Wave =====
-    this.waveText = this.add
-      .text(width / 2, 20, "WAVE 1", {
-        fontSize: "28px",
-        fontFamily: "HorrorPixel, monospace",
-        color: "#ffffff",
-        fontStyle: "bold",
-      })
-      .setOrigin(0.5, 0);
-    this.hudContainer.add(this.waveText);
-
-    this.waveStatusText = this.add
-      .text(width / 2, 52, "", {
-        fontSize: "20px",
-        fontFamily: "HorrorPixel, monospace",
-        color: "#cccccc",
-      })
-      .setOrigin(0.5, 0);
-    this.hudContainer.add(this.waveStatusText);
-
-    // ===== BOTTOM-LEFT: Equipment slot strip =====
-    this.slotBgs = [];
-    this.slotIcons = [];
-    this.slotLabels = [];
-    this.slotCounts = [];
-
-    const slotW = 72;
-    const slotH = 80;
-    const slotGap = 8;
-    const slotStartX = 20;
-    const slotY = height - slotH - 16;
-    const slotNames = ["FISTS", "WEAPON", "BARR", "MINE"];
-    const slotTextures = ["item-bandage", "item-pistol", "trap-barricade", "item-landmine"];
-
-    for (let i = 0; i < 4; i++) {
-      const sx = slotStartX + i * (slotW + slotGap);
-
-      const bg = this.add.graphics();
-      bg.fillStyle(0x0a0a1a, 0.7);
-      bg.fillRoundedRect(sx, slotY, slotW, slotH, 4);
-      bg.lineStyle(1, 0x2a2a40, 1);
-      bg.strokeRoundedRect(sx, slotY, slotW, slotH, 4);
-      this.hudContainer.add(bg);
-      this.slotBgs.push(bg);
-
-      const icon = this.add.image(sx + slotW / 2, slotY + 28, slotTextures[i])
-        .setScale(0.6)
-        .setAlpha(i === 0 ? 1 : 0.4);
-      this.hudContainer.add(icon);
-      this.slotIcons.push(icon);
-
-      const label = this.add.text(sx + slotW / 2, slotY + 54, slotNames[i], {
-        fontSize: "13px",
-        fontFamily: "HorrorPixel, monospace",
-        color: "#aaaacc",
-        fontStyle: "bold",
-      }).setOrigin(0.5, 0);
-      this.hudContainer.add(label);
-      this.slotLabels.push(label);
-
-      const count = this.add.text(sx + slotW / 2, slotY + 68, "", {
-        fontSize: "12px",
-        fontFamily: "HorrorPixel, monospace",
-        color: "#e8c840",
-      }).setOrigin(0.5, 0);
-      this.hudContainer.add(count);
-      this.slotCounts.push(count);
-    }
-
-    // ===== BOTTOM-LEFT: Ability (above slot strip) =====
-    this.abilityNameText = this.add
-      .text(20, height - slotH - 42, "", {
-        fontSize: "18px",
-        fontFamily: "HorrorPixel, monospace",
-        color: "#ffffff",
-        fontStyle: "bold",
-      })
-      .setOrigin(0, 0);
-    this.hudContainer.add(this.abilityNameText);
-
-    this.abilityStatusText = this.add
-      .text(200, height - slotH - 42, "", {
-        fontSize: "18px",
-        fontFamily: "HorrorPixel, monospace",
-        color: "#ff4466",
-      })
-      .setOrigin(0, 0);
-    this.hudContainer.add(this.abilityStatusText);
-
-    // ===== CENTER: Announcements =====
-    this.waveAnnouncement = this.add
-      .text(width / 2, height / 2 - 80, "", {
-        fontSize: "72px",
-        fontFamily: "HorrorPixel, monospace",
-        color: "#ffffff",
-        fontStyle: "bold",
-      })
-      .setOrigin(0.5)
-      .setAlpha(0);
-    this.hudContainer.add(this.waveAnnouncement);
-
-    this.countdownText = this.add
-      .text(width / 2, height / 2, "", {
-        fontSize: "128px",
-        fontFamily: "HorrorPixel, monospace",
-        color: "#ffffff",
-        fontStyle: "bold",
-      })
-      .setOrigin(0.5)
-      .setAlpha(0);
-    this.hudContainer.add(this.countdownText);
-
-    // Bottom-center: Controls hint
-    const controls = this.add
-      .text(width / 2, height - 8, "WASD move | CLICK/SPACE punch | RIGHT-CLICK/F use item | Q/E cycle | R ability | B shop", {
-        fontSize: "14px",
-        fontFamily: "HorrorPixel, monospace",
-        color: "#444455",
-      })
-      .setOrigin(0.5, 1);
-    this.hudContainer.add(controls);
-
-    // Destroy old Phaser HUD elements — React overlay handles all of these now.
-    // Keep: waveAnnouncement, countdownText, controls (Phaser-only overlays)
-    hpIcon.destroy();
-    this.healthBar.destroy();
-    staIcon.destroy();
-    this.staminaBar.destroy();
-    this.burnoutText.destroy();
-    this.levelText.destroy();
-    this.xpBar.destroy();
-    skullIcon.destroy();
-    this.killText.destroy();
-    coinIcon.destroy();
-    this.currencyText.destroy();
-    this.waveText.destroy();
-    this.waveStatusText.destroy();
-    this.abilityNameText.destroy();
-    this.abilityStatusText.destroy();
-    for (let i = 0; i < this.slotBgs.length; i++) {
-      this.slotBgs[i].destroy();
-      this.slotIcons[i].destroy();
-      this.slotLabels[i].destroy();
-      this.slotCounts[i].destroy();
-    }
-  }
-
-  private drawGlowBar(
-    gfx: Phaser.GameObjects.Graphics,
-    x: number, y: number, w: number, h: number,
-    pct: number,
-    baseColor: number, brightColor: number, glowColor: number,
-    radius: number
-  ) {
-    const fillW = w * pct;
-    if (fillW < 1) return;
-
-    // Outer glow (slightly larger, low alpha)
-    gfx.fillStyle(glowColor, 0.25);
-    gfx.fillRoundedRect(x - 2, y - 2, fillW + 4, h + 4, radius + 1);
-
-    // Main fill (base color)
-    gfx.fillStyle(baseColor, 1);
-    gfx.fillRoundedRect(x, y, fillW, h, radius);
-
-    // Top gradient highlight (brighter, covers top 40% of bar)
-    gfx.fillStyle(brightColor, 0.45);
-    gfx.fillRoundedRect(x, y, fillW, Math.floor(h * 0.4), radius);
-
-    // Bottom edge darken (subtle depth)
-    gfx.fillStyle(0x000000, 0.15);
-    gfx.fillRoundedRect(x, y + Math.floor(h * 0.75), fillW, Math.ceil(h * 0.25), radius);
-  }
+  private lastCountdownVal = -1;
 
   private updateHUD() {
     // Apply leveling buffs to player effective stats
@@ -3075,7 +2028,7 @@ export class GameScene extends Phaser.Scene {
       this.player.stats.damage = effective.damage;
     }
 
-    // Wave state (needed for countdown + React)
+    // Wave state
     const state = this.waveManager.state;
     const wave = this.waveManager.wave;
     let countdownSecs = -1;
@@ -3085,30 +2038,19 @@ export class GameScene extends Phaser.Scene {
     } else if (state === "intermission") {
       if (this.waveManager.isReadyUp()) {
         countdownSecs = this.waveManager.getReadyCountdown();
+      } else {
+        countdownSecs = this.waveManager.getIntermissionTimeLeft();
       }
     }
 
-    // Big countdown: 3...2...1
-    if (countdownSecs >= 1 && countdownSecs <= 3) {
-      const numStr = `${countdownSecs}`;
-      if (this.countdownText.text !== numStr) {
-        this.countdownText.setText(numStr);
-        this.countdownText.setAlpha(1);
-        this.countdownText.setScale(1.5);
-        this.tweens.add({
-          targets: this.countdownText,
-          scaleX: 1,
-          scaleY: 1,
-          alpha: 0.3,
-          duration: 900,
-          ease: "Cubic.easeOut",
-        });
-      }
-    } else if (countdownSecs <= 0 && this.countdownText.alpha > 0) {
-      this.countdownText.setAlpha(0);
+    // Trigger countdown animation in React when value changes
+    let countdownKey = 0;
+    if (countdownSecs >= 1 && countdownSecs <= 5 && countdownSecs !== this.lastCountdownVal) {
+      countdownKey = Date.now();
     }
+    this.lastCountdownVal = countdownSecs;
 
-    // Push state to React HUD overlay
+    // Push all state to React HUD overlay
     hudState.update({
       health: this.player.stats.health,
       maxHealth: this.player.stats.maxHealth,
@@ -3131,154 +2073,24 @@ export class GameScene extends Phaser.Scene {
       waveState: state === "clearing" ? "active" : state as "pre_game" | "active" | "intermission",
       waveEnemiesLeft: state === "active" || state === "clearing" ? this.waveManager.getEnemiesRemaining() : 0,
       waveCountdown: countdownSecs,
+      ...(countdownKey ? { countdownKey } : {}),
       characterName: this.characterDef.name,
       characterId: this.characterDef.id,
       hudVisible: true,
       shopOpen: this.shopOpen,
-      paused: false,
+      paused: this.paused,
       gameOver: this.gameOver,
+      settingsOpen: this.settingsOpen,
+      sfxVolume: this.sfxVolume,
+      zoomEnabled: this.zoomEnabled,
     });
   }
 
-  // ------- Level-Up UI -------
+  // ------- Level-Up (React-rendered) -------
 
   private showLevelUpUI(level: number, options: BuffOption[]) {
     this.levelUpActive = true;
-
-    const { width, height } = this.cameras.main;
-    this.levelUpOverlay = this.add.container(0, 0);
-    this.levelUpOverlay.setDepth(200);
-    this.hudContainer.add(this.levelUpOverlay);
-
-    // Dim overlay
-    const dim = this.add.graphics();
-    dim.fillStyle(0x000000, 0.6);
-    dim.fillRect(0, 0, width, height);
-    this.levelUpOverlay.add(dim);
-
-    // Horror panel behind buff cards
-    const luPanelW = options.length * 280 + (options.length - 1) * 40 + 80;
-    const luPanelH = 380;
-    const luPanelX = width / 2;
-    const luPanelY = height / 2 + 10;
-    const luPanel = this.add.nineslice(
-      luPanelX, luPanelY,
-      "ui-horror-panel",
-      undefined,
-      luPanelW, luPanelH,
-      20, 20, 20, 20
-    ).setAlpha(0.9);
-    this.levelUpOverlay.add(luPanel);
-
-    // Dark fill for readability
-    const luBgOverlay = this.add.graphics();
-    luBgOverlay.fillStyle(0x080810, 0.6);
-    luBgOverlay.fillRect(luPanelX - luPanelW / 2 + 8, luPanelY - luPanelH / 2 + 8, luPanelW - 16, luPanelH - 16);
-    this.levelUpOverlay.add(luBgOverlay);
-
-    // "LEVEL UP" title
-    const title = this.add.text(width / 2, height / 2 - 180, `LEVEL ${level}`, {
-      fontSize: "60px",
-      fontFamily: "HorrorPixel, monospace",
-      color: "#d4a843",
-      fontStyle: "bold",
-    }).setOrigin(0.5);
-    this.levelUpOverlay.add(title);
-
-    const subtitle = this.add.text(width / 2, height / 2 - 120, "Choose a buff", {
-      fontSize: "26px",
-      fontFamily: "HorrorPixel, monospace",
-      color: "#aaaaaa",
-    }).setOrigin(0.5);
-    this.levelUpOverlay.add(subtitle);
-
-    // Buff cards
-    const cardW = 280;
-    const cardH = 200;
-    const gap = 40;
-    const totalW = options.length * cardW + (options.length - 1) * gap;
-    const startX = width / 2 - totalW / 2;
-
-    const categoryColors: Record<string, number> = {
-      strength: 0xcc4444,
-      health: 0x33aa33,
-      stamina: 0x3388bb,
-      speed: 0xdddd44,
-      luck: 0xdd88dd,
-    };
-
-    options.forEach((opt, i) => {
-      const cx = startX + i * (cardW + gap) + cardW / 2;
-      const cy = height / 2 + 10;
-
-      // Card background
-      const card = this.add.graphics();
-      card.fillStyle(0x1a1a2e, 0.9);
-      card.fillRoundedRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, 12);
-      card.lineStyle(3, categoryColors[opt.category] ?? 0xffffff, 0.8);
-      card.strokeRoundedRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, 12);
-      this.levelUpOverlay.add(card);
-
-      // Category label
-      const catLabel = this.add.text(cx, cy - 70, opt.category.toUpperCase(), {
-        fontSize: "18px",
-        fontFamily: "HorrorPixel, monospace",
-        color: "#888888",
-      }).setOrigin(0.5);
-      this.levelUpOverlay.add(catLabel);
-
-      // Buff name
-      const nameText = this.add.text(cx, cy - 30, opt.name, {
-        fontSize: "26px",
-        fontFamily: "HorrorPixel, monospace",
-        color: "#ffffff",
-        fontStyle: "bold",
-      }).setOrigin(0.5);
-      this.levelUpOverlay.add(nameText);
-
-      // Description
-      const descText = this.add.text(cx, cy + 16, opt.desc, {
-        fontSize: "20px",
-        fontFamily: "HorrorPixel, monospace",
-        color: "#cccccc",
-      }).setOrigin(0.5);
-      this.levelUpOverlay.add(descText);
-
-      // Tier label
-      const tierText = this.add.text(cx, cy + 56, opt.tier.toUpperCase(), {
-        fontSize: "16px",
-        fontFamily: "HorrorPixel, monospace",
-        color: "#666666",
-      }).setOrigin(0.5);
-      this.levelUpOverlay.add(tierText);
-
-      // Key hint
-      const keyText = this.add.text(cx, cy + cardH / 2 + 24, `[${i + 1}]`, {
-        fontSize: "26px",
-        fontFamily: "HorrorPixel, monospace",
-        color: "#d4a843",
-        fontStyle: "bold",
-      }).setOrigin(0.5);
-      this.levelUpOverlay.add(keyText);
-
-      // Click zone
-      const hitZone = this.add.zone(cx, cy, cardW, cardH).setInteractive();
-      hitZone.on("pointerdown", () => this.selectLevelUpBuff(i));
-      this.levelUpOverlay.add(hitZone);
-    });
-
-    // Keyboard shortcuts — use a keydown listener instead of addKey().once
-    // so consecutive level-ups don't lose their bindings
-    if (this.input.keyboard) {
-      const levelUpKeyHandler = (event: KeyboardEvent) => {
-        if (!this.levelUpActive) return;
-        if (event.key === "1") this.selectLevelUpBuff(0);
-        else if (event.key === "2" && options.length > 1) this.selectLevelUpBuff(1);
-      };
-      this.input.keyboard.on("keydown", levelUpKeyHandler);
-      // Store ref so selectLevelUpBuff can clean it up
-      (this.levelUpOverlay as any)._keyHandler = levelUpKeyHandler;
-    }
+    hudState.update({ levelUpActive: true, levelUpLevel: level, levelUpOptions: options });
   }
 
   private selectLevelUpBuff(index: number) {
@@ -3287,36 +2099,22 @@ export class GameScene extends Phaser.Scene {
     const buff = this.levelingSystem.selectBuff(index);
     if (!buff) return;
 
-    // If health buff, heal by the increase amount (not to full)
     if (buff.category === "health") {
       const effective = this.levelingSystem.getEffectiveStats(this.characterDef.stats);
       const hpIncrease = effective.maxHealth - this.player.stats.maxHealth;
-      this.player.stats.health = Math.min(
-        effective.maxHealth,
-        this.player.stats.health + hpIncrease
-      );
+      this.player.stats.health = Math.min(effective.maxHealth, this.player.stats.health + hpIncrease);
     }
 
-    // If stamina buff, increase current stamina proportionally
     if (buff.category === "stamina") {
       const effective = this.levelingSystem.getEffectiveStats(this.characterDef.stats);
       const staIncrease = effective.maxStamina - this.player.stats.maxStamina;
-      this.player.stats.stamina = Math.min(
-        effective.maxStamina,
-        this.player.stats.stamina + staIncrease
-      );
+      this.player.stats.stamina = Math.min(effective.maxStamina, this.player.stats.stamina + staIncrease);
     }
 
-    // Clean up UI + keyboard listener
     this.levelUpActive = false;
-    const handler = (this.levelUpOverlay as any)._keyHandler;
-    if (handler) this.input.keyboard?.off("keydown", handler);
-    this.levelUpOverlay.destroy();
+    hudState.update({ levelUpActive: false });
+    this.showWeaponMessage(buff.name.toUpperCase(), "#ffffff");
 
-    // Flash the buff name
-    this.showWeaponMessage(buff.name.toUpperCase(), "#d4a843");
-
-    // Show next pending level-up or open shop
     this.time.delayedCall(300, () => {
       this.showNextPendingLevelUp();
     });
@@ -3325,9 +2123,10 @@ export class GameScene extends Phaser.Scene {
   private showNextPendingLevelUp() {
     if (this.pendingLevelUps.length > 0) {
       const next = this.pendingLevelUps.shift()!;
+      // Re-arm LevelingSystem so selectBuff() won't bail out
+      this.levelingSystem.setPending(next.options);
       this.showLevelUpUI(next.level, next.options);
     } else {
-      // All level-ups processed, open shop
       if (this.waveManager.state === "intermission") {
         this.openShop();
       }

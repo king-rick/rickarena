@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { HUDOverlay } from "./HUDOverlay";
+import { CharacterSelect } from "./CharacterSelect";
 
 export interface CanvasRect {
   left: number;
@@ -70,7 +71,12 @@ export default function Game() {
 
   return (
     <div id="game-container" style={{ width: "100vw", height: "100vh", position: "relative" }}>
-      {canvasRect && <HUDOverlay canvasRect={canvasRect} />}
+      {canvasRect && (
+        <>
+          <CharacterSelect canvasRect={canvasRect} />
+          <HUDOverlay canvasRect={canvasRect} />
+        </>
+      )}
     </div>
   );
 }

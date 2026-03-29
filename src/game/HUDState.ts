@@ -3,10 +3,32 @@
  *
  * Phaser writes to this singleton every frame via update().
  * React reads via useSyncExternalStore for zero-lag reactivity.
- *
- * Each React component subscribes to only the fields it needs via
- * useHUDField() or useHUDFields(), preventing unnecessary re-renders.
  */
+
+import type { BuffOption } from "./systems/LevelingSystem";
+
+export type { BuffOption };
+
+export interface ShopItemData {
+  id: string;
+  name: string;
+  desc: string;
+  price: number;
+  icon: string;
+  locked: boolean;
+  unlockWave?: number;
+  equipped: boolean;
+  canAfford: boolean;
+  category: "supplies" | "weapons" | "traps";
+}
+
+export interface LeaderboardEntry {
+  id: number;
+  name: string;
+  kills: number;
+  wave: number;
+  character_id: string;
+}
 
 export interface HUDData {
   // Player
@@ -18,8 +40,8 @@ export interface HUDData {
   level: number;
 
   // Hotbar
-  activeSlot: number; // 0=fists, 1=weapon, 2=barricade, 3=mine
-  equippedWeapon: string | null; // "pistol" | "shotgun" | "smg" | null
+  activeSlot: number;
+  equippedWeapon: string | null;
   ammo: number;
   maxAmmo: number;
   barricadeCount: number;
@@ -27,8 +49,8 @@ export interface HUDData {
 
   // Ability
   abilityName: string;
-  abilityCooldown: number; // seconds remaining, 0 = ready
-  abilityKey: string; // "R"
+  abilityCooldown: number;
+  abilityKey: string;
 
   // Economy
   kills: number;
@@ -38,17 +60,61 @@ export interface HUDData {
   wave: number;
   waveState: "pre_game" | "active" | "intermission";
   waveEnemiesLeft: number;
-  waveCountdown: number; // seconds, -1 if not counting
+  waveCountdown: number;
 
   // Character
   characterName: string;
   characterId: string;
+
+  // Shop
+  shopItems: ShopItemData[];
+  shopSelectedIndex: number;
+  shopMessage: string;
+  shopMessageColor: string;
+
+  // Menu state
+  menuVisible: boolean;
+  menuCharIndex: number;
 
   // UI state
   hudVisible: boolean;
   shopOpen: boolean;
   paused: boolean;
   gameOver: boolean;
+
+  // Wave announcements
+  waveAnnouncement: string;
+  waveAnnouncementKey: number;
+
+  // Countdown
+  countdownKey: number;
+
+  // Minimap position (static, set once)
+  minimapX: number;
+  minimapY: number;
+  minimapSize: number;
+
+  // Zoom
+  zoomPercent: number;
+  zoomVisible: boolean;
+
+  // Settings
+  settingsOpen: boolean;
+  sfxVolume: number;
+  zoomEnabled: boolean;
+
+  // Level-up
+  levelUpActive: boolean;
+  levelUpLevel: number;
+  levelUpOptions: BuffOption[];
+
+  // Game over
+  gameOverPhase: "" | "death" | "entry" | "leaderboard";
+  gameOverWave: number;
+  gameOverKills: number;
+  gameOverCharName: string;
+  leaderboard: LeaderboardEntry[];
+  leaderboardHighlightId: number | null;
 }
 
 const DEFAULT_STATE: HUDData = {
@@ -75,17 +141,66 @@ const DEFAULT_STATE: HUDData = {
   waveCountdown: -1,
   characterName: "",
   characterId: "",
+  shopItems: [],
+  shopSelectedIndex: 0,
+  shopMessage: "",
+  shopMessageColor: "",
+  menuVisible: false,
+  menuCharIndex: 0,
   hudVisible: false,
   shopOpen: false,
   paused: false,
   gameOver: false,
+  waveAnnouncement: "",
+  waveAnnouncementKey: 0,
+  countdownKey: 0,
+  minimapX: 0,
+  minimapY: 0,
+  minimapSize: 0,
+  zoomPercent: 100,
+  zoomVisible: false,
+  settingsOpen: false,
+  sfxVolume: 0.3,
+  zoomEnabled: false,
+  levelUpActive: false,
+  levelUpLevel: 1,
+  levelUpOptions: [],
+  gameOverPhase: "",
+  gameOverWave: 0,
+  gameOverKills: 0,
+  gameOverCharName: "",
+  leaderboard: [],
+  leaderboardHighlightId: null,
 };
 
 type Listener = () => void;
+type ActionHandler = (action: string, payload?: any) => void;
 
 class HUDStateStore {
   private state: HUDData = { ...DEFAULT_STATE };
   private listeners: Set<Listener> = new Set();
+
+  // Action dispatchers — React calls dispatch, Phaser registers handler
+  private shopAction: ActionHandler | null = null;
+  private menuAction: ActionHandler | null = null;
+  private pauseAction: ActionHandler | null = null;
+  private levelUpAction: ActionHandler | null = null;
+  private gameOverAction: ActionHandler | null = null;
+
+  registerShopAction(handler: ActionHandler) { this.shopAction = handler; }
+  dispatchShopAction(action: string, payload?: any) { this.shopAction?.(action, payload); }
+
+  registerMenuAction(handler: ActionHandler) { this.menuAction = handler; }
+  dispatchMenuAction(action: string, payload?: any) { this.menuAction?.(action, payload); }
+
+  registerPauseAction(handler: ActionHandler) { this.pauseAction = handler; }
+  dispatchPauseAction(action: string, payload?: any) { this.pauseAction?.(action, payload); }
+
+  registerLevelUpAction(handler: ActionHandler) { this.levelUpAction = handler; }
+  dispatchLevelUpAction(action: string, payload?: any) { this.levelUpAction?.(action, payload); }
+
+  registerGameOverAction(handler: ActionHandler) { this.gameOverAction = handler; }
+  dispatchGameOverAction(action: string, payload?: any) { this.gameOverAction?.(action, payload); }
 
   /** Called by Phaser every frame (or on change) to push new state */
   update(partial: Partial<HUDData>) {

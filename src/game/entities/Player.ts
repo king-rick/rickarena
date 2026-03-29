@@ -40,6 +40,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   characterId: string;
   facing: Facing = "down";
   burnedOut = false;
+  invincible = false;
 
   private currentDir: Direction = "south";
   private currentAnim: PlayerAnim = "idle";

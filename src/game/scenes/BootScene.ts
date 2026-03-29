@@ -108,10 +108,10 @@ export class BootScene extends Phaser.Scene {
     this.load.image("trap-landmine", "/assets/sprites/items/trap-landmine.png");
 
     // HUD UI sprites
-    this.load.image("ui-icon-heart", "/assets/sprites/ui/icon-heart.png");
-    this.load.image("ui-icon-lightning", "/assets/sprites/ui/icon-lightning.png");
-    this.load.image("ui-icon-skull", "/assets/sprites/ui/icon-skull.png");
-    this.load.image("ui-icon-coin", "/assets/sprites/ui/icon-coin.png");
+    this.load.image("ui-icon-heart", "/assets/sprites/ui/horror/icon-heart.png");
+    this.load.image("ui-icon-lightning", "/assets/sprites/ui/horror/icon-stamina.png");
+    this.load.image("ui-icon-skull", "/assets/sprites/ui/horror/icon-skull.png");
+    this.load.image("ui-icon-coin", "/assets/sprites/ui/horror/icon-currency.png");
     this.load.image("ui-icon-star", "/assets/sprites/ui/icon-star.png");
     this.load.image("ui-icon-sword", "/assets/sprites/ui/icon-sword.png");
     this.load.image("ui-panel-main", "/assets/sprites/ui/panel-main.png");
@@ -259,6 +259,7 @@ export class BootScene extends Phaser.Scene {
       await Promise.all([
         document.fonts.load("16px HorrorPixel"),
         document.fonts.load("16px ChainsawCarnage"),
+        document.fonts.load("16px Special Elite"),
       ]);
     } catch {
       // Fonts may already be loaded via CSS, continue regardless

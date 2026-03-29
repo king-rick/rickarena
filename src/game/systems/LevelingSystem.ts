@@ -71,6 +71,12 @@ export class LevelingSystem {
     return this.pendingLevelUp;
   }
 
+  /** Re-arm the pending state for queued level-ups (called by GameScene when dequeuing) */
+  setPending(options: BuffOption[]) {
+    this.pendingLevelUp = true;
+    this.buffOptions = options;
+  }
+
   /** Get the current buff options (only valid during pending level-up) */
   getBuffOptions(): BuffOption[] {
     return this.buffOptions;

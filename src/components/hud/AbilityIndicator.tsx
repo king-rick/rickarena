@@ -3,6 +3,9 @@
 import { memo, useSyncExternalStore } from "react";
 import { hudState } from "@/game/HUDState";
 
+const BODY = "var(--font-special-elite), 'Special Elite', serif";
+const DISPLAY = "ChainsawCarnage, HorrorPixel, monospace";
+
 export const AbilityIndicator = memo(function AbilityIndicator() {
   const name = useSyncExternalStore(hudState.subscribe, () => hudState.getField("abilityName"));
   const cooldown = useSyncExternalStore(hudState.subscribe, () => hudState.getField("abilityCooldown"));
@@ -20,10 +23,9 @@ export const AbilityIndicator = memo(function AbilityIndicator() {
         padding: "10px 18px",
       }}
     >
-      {/* Key badge */}
       <span
         style={{
-          fontFamily: "HorrorPixel, monospace",
+          fontFamily: BODY,
           fontSize: 18,
           color: ready ? "#ff4466" : "#444455",
           textShadow: ready ? "0 0 6px rgba(255, 68, 102, 0.4)" : "none",
@@ -33,7 +35,7 @@ export const AbilityIndicator = memo(function AbilityIndicator() {
       </span>
       <span
         style={{
-          fontFamily: "HorrorPixel, monospace",
+          fontFamily: BODY,
           fontSize: 18,
           color: ready ? "#eeeeee" : "#555566",
         }}
@@ -42,7 +44,7 @@ export const AbilityIndicator = memo(function AbilityIndicator() {
       </span>
       <span
         style={{
-          fontFamily: "ChainsawCarnage, HorrorPixel, monospace",
+          fontFamily: DISPLAY,
           fontSize: 20,
           color: ready ? "#ff4466" : "#555566",
           textShadow: ready ? "0 0 8px rgba(255, 68, 102, 0.4)" : "none",
