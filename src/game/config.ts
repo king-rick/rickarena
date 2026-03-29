@@ -2,7 +2,6 @@ import Phaser from "phaser";
 import { BootScene } from "./scenes/BootScene";
 import { MainMenuScene } from "./scenes/MainMenuScene";
 import { GameScene } from "./scenes/GameScene";
-import { MapEditorScene } from "./scenes/MapEditorScene";
 
 export const gameConfig: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -24,7 +23,7 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
       debug: false,
     },
   },
-  scene: [BootScene, MainMenuScene, GameScene, MapEditorScene],
+  scene: [BootScene, MainMenuScene, GameScene],
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,

@@ -1,7 +1,17 @@
 import Phaser from "phaser";
 
-/** No-op — bullet texture is now loaded as a real sprite in BootScene */
-export function ensureBulletTexture(_scene: Phaser.Scene) {}
+/** Generate a clean tiny bullet texture at runtime */
+export function ensureBulletTexture(scene: Phaser.Scene) {
+  if (scene.textures.exists("bullet-small")) return;
+  const gfx = scene.add.graphics();
+  // 6x3 bright yellow/white bullet
+  gfx.fillStyle(0xffffcc, 1);
+  gfx.fillRect(0, 0, 6, 3);
+  gfx.fillStyle(0xffffff, 1);
+  gfx.fillRect(1, 1, 4, 1); // bright center line
+  gfx.generateTexture("bullet-small", 6, 3);
+  gfx.destroy();
+}
 
 export class Projectile extends Phaser.Physics.Arcade.Image {
   declare body: Phaser.Physics.Arcade.Body;
@@ -28,7 +38,7 @@ export class Projectile extends Phaser.Physics.Arcade.Image {
     dropoff: number = 0,
     weaponType: string = "pistol"
   ) {
-    super(scene, x, y, "bullet");
+    super(scene, x, y, "bullet-small");
 
     this.baseDamage = damage;
     this.damage = damage;
@@ -46,9 +56,8 @@ export class Projectile extends Phaser.Physics.Arcade.Image {
 
   /** Call after adding to physics group to apply velocity */
   launch() {
-    // Large circular hitbox centered on the bullet sprite
-    // Sprite is small (32x32 at scale 1), so offset to center the circle
-    const r = 12;
+    // Hitbox: 8px radius circle, centered on the tiny sprite
+    const r = 8;
     const sprW = this.width;
     const sprH = this.height;
     this.body.setCircle(r, sprW / 2 - r, sprH / 2 - r);

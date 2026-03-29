@@ -220,10 +220,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.leaping = true;
     this.leapCooldown = 3000 + Math.random() * 2000; // 3-5s cooldown
 
-    const leapKey = getAnimKey(this.spriteId, "leap", this.currentDir);
-    if (this.scene.anims.exists(leapKey)) {
-      this.play(leapKey);
-    }
+    // Leap animation disabled (visually broken — needs new sprite work).
+    // Dogs still lunge mechanically using walk anim at higher speed.
 
     // Lunge forward at 2.5x speed
     const leapSpeed = this.speed * 2.5;

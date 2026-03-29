@@ -81,7 +81,7 @@ export const CHARACTERS: CharacterDef[] = [
     weaponSpecialty: "Explosives",
     specialtyDesc: "Explosives — Landmines and traps deal +30% damage and radius",
     stats: { ...BASE_STATS },
-    ability: { name: "Smokescreen", desc: "Lights a smoke that heals allies and confuses enemies for 5s", cooldown: 20 },
+    ability: { name: "Smokescreen", desc: "Smoke cloud that slows and drains enemies, light heal for 5s", cooldown: 20 },
     pixelLabId: "5cc951c4-ef30-49a1-8136-8b2fdb3baec0",
   },
 ];

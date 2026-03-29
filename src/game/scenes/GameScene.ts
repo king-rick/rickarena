@@ -70,6 +70,7 @@ export class GameScene extends Phaser.Scene {
   private smokeX = 0;
   private smokeY = 0;
   private smokeTimer = 0; // ms remaining
+  private smokeDrainAccum = 0; // accumulates fractional drain damage
   private readonly smokeDuration = 5000;
   private readonly smokeRadius = 128; // 8x8 tiles = 256px diameter = 128px radius
 
@@ -566,9 +567,8 @@ export class GameScene extends Phaser.Scene {
   update(time: number, delta: number) {
     // Always track HUD to camera, even when paused/game over
     const cam = this.cameras.main;
-    // Snap camera to integer pixels to prevent tile seam artifacts
-    cam.scrollX = Math.round(cam.scrollX);
-    cam.scrollY = Math.round(cam.scrollY);
+    // setRoundPixels(true) handles pixel snapping at render time —
+    // manual rounding here fights with camera lerp and causes jitter
     this.hudContainer.setPosition(cam.worldView.x, cam.worldView.y);
     this.hudContainer.setScale(1 / cam.zoom);
 
@@ -859,13 +859,17 @@ export class GameScene extends Phaser.Scene {
     this.showWeaponMessage("SUPERKICK!", "#ff4444");
   }
 
-  /** Dan — EMP Grenade: throw a grenade that flies forward and detonates on landing */
+  /** Dan — EMP Grenade: throw a grenade toward mouse cursor */
   private abilityEMPGrenade() {
-    // Play throw animation first, grenade launches after animation completes
-    const angle = this.getFacingAngle();
+    // Aim toward mouse position (world coords), capped at throw distance
+    const pointer = this.input.activePointer;
+    const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const angle = Phaser.Math.Angle.Between(this.player.x, this.player.y, worldPoint.x, worldPoint.y);
     const throwDist = 160; // ~5 tiles away
-    const gx = this.player.x + Math.cos(angle) * throwDist;
-    const gy = this.player.y + Math.sin(angle) * throwDist;
+    const distToMouse = Phaser.Math.Distance.Between(this.player.x, this.player.y, worldPoint.x, worldPoint.y);
+    const actualDist = Math.min(throwDist, distToMouse);
+    const gx = this.player.x + Math.cos(angle) * actualDist;
+    const gy = this.player.y + Math.sin(angle) * actualDist;
 
     const launchGrenade = () => {
       // Create visible grenade projectile
@@ -1074,12 +1078,12 @@ export class GameScene extends Phaser.Scene {
   private updateSmokescreen(delta: number) {
     this.drawSmokeCloud();
 
-    // Heal player if inside smoke
+    // Heal player if inside smoke (slow heal — 4 HP/s)
     const distToSmoke = Phaser.Math.Distance.Between(
       this.player.x, this.player.y, this.smokeX, this.smokeY
     );
     if (distToSmoke <= this.smokeRadius) {
-      const healRate = 15; // HP per second
+      const healRate = 4; // HP per second — nerfed from 15
       const healAmount = healRate * (delta / 1000);
       this.player.stats.health = Math.min(
         this.player.stats.maxHealth,
@@ -1087,23 +1091,38 @@ export class GameScene extends Phaser.Scene {
       );
     }
 
-    // Confuse enemies touching smoke — they wander aimlessly
+    // Enemies in smoke: slowed + health drain
     this.enemies.getChildren().forEach((obj) => {
       const enemy = obj as Enemy;
       if (!enemy.active) return;
 
       const dist = Phaser.Math.Distance.Between(enemy.x, enemy.y, this.smokeX, this.smokeY);
       if (dist <= this.smokeRadius) {
-        // Apply confusion: stun + random velocity (wander)
-        enemy.applyKnockbackStun(200); // re-apply each frame to keep them confused
-        const wanderAngle = Math.random() * Math.PI * 2;
-        const wanderSpeed = 30 + Math.random() * 40;
+        // Slow enemies to 50% speed while in smoke
+        const angle = Phaser.Math.Angle.Between(enemy.x, enemy.y, this.player.x, this.player.y);
+        const slowSpeed = enemy.speed * 0.5;
         enemy.body.setVelocity(
-          Math.cos(wanderAngle) * wanderSpeed,
-          Math.sin(wanderAngle) * wanderSpeed
+          Math.cos(angle) * slowSpeed,
+          Math.sin(angle) * slowSpeed
         );
       }
     });
+
+    // Accumulate smoke drain damage and apply in whole ticks (3 HP/s)
+    this.smokeDrainAccum += 3 * (delta / 1000);
+    if (this.smokeDrainAccum >= 1) {
+      const dmg = Math.floor(this.smokeDrainAccum);
+      this.smokeDrainAccum -= dmg;
+      this.enemies.getChildren().forEach((obj) => {
+        const enemy = obj as Enemy;
+        if (!enemy.active) return;
+        const dist = Phaser.Math.Distance.Between(enemy.x, enemy.y, this.smokeX, this.smokeY);
+        if (dist <= this.smokeRadius) {
+          const killed = enemy.takeDamage(dmg);
+          if (killed) this.onEnemyKilled(enemy);
+        }
+      });
+    }
   }
 
   private destroySmokescreen() {
@@ -1112,6 +1131,7 @@ export class GameScene extends Phaser.Scene {
       this.smokeCloud = null;
     }
     this.smokeTimer = 0;
+    this.smokeDrainAccum = 0;
   }
 
   private fireWeapon() {

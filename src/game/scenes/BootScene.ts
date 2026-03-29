@@ -5,7 +5,6 @@ import {
   getFrameKey,
   getAnimKey,
 } from "../data/animations";
-import { SHEET_KEYS, registerTileFrames } from "../map/TileCatalog";
 
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -203,17 +202,6 @@ export class BootScene extends Phaser.Scene {
     this.load.audio("sfx-voice2", "/assets/audio/voice/voice-line-liam-2.mp3");
     this.load.audio("sfx-voice3", "/assets/audio/voice/voice-line-liam-3.mp3");
 
-    // Tilesets for map editor + sprite map rendering
-    this.load.image(SHEET_KEYS.FF_TILES, "/assets/tilesets/fantasy-forest-tiles.png");
-    this.load.image(SHEET_KEYS.FF_DECO, "/assets/tilesets/fantasy-forest-decorations.png");
-    this.load.image(SHEET_KEYS.PORT_TOWN, "/assets/tilesets/port-town.png");
-    this.load.image(SHEET_KEYS.BASIC_GRASS, "/assets/tilesets/basic-grass.png");
-    this.load.image(SHEET_KEYS.BASIC_STONE, "/assets/tilesets/basic-stone.png");
-    this.load.image(SHEET_KEYS.BASIC_PROPS, "/assets/tilesets/basic-props.png");
-    this.load.image(SHEET_KEYS.BASIC_PLANT, "/assets/tilesets/basic-plant.png");
-    this.load.image(SHEET_KEYS.BASIC_STRUCT, "/assets/tilesets/basic-struct.png");
-    this.load.image(SHEET_KEYS.BASIC_WALL, "/assets/tilesets/basic-wall.png");
-    this.load.image(SHEET_KEYS.PIXEL_WOODS, "/assets/tilesets/pixel-woods.png");
 
     // Progress bar — graphics-drawn, grows from left to right, fully centered
     const width = this.cameras.main.width;
@@ -295,9 +283,6 @@ export class BootScene extends Phaser.Scene {
         }
       }
     }
-
-    // Register tile frames from the catalog (sprite regions within each sheet)
-    registerTileFrames(this.textures);
 
     this.scene.start("MainMenu");
   }

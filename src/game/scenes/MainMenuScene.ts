@@ -166,7 +166,7 @@ export class MainMenuScene extends Phaser.Scene {
     // Ultimate removed — single ability per character
 
     // --- Bottom bar ---
-    this.add.text(cx, height - 84, "A/D or \u2190/\u2192 to select  |  E = Map Editor", {
+    this.add.text(cx, height - 84, "A/D or \u2190/\u2192 to select", {
       fontSize: "20px",
       fontFamily: "Rajdhani, sans-serif",
       color: "#444444",
@@ -198,8 +198,6 @@ export class MainMenuScene extends Phaser.Scene {
           this.updateSelection();
         } else if (event.key === "Enter") {
           this.startGame();
-        } else if (event.key === "e" || event.key === "E") {
-          this.scene.start("MapEditor");
         }
       });
     }
