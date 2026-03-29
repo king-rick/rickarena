@@ -1,87 +1,114 @@
 "use client";
 
-import type { HUDData } from "@/game/HUDState";
+import { memo, useSyncExternalStore } from "react";
+import { hudState } from "@/game/HUDState";
 
-interface HotbarProps {
-  data: HUDData;
-}
-
-interface SlotDef {
+interface SlotInfo {
+  slotIndex: number;
   label: string;
   key: string;
-  getCount: (d: HUDData) => string;
-  isAvailable: (d: HUDData) => boolean;
+  count: string;
+  countDanger: boolean;
 }
 
-const SLOTS: SlotDef[] = [
-  {
-    label: "FISTS",
-    key: "1",
-    getCount: () => "",
-    isAvailable: () => true,
-  },
-  {
-    label: "WEAPON",
-    key: "2",
-    getCount: (d) => d.equippedWeapon ? `${d.ammo}/${d.maxAmmo}` : "",
-    isAvailable: (d) => !!d.equippedWeapon,
-  },
-  {
-    label: "BARR",
-    key: "3",
-    getCount: (d) => d.barricadeCount > 0 ? `x${d.barricadeCount}` : "",
-    isAvailable: (d) => d.barricadeCount > 0,
-  },
-  {
-    label: "MINE",
-    key: "4",
-    getCount: (d) => d.mineCount > 0 ? `x${d.mineCount}` : "",
-    isAvailable: (d) => d.mineCount > 0,
-  },
-];
+export const Hotbar = memo(function Hotbar() {
+  const activeSlot = useSyncExternalStore(hudState.subscribe, () => hudState.getField("activeSlot"));
+  const equippedWeapon = useSyncExternalStore(hudState.subscribe, () => hudState.getField("equippedWeapon"));
+  const ammo = useSyncExternalStore(hudState.subscribe, () => hudState.getField("ammo"));
+  const maxAmmo = useSyncExternalStore(hudState.subscribe, () => hudState.getField("maxAmmo"));
+  const barricadeCount = useSyncExternalStore(hudState.subscribe, () => hudState.getField("barricadeCount"));
+  const mineCount = useSyncExternalStore(hudState.subscribe, () => hudState.getField("mineCount"));
 
-export function Hotbar({ data }: HotbarProps) {
+  // Only show slots for items the player actually has
+  const slots: SlotInfo[] = [];
+
+  if (equippedWeapon) {
+    slots.push({
+      slotIndex: 1,
+      label: equippedWeapon.toUpperCase(),
+      key: "2",
+      count: `${ammo}/${maxAmmo}`,
+      countDanger: ammo === 0,
+    });
+  }
+  if (barricadeCount > 0) {
+    slots.push({
+      slotIndex: 2,
+      label: "BARR",
+      key: "3",
+      count: `x${barricadeCount}`,
+      countDanger: false,
+    });
+  }
+  if (mineCount > 0) {
+    slots.push({
+      slotIndex: 3,
+      label: "MINE",
+      key: "4",
+      count: `x${mineCount}`,
+      countDanger: false,
+    });
+  }
+
+  // Nothing in inventory, don't render hotbar
+  if (slots.length === 0) return null;
+
   return (
-    <div className="flex gap-1.5">
-      {SLOTS.map((slot, i) => {
-        const active = data.activeSlot === i;
-        const available = slot.isAvailable(data);
-        const count = slot.getCount(data);
+    <div className="flex" style={{ gap: 5 }}>
+      {slots.map((slot) => {
+        const active = activeSlot === slot.slotIndex;
+        const slotBg = active
+          ? "/assets/sprites/ui/horror/slot-active.png"
+          : "/assets/sprites/ui/horror/slot-inactive.png";
 
         return (
           <div
-            key={i}
-            className="relative flex flex-col items-center justify-center rounded-md transition-all duration-75"
+            key={slot.slotIndex}
+            className="relative flex flex-col items-center justify-center"
             style={{
-              width: 64,
+              width: 72,
               height: 72,
-              background: active ? "rgba(18, 18, 42, 0.85)" : "rgba(10, 10, 26, 0.7)",
-              border: active ? "2px solid #5aabff" : "1px solid #2a2a40",
-              opacity: available || i === 0 ? 1 : 0.4,
+              backgroundImage: `url(${slotBg})`,
+              backgroundSize: "100% 100%",
+              imageRendering: "pixelated",
+              boxShadow: active ? "0 0 12px rgba(255, 34, 68, 0.35)" : "none",
             }}
           >
+            {/* Key number */}
             <span
-              className="absolute top-1 left-1.5 text-[10px] font-bold"
-              style={{ color: active ? "#5aabff" : "#555566" }}
+              className="absolute"
+              style={{
+                top: 4,
+                left: 6,
+                fontSize: 11,
+                fontFamily: "HorrorPixel, monospace",
+                color: active ? "#ff4466" : "#444455",
+              }}
             >
               {slot.key}
             </span>
+            {/* Slot label */}
             <span
-              className="text-[11px] font-bold mt-2"
-              style={{ color: active ? "#e0daf0" : "#aaaacc" }}
+              style={{
+                fontFamily: "HorrorPixel, monospace",
+                fontSize: 11,
+                marginTop: 8,
+                color: active ? "#eeeeee" : "#667788",
+              }}
             >
-              {i === 1 && data.equippedWeapon
-                ? data.equippedWeapon.toUpperCase()
-                : slot.label}
+              {slot.label}
             </span>
-            {count && (
+            {/* Count */}
+            {slot.count && (
               <span
-                className="text-[10px] font-semibold tabular-nums"
                 style={{
-                  color: i === 1 && data.ammo === 0 ? "#cc3333" : "#e8c840",
+                  fontFamily: "HorrorPixel, monospace",
+                  fontSize: 11,
+                  color: slot.countDanger ? "#ff0000" : "#ffcc00",
+                  textShadow: slot.countDanger ? "0 0 4px rgba(255, 0, 0, 0.4)" : "none",
                 }}
               >
-                {count}
+                {slot.count}
               </span>
             )}
           </div>
@@ -89,4 +116,4 @@ export function Hotbar({ data }: HotbarProps) {
       })}
     </div>
   );
-}
+});

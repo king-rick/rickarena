@@ -4,10 +4,8 @@
  * Phaser writes to this singleton every frame via update().
  * React reads via useSyncExternalStore for zero-lag reactivity.
  *
- * IMPORTANT: This file is scaffolding only. It is NOT wired into
- * GameScene or any React component yet. When ready to integrate:
- *   1. Import hudState in GameScene, call hudState.update({...}) in updateHUD()
- *   2. Import HUDOverlay in Game.tsx, render alongside the canvas
+ * Each React component subscribes to only the fields it needs via
+ * useHUDField() or useHUDFields(), preventing unnecessary re-renders.
  */
 
 export interface HUDData {
@@ -47,6 +45,7 @@ export interface HUDData {
   characterId: string;
 
   // UI state
+  hudVisible: boolean;
   shopOpen: boolean;
   paused: boolean;
   gameOver: boolean;
@@ -76,6 +75,7 @@ const DEFAULT_STATE: HUDData = {
   waveCountdown: -1,
   characterName: "",
   characterId: "",
+  hudVisible: false,
   shopOpen: false,
   paused: false,
   gameOver: false,
@@ -111,6 +111,9 @@ class HUDStateStore {
   // --- useSyncExternalStore API ---
 
   getSnapshot = (): HUDData => this.state;
+
+  /** Get a single field value (for leaf-level selectors) */
+  getField = <K extends keyof HUDData>(key: K): HUDData[K] => this.state[key];
 
   subscribe = (listener: Listener): (() => void) => {
     this.listeners.add(listener);

@@ -8,6 +8,7 @@ import { BALANCE } from "../data/balance";
 import { WaveManager, WaveState } from "../systems/WaveManager";
 import { LevelingSystem, BuffOption } from "../systems/LevelingSystem";
 import { hasAnimation, getAnimKey } from "../data/animations";
+import { hudState } from "../HUDState";
 // Village map constants
 const VILLAGE_MAP_W = 80 * 16;  // 1280px
 const VILLAGE_MAP_H = 65 * 16;  // 1040px
@@ -150,6 +151,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
+    hudState.reset();
     this.gameOver = false;
     this.currency = 0;
     this.kills = 0;
@@ -394,10 +396,10 @@ export class GameScene extends Phaser.Scene {
           this.waveManager.triggerReady();
           return;
         }
-        if (!this.shopOpen) this.useActiveSlot();
+        if (!this.shopOpen) this.meleeAttack(); // Space always punches
       });
 
-      // F key: also uses active slot (hold for auto weapons)
+      // F key: use active item slot (weapon/trap), hold for auto-fire
       const fKey = this.input.keyboard.addKey(
         Phaser.Input.Keyboard.KeyCodes.F
       );
@@ -448,13 +450,15 @@ export class GameScene extends Phaser.Scene {
         if (!this.gameOver && !this.paused && !this.shopOpen) this.useAbility();
       });
     }
-    // Click to use active slot (left or right)
+    // Left click = melee punch, Right click = use active item slot
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
       if (this.gameOver || this.paused || this.shopOpen) return;
       if (pointer.rightButtonDown()) {
         this.fireHeld = true;
+        this.useActiveSlot();
+      } else {
+        this.meleeAttack();
       }
-      this.useActiveSlot();
     });
     this.input.mouse?.disableContextMenu();
 
@@ -692,13 +696,36 @@ export class GameScene extends Phaser.Scene {
 
   // ------- Hotbar -------
 
+  /** Get list of slot indices that currently have items */
+  private getAvailableSlots(): number[] {
+    const available: number[] = [];
+    if (this.equippedWeapon) available.push(1); // weapon
+    if ((this.trapInventory.get("barricade" as TrapType) ?? 0) > 0) available.push(2);
+    if ((this.trapInventory.get("landmine" as TrapType) ?? 0) > 0) available.push(3);
+    return available;
+  }
+
   private cycleSlot(dir: number) {
-    let next = (this.activeSlot + dir + this.slotCount) % this.slotCount;
-    this.selectSlot(next);
+    const available = this.getAvailableSlots();
+    if (available.length === 0) return; // nothing to cycle to
+
+    const currentIdx = available.indexOf(this.activeSlot);
+    let nextIdx: number;
+    if (currentIdx === -1) {
+      // Current slot no longer available, pick first available
+      nextIdx = 0;
+    } else {
+      nextIdx = (currentIdx + dir + available.length) % available.length;
+    }
+    this.selectSlot(available[nextIdx]);
   }
 
   private selectSlot(index: number) {
-    this.activeSlot = Math.max(0, Math.min(index, this.slotCount - 1));
+    // Only allow selecting slots that have items (1=weapon, 2=barricade, 3=mine)
+    const available = this.getAvailableSlots();
+    if (index === 0 || !available.includes(index)) return; // can't select fists or empty slots
+
+    this.activeSlot = index;
     const names = ["FISTS", "WEAPON", "BARRICADE", "MINE"];
     // Set trap index when selecting a trap slot
     if (this.activeSlot === 2) this.selectedTrapIndex = 0; // barricade
@@ -708,7 +735,6 @@ export class GameScene extends Phaser.Scene {
 
   private useActiveSlot() {
     switch (this.activeSlot) {
-      case 0: this.meleeAttack(); break;
       case 1: this.fireWeapon(); break;
       case 2:
         this.selectedTrapIndex = 0; // barricade
@@ -907,17 +933,12 @@ export class GameScene extends Phaser.Scene {
     this.showWeaponMessage("SUPERKICK!", "#ff4444");
   }
 
-  /** Dan — EMP Grenade: throw a grenade toward mouse cursor */
+  /** Dan — EMP Grenade: throw in character's facing direction */
   private abilityEMPGrenade() {
-    // Aim toward mouse position (world coords), capped at throw distance
-    const pointer = this.input.activePointer;
-    const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
-    const angle = Phaser.Math.Angle.Between(this.player.x, this.player.y, worldPoint.x, worldPoint.y);
+    const angle = this.getFacingAngle();
     const throwDist = 160; // ~5 tiles away
-    const distToMouse = Phaser.Math.Distance.Between(this.player.x, this.player.y, worldPoint.x, worldPoint.y);
-    const actualDist = Math.min(throwDist, distToMouse);
-    const gx = this.player.x + Math.cos(angle) * actualDist;
-    const gy = this.player.y + Math.sin(angle) * actualDist;
+    const gx = this.player.x + Math.cos(angle) * throwDist;
+    const gy = this.player.y + Math.sin(angle) * throwDist;
 
     const launchGrenade = () => {
       // Create visible grenade projectile
@@ -2981,13 +3002,37 @@ export class GameScene extends Phaser.Scene {
 
     // Bottom-center: Controls hint
     const controls = this.add
-      .text(width / 2, height - 8, "WASD move | CLICK punch | RIGHT-CLICK fire | Q ability | SPACE skip | B shop", {
+      .text(width / 2, height - 8, "WASD move | CLICK/SPACE punch | RIGHT-CLICK/F use item | Q/E cycle | R ability | B shop", {
         fontSize: "14px",
         fontFamily: "Rajdhani, sans-serif",
         color: "#444455",
       })
       .setOrigin(0.5, 1);
     this.hudContainer.add(controls);
+
+    // Hide Phaser HUD elements that React now renders.
+    // Keep: waveAnnouncement, countdownText, controls (Phaser-only overlays)
+    hpIcon.setVisible(false);
+    this.healthBar.setVisible(false);
+    staIcon.setVisible(false);
+    this.staminaBar.setVisible(false);
+    this.burnoutText.setVisible(false);
+    this.levelText.setVisible(false);
+    this.xpBar.setVisible(false);
+    skullIcon.setVisible(false);
+    this.killText.setVisible(false);
+    coinIcon.setVisible(false);
+    this.currencyText.setVisible(false);
+    this.waveText.setVisible(false);
+    this.waveStatusText.setVisible(false);
+    this.abilityNameText.setVisible(false);
+    this.abilityStatusText.setVisible(false);
+    for (let i = 0; i < this.slotBgs.length; i++) {
+      this.slotBgs[i].setVisible(false);
+      this.slotIcons[i].setVisible(false);
+      this.slotLabels[i].setVisible(false);
+      this.slotCounts[i].setVisible(false);
+    }
   }
 
   private drawGlowBar(
@@ -3195,6 +3240,37 @@ export class GameScene extends Phaser.Scene {
     } else if (countdownSecs <= 0 && this.countdownText.alpha > 0) {
       this.countdownText.setAlpha(0);
     }
+
+    // Push state to React HUD overlay
+    hudState.update({
+      health: this.player.stats.health,
+      maxHealth: this.player.stats.maxHealth,
+      stamina: this.player.stats.stamina,
+      maxStamina: this.player.stats.maxStamina,
+      burnedOut: this.player.burnedOut,
+      level: this.levelingSystem.level,
+      activeSlot: this.activeSlot,
+      equippedWeapon: this.equippedWeapon,
+      ammo: this.ammo,
+      maxAmmo: this.maxAmmo,
+      barricadeCount: this.trapInventory.get("barricade" as TrapType) ?? 0,
+      mineCount: this.trapInventory.get("landmine" as TrapType) ?? 0,
+      abilityName: this.characterDef.ability.name,
+      abilityCooldown: this.abilityCooldownTimer > 0 ? this.abilityCooldownTimer / 1000 : 0,
+      abilityKey: "R",
+      kills: this.kills,
+      currency: this.currency,
+      wave,
+      waveState: state === "clearing" ? "active" : state as "pre_game" | "active" | "intermission",
+      waveEnemiesLeft: state === "active" || state === "clearing" ? this.waveManager.getEnemiesRemaining() : 0,
+      waveCountdown: countdownSecs,
+      characterName: this.characterDef.name,
+      characterId: this.characterDef.id,
+      hudVisible: true,
+      shopOpen: this.shopOpen,
+      paused: false,
+      gameOver: this.gameOver,
+    });
   }
 
   // ------- Level-Up UI -------

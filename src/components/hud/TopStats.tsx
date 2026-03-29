@@ -1,26 +1,83 @@
 "use client";
 
-interface TopStatsProps {
-  kills: number;
-  currency: number;
-  level: number;
-}
+import { memo, useSyncExternalStore } from "react";
+import { hudState } from "@/game/HUDState";
 
-export function TopStats({ kills, currency, level }: TopStatsProps) {
+export const TopStats = memo(function TopStats() {
+  const kills = useSyncExternalStore(hudState.subscribe, () => hudState.getField("kills"));
+  const currency = useSyncExternalStore(hudState.subscribe, () => hudState.getField("currency"));
+  const level = useSyncExternalStore(hudState.subscribe, () => hudState.getField("level"));
+
   return (
     <div className="flex items-center gap-6">
+      {/* Level */}
       <div className="flex items-center gap-1.5">
-        <span className="text-gray-500 text-xs font-bold">LV</span>
-        <span className="text-amber-400 text-sm font-bold tabular-nums">{level}</span>
+        <span
+          style={{
+            fontFamily: "HorrorPixel, monospace",
+            fontSize: 14,
+            color: "#556677",
+            letterSpacing: "0.05em",
+          }}
+        >
+          LV
+        </span>
+        <span
+          style={{
+            fontFamily: "HorrorPixel, monospace",
+            fontSize: 22,
+            color: "#ff8800",
+            textShadow: "0 0 8px rgba(255, 136, 0, 0.3)",
+          }}
+        >
+          {level}
+        </span>
       </div>
+      {/* Kills */}
       <div className="flex items-center gap-1.5">
-        <span className="text-gray-500 text-xs font-bold">KILLS</span>
-        <span className="text-white text-sm font-bold tabular-nums">{kills}</span>
+        <img
+          src="/assets/sprites/ui/icon-skull.png"
+          alt=""
+          style={{
+            width: 36,
+            height: 36,
+            imageRendering: "pixelated",
+            filter: "drop-shadow(1px 1px 0px #ff4466)",
+          }}
+        />
+        <span
+          style={{
+            fontFamily: "HorrorPixel, monospace",
+            fontSize: 22,
+            color: "#eeeeee",
+          }}
+        >
+          {kills}
+        </span>
       </div>
+      {/* Currency */}
       <div className="flex items-center gap-1.5">
-        <span className="text-gray-500 text-xs font-bold">$</span>
-        <span className="text-yellow-400 text-sm font-bold tabular-nums">{currency}</span>
+        <img
+          src="/assets/sprites/ui/icon-coin.png"
+          alt=""
+          style={{
+            width: 36,
+            height: 36,
+            imageRendering: "pixelated",
+            filter: "drop-shadow(1px 1px 0px #ffcc00)",
+          }}
+        />
+        <span
+          style={{
+            fontFamily: "HorrorPixel, monospace",
+            fontSize: 22,
+            color: "#ffcc00",
+            textShadow: "0 0 6px rgba(255, 204, 0, 0.25)",
+          }}
+        >
+          {currency}
+        </span>
       </div>
     </div>
   );
-}
+});
