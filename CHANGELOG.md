@@ -1,5 +1,14 @@
 # RickArena Changelog
 
+## 2026-03-29
+
+- Hotbar system: fists(1), weapon(2), barricade(3), mine(4). Q/E cycle backward/forward. Click/Space/F uses active slot.
+- Ability key changed from Q to R.
+- Leaderboard entry prompt only appears if your score qualifies for top 5.
+- Player freezes while shop is open. Shop navigable with WASD/arrows + Enter to buy.
+- Shrunk equipment slot icons from scale 2.5 to 0.6.
+- Leaderboard capped at 5 entries.
+
 ## 2026-03-28
 
 - Removed map editor (MapEditorScene deleted, E key removed from menu). Tiled is now the only map editor.

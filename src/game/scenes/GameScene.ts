@@ -62,6 +62,10 @@ export class GameScene extends Phaser.Scene {
   private traps!: Phaser.Physics.Arcade.Group;
   private barricades!: Phaser.Physics.Arcade.StaticGroup;
 
+  // Hotbar: 0=fists, 1=weapon, 2=barricade, 3=mine
+  private activeSlot = 0;
+  private readonly slotCount = 4;
+
   // Ability state (Q)
   private abilityCooldownTimer = 0; // ms remaining
   private abilityActive = false;
@@ -377,75 +381,80 @@ export class GameScene extends Phaser.Scene {
     // Player can't walk through barricades
     this.physics.add.collider(this.player, this.barricades);
 
-    // Melee attack input (SPACE)
+    // --- Hotbar input: Q/E cycle, 1-4 direct select, SPACE/F use active slot ---
     if (this.input.keyboard) {
+      // SPACE: use active slot OR ready-up during intermission
       const space = this.input.keyboard.addKey(
         Phaser.Input.Keyboard.KeyCodes.SPACE
       );
       space.on("down", () => {
         if (this.gameOver || this.paused) return;
-        // During intermission, SPACE skips to next wave
         if (this.waveManager.state === "intermission" && !this.waveManager.isReadyUp()) {
           this.closeShop();
           this.waveManager.triggerReady();
           return;
         }
-        if (!this.shopOpen) this.meleeAttack();
+        if (!this.shopOpen) this.useActiveSlot();
       });
 
-      // Fire weapon (F key)
+      // F key: also uses active slot (hold for auto weapons)
       const fKey = this.input.keyboard.addKey(
         Phaser.Input.Keyboard.KeyCodes.F
       );
       fKey.on("down", () => {
         this.fireHeld = true;
-        if (!this.gameOver && !this.paused && !this.shopOpen) this.fireWeapon();
+        if (!this.gameOver && !this.paused && !this.shopOpen) this.useActiveSlot();
       });
       fKey.on("up", () => { this.fireHeld = false; });
 
-      // Place trap (T key)
-      const tKey = this.input.keyboard.addKey(
-        Phaser.Input.Keyboard.KeyCodes.T
+      // E: cycle forward through hotbar
+      const eKey = this.input.keyboard.addKey(
+        Phaser.Input.Keyboard.KeyCodes.E
       );
-      tKey.on("down", () => {
-        if (!this.gameOver && !this.paused && !this.shopOpen) this.placeTrap();
+      eKey.on("down", () => {
+        if (this.gameOver || this.paused || this.shopOpen) return;
+        this.cycleSlot(1);
       });
 
-      // Select trap type directly (8=barricade, 9=landmine)
-      const trapKeys = [
-        { code: Phaser.Input.Keyboard.KeyCodes.EIGHT, index: 0 },
-        { code: Phaser.Input.Keyboard.KeyCodes.NINE, index: 1 },
-      ];
-      trapKeys.forEach(({ code, index }) => {
-        const key = this.input.keyboard!.addKey(code);
-        key.on("down", () => {
-          if (this.gameOver || this.paused || this.shopOpen) return;
-          const type = this.trapTypes[index];
-          const count = this.trapInventory.get(type) ?? 0;
-          if (count > 0) {
-            this.selectedTrapIndex = index;
-            const name = BALANCE.traps[type].name;
-            this.showWeaponMessage(`${name.toUpperCase()} SELECTED`, "#dddd44");
-          }
-        });
-      });
-      // Ability (Q key)
+      // Q: cycle backward through hotbar
       const qKey = this.input.keyboard.addKey(
         Phaser.Input.Keyboard.KeyCodes.Q
       );
       qKey.on("down", () => {
+        if (this.gameOver || this.paused || this.shopOpen) return;
+        this.cycleSlot(-1);
+      });
+
+      // 1-4: direct slot select
+      const slotKeys = [
+        Phaser.Input.Keyboard.KeyCodes.ONE,
+        Phaser.Input.Keyboard.KeyCodes.TWO,
+        Phaser.Input.Keyboard.KeyCodes.THREE,
+        Phaser.Input.Keyboard.KeyCodes.FOUR,
+      ];
+      slotKeys.forEach((code, idx) => {
+        const key = this.input.keyboard!.addKey(code);
+        key.on("down", () => {
+          if (this.gameOver || this.paused || this.shopOpen) return;
+          this.selectSlot(idx);
+        });
+      });
+
+      // R: ability
+      const rKey = this.input.keyboard.addKey(
+        Phaser.Input.Keyboard.KeyCodes.R
+      );
+      rKey.on("down", () => {
         if (!this.gameOver && !this.paused && !this.shopOpen) this.useAbility();
       });
     }
-    // Right-click to fire weapon
+    // Click to use active slot (left or right)
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
       if (this.gameOver || this.paused || this.shopOpen) return;
       if (pointer.rightButtonDown()) {
         this.fireHeld = true;
-        this.fireWeapon();
-      } else {
-        this.meleeAttack();
       }
+      this.useActiveSlot();
     });
     this.input.mouse?.disableContextMenu();
 
@@ -601,8 +610,8 @@ export class GameScene extends Phaser.Scene {
     // Ambient zombie groans
     this.tryPlayZombieGroan();
 
-    // Hold-to-fire: only for auto weapons (SMG). Semi-auto fires on press only.
-    if (this.fireHeld && !this.shopOpen && this.equippedWeapon) {
+    // Hold-to-fire: only for auto weapons (SMG) when weapon slot is active.
+    if (this.fireHeld && !this.shopOpen && this.activeSlot === 1 && this.equippedWeapon) {
       const wDef = BALANCE.weapons[this.equippedWeapon as keyof typeof BALANCE.weapons];
       if (wDef?.auto) this.fireWeapon();
     }
@@ -679,6 +688,37 @@ export class GameScene extends Phaser.Scene {
   /** Play player damage grunt */
   private playPlayerHurt() {
     this.playSound("sfx-player-grunt", 0.35);
+  }
+
+  // ------- Hotbar -------
+
+  private cycleSlot(dir: number) {
+    let next = (this.activeSlot + dir + this.slotCount) % this.slotCount;
+    this.selectSlot(next);
+  }
+
+  private selectSlot(index: number) {
+    this.activeSlot = Math.max(0, Math.min(index, this.slotCount - 1));
+    const names = ["FISTS", "WEAPON", "BARRICADE", "MINE"];
+    // Set trap index when selecting a trap slot
+    if (this.activeSlot === 2) this.selectedTrapIndex = 0; // barricade
+    if (this.activeSlot === 3) this.selectedTrapIndex = 1; // mine
+    this.showWeaponMessage(`${names[this.activeSlot]} SELECTED`, "#5aabff");
+  }
+
+  private useActiveSlot() {
+    switch (this.activeSlot) {
+      case 0: this.meleeAttack(); break;
+      case 1: this.fireWeapon(); break;
+      case 2:
+        this.selectedTrapIndex = 0; // barricade
+        this.placeTrap();
+        break;
+      case 3:
+        this.selectedTrapIndex = 1; // mine
+        this.placeTrap();
+        break;
+    }
   }
 
   // ------- Combat -------
@@ -1485,7 +1525,7 @@ export class GameScene extends Phaser.Scene {
       .setAlpha(0);
     this.hudContainer.add(statsText);
 
-    // Fade in death screen, then show leaderboard entry
+    // Fade in death screen, then check if score qualifies for leaderboard
     this.tweens.add({
       targets: [overlay, diedText, statsText],
       alpha: 1,
@@ -1493,10 +1533,32 @@ export class GameScene extends Phaser.Scene {
       ease: "Cubic.easeIn",
       onComplete: () => {
         this.time.delayedCall(1200, () => {
-          this.showLeaderboardEntry(overlay, waveReached);
+          this.checkLeaderboardQualification(overlay, waveReached);
         });
       },
     });
+  }
+
+  /** Check if the player's score qualifies for top 5 before showing entry */
+  private async checkLeaderboardQualification(overlay: Phaser.GameObjects.Graphics, waveReached: number) {
+    try {
+      const response = await fetch("/api/leaderboard");
+      if (response.ok) {
+        const leaderboard = await response.json();
+        // Qualifies if fewer than 5 entries or score beats the lowest
+        if (leaderboard.length >= 5) {
+          const lowest = leaderboard[leaderboard.length - 1];
+          if (this.kills < lowest.kills || (this.kills === lowest.kills && waveReached <= lowest.wave)) {
+            // Doesn't qualify — skip entry, show leaderboard directly
+            this.showLeaderboardDisplay(leaderboard, null, []);
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      // On error, allow entry anyway
+    }
+    this.showLeaderboardEntry(overlay, waveReached);
   }
 
   // ---------- Leaderboard ----------
@@ -2811,10 +2873,10 @@ export class GameScene extends Phaser.Scene {
     const slotGap = 8;
     const slotStartX = 20;
     const slotY = height - slotH - 16;
-    const slotNames = ["WEAPON", "BARR", "MINE"];
-    const slotTextures = ["item-pistol", "trap-barricade", "item-landmine"];
+    const slotNames = ["FISTS", "WEAPON", "BARR", "MINE"];
+    const slotTextures = ["item-bandage", "item-pistol", "trap-barricade", "item-landmine"];
 
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 4; i++) {
       const sx = slotStartX + i * (slotW + slotGap);
 
       const bg = this.add.graphics();
@@ -3001,18 +3063,18 @@ export class GameScene extends Phaser.Scene {
     // Bottom-right: ability
     if (this.abilityCooldownTimer > 0) {
       const secs = Math.ceil(this.abilityCooldownTimer / 1000);
-      this.abilityNameText.setText(`[Q] ${this.characterDef.ability.name}`);
+      this.abilityNameText.setText(`[R] ${this.characterDef.ability.name}`);
       this.abilityNameText.setColor("#888888");
       this.abilityStatusText.setText(`${secs}s`);
       this.abilityStatusText.setColor("#888899");
     } else {
-      this.abilityNameText.setText(`[Q] ${this.characterDef.ability.name}`);
+      this.abilityNameText.setText(`[R] ${this.characterDef.ability.name}`);
       this.abilityNameText.setColor("#ffffff");
       this.abilityStatusText.setText("READY");
       this.abilityStatusText.setColor("#5aabff");
     }
 
-    // Bottom-left: slot strip
+    // Bottom-left: slot strip (4 slots: fists, weapon, barricade, mine)
     const { height: hh } = this.cameras.main;
     const slotW = 72;
     const slotH = 80;
@@ -3020,35 +3082,43 @@ export class GameScene extends Phaser.Scene {
     const slotStartX = 20;
     const slotY = hh - slotH - 16;
 
-    // Slot 0: weapon
+    // Slot 0: fists (always available, no icon)
+    this.slotLabels[0].setText("FISTS");
+    this.slotIcons[0].setAlpha(0); // no fist icon
+    this.slotCounts[0].setText(`[1]`);
+    this.slotCounts[0].setColor("#555566");
+
+    // Slot 1: weapon
     if (this.equippedWeapon) {
       const wDef = BALANCE.weapons[this.equippedWeapon as keyof typeof BALANCE.weapons];
-      this.slotIcons[0].setTexture(`item-${this.equippedWeapon}`);
-      this.slotIcons[0].setAlpha(1);
-      this.slotLabels[0].setText(wDef.name.toUpperCase());
-      this.slotCounts[0].setText(`${this.ammo}/${this.maxAmmo}`);
-      this.slotCounts[0].setColor(this.ammo > 0 ? "#e8c840" : "#cc3333");
+      this.slotIcons[1].setTexture(`item-${this.equippedWeapon}`);
+      this.slotIcons[1].setAlpha(this.activeSlot === 1 ? 1 : 0.5);
+      this.slotLabels[1].setText(wDef.name.toUpperCase());
+      this.slotCounts[1].setText(`${this.ammo}/${this.maxAmmo}`);
+      this.slotCounts[1].setColor(this.ammo > 0 ? "#e8c840" : "#cc3333");
     } else {
-      this.slotIcons[0].setAlpha(0.3);
-      this.slotLabels[0].setText("FISTS");
-      this.slotCounts[0].setText("");
+      this.slotIcons[1].setAlpha(0.2);
+      this.slotLabels[1].setText("WEAPON");
+      this.slotCounts[1].setText("");
     }
 
-    // Slots 1-2: traps
+    // Slot 2: barricade, Slot 3: mine
     for (let i = 0; i < this.trapTypes.length && i < 2; i++) {
       const type = this.trapTypes[i];
       const cnt = this.trapInventory.get(type) ?? 0;
-      const selected = i === this.selectedTrapIndex && cnt > 0;
-      this.slotIcons[i + 1].setAlpha(cnt > 0 ? 1 : 0.3);
-      this.slotCounts[i + 1].setText(cnt > 0 ? `x${cnt}` : "");
+      const slotIdx = i + 2;
+      this.slotIcons[slotIdx].setAlpha(cnt > 0 ? (this.activeSlot === slotIdx ? 1 : 0.5) : 0.2);
+      this.slotCounts[slotIdx].setText(cnt > 0 ? `x${cnt}` : "");
+    }
 
-      // Redraw slot border for selection state
-      const sx = slotStartX + (i + 1) * (slotW + slotGap);
-      this.slotBgs[i + 1].clear();
-      this.slotBgs[i + 1].fillStyle(0x0a0a1a, 0.7);
-      this.slotBgs[i + 1].fillRoundedRect(sx, slotY, slotW, slotH, 4);
-      this.slotBgs[i + 1].lineStyle(1, selected ? 0x5aabff : 0x2a2a40, 1);
-      this.slotBgs[i + 1].strokeRoundedRect(sx, slotY, slotW, slotH, 4);
+    // Redraw all slot borders — active slot gets highlight
+    for (let i = 0; i < this.slotCount; i++) {
+      const sx = slotStartX + i * (slotW + slotGap);
+      this.slotBgs[i].clear();
+      this.slotBgs[i].fillStyle(this.activeSlot === i ? 0x12122a : 0x0a0a1a, 0.7);
+      this.slotBgs[i].fillRoundedRect(sx, slotY, slotW, slotH, 4);
+      this.slotBgs[i].lineStyle(this.activeSlot === i ? 2 : 1, this.activeSlot === i ? 0x5aabff : 0x2a2a40, 1);
+      this.slotBgs[i].strokeRoundedRect(sx, slotY, slotW, slotH, 4);
     }
 
     // Wave HUD
