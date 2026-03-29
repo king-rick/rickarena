@@ -86,6 +86,7 @@ export class GameScene extends Phaser.Scene {
   private pauseOverlay!: Phaser.GameObjects.Graphics;
   private pauseTitle!: Phaser.GameObjects.Text;
   private pauseQuitBtn!: Phaser.GameObjects.Text;
+  private pauseRestartBtn!: Phaser.GameObjects.Text;
   private pauseSettingsBtn!: Phaser.GameObjects.Text;
   private settingsContainer!: Phaser.GameObjects.Container;
   private settingsOpen = false;
@@ -1621,9 +1622,31 @@ export class GameScene extends Phaser.Scene {
       this.scene.start("MainMenu");
     });
 
+    // Restart button
+    this.pauseRestartBtn = this.add
+      .text(width / 2, height / 2 + 80, "[ R ]  Restart", {
+        fontSize: "30px",
+        fontFamily: "Rajdhani, sans-serif",
+        color: "#8a82a0",
+      })
+      .setOrigin(0.5)
+      .setVisible(false)
+      .setInteractive({ useHandCursor: true });
+    this.hudContainer.add(this.pauseRestartBtn);
+
+    this.pauseRestartBtn.on("pointerover", () => {
+      this.pauseRestartBtn.setColor("#d0c8e0");
+    });
+    this.pauseRestartBtn.on("pointerout", () => {
+      this.pauseRestartBtn.setColor("#8a82a0");
+    });
+    this.pauseRestartBtn.on("pointerdown", () => {
+      this.scene.restart({ characterId: this.characterDef.id });
+    });
+
     // Settings button
     this.pauseSettingsBtn = this.add
-      .text(width / 2, height / 2 + 100, "[ S ]  Settings", {
+      .text(width / 2, height / 2 + 140, "[ S ]  Settings", {
         fontSize: "30px",
         fontFamily: "Rajdhani, sans-serif",
         color: "#8a82a0",
@@ -1822,6 +1845,7 @@ export class GameScene extends Phaser.Scene {
     this.settingsOpen = true;
     this.pauseTitle.setVisible(false);
     this.pauseQuitBtn.setVisible(false);
+    this.pauseRestartBtn.setVisible(false);
     this.pauseSettingsBtn.setVisible(false);
     this.settingsContainer.setVisible(true);
   }
@@ -1831,6 +1855,7 @@ export class GameScene extends Phaser.Scene {
     this.settingsContainer.setVisible(false);
     this.pauseTitle.setVisible(true);
     this.pauseQuitBtn.setVisible(true);
+    this.pauseRestartBtn.setVisible(true);
     this.pauseSettingsBtn.setVisible(true);
   }
 
@@ -1841,11 +1866,15 @@ export class GameScene extends Phaser.Scene {
     this.pauseOverlay.setVisible(true);
     this.pauseTitle.setVisible(true);
     this.pauseQuitBtn.setVisible(true);
+    this.pauseRestartBtn.setVisible(true);
     this.pauseSettingsBtn.setVisible(true);
 
     this.pauseKeyHandler = (event: KeyboardEvent) => {
       if (event.key === "q" || event.key === "Q") {
         if (this.paused && !this.settingsOpen) this.scene.start("MainMenu");
+      }
+      if (event.key === "r" || event.key === "R") {
+        if (this.paused && !this.settingsOpen) this.scene.restart({ characterId: this.characterDef.id });
       }
       if (event.key === "s" || event.key === "S") {
         if (this.paused && !this.settingsOpen) this.openSettings();
@@ -1863,6 +1892,7 @@ export class GameScene extends Phaser.Scene {
     this.pauseOverlay.setVisible(false);
     this.pauseTitle.setVisible(false);
     this.pauseQuitBtn.setVisible(false);
+    this.pauseRestartBtn.setVisible(false);
     this.pauseSettingsBtn.setVisible(false);
     this.settingsContainer.setVisible(false);
     this.settingsOpen = false;
