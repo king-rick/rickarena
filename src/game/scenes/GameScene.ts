@@ -2308,10 +2308,10 @@ export class GameScene extends Phaser.Scene {
     this.shopContainer.add(bg);
 
     // Header: SHOP + cash
-    this.add.text(cx, panelTop + 32, "SHOP", {
+    const shopTitle = this.add.text(cx, panelTop + 32, "SHOP", {
       fontSize: "32px", fontFamily: "Rajdhani, sans-serif", color: "#ffffff", fontStyle: "bold", letterSpacing: 8,
     }).setOrigin(0.5).setDepth(161);
-    this.shopContainer.add(this.shopContainer.last!);
+    this.shopContainer.add(shopTitle);
 
     this.shopCashText = this.add.text(panelLeft + panelW - 32, panelTop + 32, "$0", {
       fontSize: "32px", fontFamily: "Rajdhani, sans-serif", color: "#e8c840", fontStyle: "bold",
