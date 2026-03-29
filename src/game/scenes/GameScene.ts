@@ -3063,58 +3063,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateHUD() {
-    // Bar positions: after 32px icon + 4px gap
-    const barX = 56;
-    const barW = 220;
-    const barH = 18;
-    const barR = 4;
-
-    // Health bar
-    this.healthBar.clear();
-    this.healthBar.fillStyle(0x0d0a12, 0.8);
-    this.healthBar.fillRoundedRect(barX - 1, 22, barW + 2, barH + 2, barR + 1);
-    this.healthBar.fillStyle(0x1a1520, 0.6);
-    this.healthBar.fillRoundedRect(barX, 23, barW, barH, barR);
-    const hpPct = this.player.stats.health / this.player.stats.maxHealth;
-    if (hpPct > 0.001) {
-      if (hpPct > 0.5) {
-        this.drawGlowBar(this.healthBar, barX, 23, barW, barH, hpPct,
-          0xbb2222, 0xee5555, 0xdd3333, barR);
-      } else if (hpPct > 0.25) {
-        this.drawGlowBar(this.healthBar, barX, 23, barW, barH, hpPct,
-          0x992211, 0xcc4433, 0xbb3322, barR);
-      } else {
-        this.drawGlowBar(this.healthBar, barX, 23, barW, barH, hpPct,
-          0x771111, 0xaa3333, 0x991111, barR);
-      }
-    }
-
-    // Stamina bar
-    this.staminaBar.clear();
-    this.staminaBar.fillStyle(0x0d0a12, 0.8);
-    this.staminaBar.fillRoundedRect(barX - 1, 54, barW + 2, barH + 2, barR + 1);
-    this.staminaBar.fillStyle(0x1a1520, 0.6);
-    this.staminaBar.fillRoundedRect(barX, 55, barW, barH, barR);
-    const staPct = this.player.stats.stamina / this.player.stats.maxStamina;
-    if (staPct > 0.001) {
-      if (this.player.burnedOut) {
-        this.drawGlowBar(this.staminaBar, barX, 55, barW, barH, staPct,
-          0x444444, 0x666666, 0x555555, barR);
-      } else if (staPct > 0.3) {
-        this.drawGlowBar(this.staminaBar, barX, 55, barW, barH, staPct,
-          0x2d9e2d, 0x55dd55, 0x33cc33, barR);
-      } else {
-        this.drawGlowBar(this.staminaBar, barX, 55, barW, barH, staPct,
-          0xaa6622, 0xdd9944, 0xcc8833, barR);
-      }
-    }
-
-    this.burnoutText.setVisible(this.player.burnedOut);
-
-    // Level text only (no XP bar)
-    this.xpBar.clear();
-    this.levelText.setText(`Lv.${this.levelingSystem.level}`);
-
     // Apply leveling buffs to player effective stats
     const effective = this.levelingSystem.getEffectiveStats(this.characterDef.stats);
     this.player.stats.maxHealth = effective.maxHealth;
@@ -3126,98 +3074,16 @@ export class GameScene extends Phaser.Scene {
       this.player.stats.damage = effective.damage;
     }
 
-    // Top-right: kills + currency (icon-based, no emoji)
-    this.killText.setText(`${this.kills}`);
-    this.currencyText.setText(`${this.currency}`);
-
-    // Bottom-right: ability
-    if (this.abilityCooldownTimer > 0) {
-      const secs = Math.ceil(this.abilityCooldownTimer / 1000);
-      this.abilityNameText.setText(`[R] ${this.characterDef.ability.name}`);
-      this.abilityNameText.setColor("#888888");
-      this.abilityStatusText.setText(`${secs}s`);
-      this.abilityStatusText.setColor("#888899");
-    } else {
-      this.abilityNameText.setText(`[R] ${this.characterDef.ability.name}`);
-      this.abilityNameText.setColor("#ffffff");
-      this.abilityStatusText.setText("READY");
-      this.abilityStatusText.setColor("#5aabff");
-    }
-
-    // Bottom-left: slot strip (4 slots: fists, weapon, barricade, mine)
-    const { height: hh } = this.cameras.main;
-    const slotW = 72;
-    const slotH = 80;
-    const slotGap = 8;
-    const slotStartX = 20;
-    const slotY = hh - slotH - 16;
-
-    // Slot 0: fists (always available, no icon)
-    this.slotLabels[0].setText("FISTS");
-    this.slotIcons[0].setAlpha(0); // no fist icon
-    this.slotCounts[0].setText(`[1]`);
-    this.slotCounts[0].setColor("#555566");
-
-    // Slot 1: weapon
-    if (this.equippedWeapon) {
-      const wDef = BALANCE.weapons[this.equippedWeapon as keyof typeof BALANCE.weapons];
-      this.slotIcons[1].setTexture(`item-${this.equippedWeapon}`);
-      this.slotIcons[1].setAlpha(this.activeSlot === 1 ? 1 : 0.5);
-      this.slotLabels[1].setText(wDef.name.toUpperCase());
-      this.slotCounts[1].setText(`${this.ammo}/${this.maxAmmo}`);
-      this.slotCounts[1].setColor(this.ammo > 0 ? "#e8c840" : "#cc3333");
-    } else {
-      this.slotIcons[1].setAlpha(0.2);
-      this.slotLabels[1].setText("WEAPON");
-      this.slotCounts[1].setText("");
-    }
-
-    // Slot 2: barricade, Slot 3: mine
-    for (let i = 0; i < this.trapTypes.length && i < 2; i++) {
-      const type = this.trapTypes[i];
-      const cnt = this.trapInventory.get(type) ?? 0;
-      const slotIdx = i + 2;
-      this.slotIcons[slotIdx].setAlpha(cnt > 0 ? (this.activeSlot === slotIdx ? 1 : 0.5) : 0.2);
-      this.slotCounts[slotIdx].setText(cnt > 0 ? `x${cnt}` : "");
-    }
-
-    // Redraw all slot borders — active slot gets highlight
-    for (let i = 0; i < this.slotCount; i++) {
-      const sx = slotStartX + i * (slotW + slotGap);
-      this.slotBgs[i].clear();
-      this.slotBgs[i].fillStyle(this.activeSlot === i ? 0x12122a : 0x0a0a1a, 0.7);
-      this.slotBgs[i].fillRoundedRect(sx, slotY, slotW, slotH, 4);
-      this.slotBgs[i].lineStyle(this.activeSlot === i ? 2 : 1, this.activeSlot === i ? 0x5aabff : 0x2a2a40, 1);
-      this.slotBgs[i].strokeRoundedRect(sx, slotY, slotW, slotH, 4);
-    }
-
-    // Wave HUD
+    // Wave state (needed for countdown + React)
     const state = this.waveManager.state;
     const wave = this.waveManager.wave;
     let countdownSecs = -1;
 
     if (state === "pre_game") {
-      this.waveText.setText("GET READY");
-      const secs = this.waveManager.getPreGameTimeLeft();
-      this.waveStatusText.setText(`Starting in ${secs}s`);
-      countdownSecs = secs;
-    } else {
-      this.waveText.setText(`WAVE ${wave}`);
-
-      if (state === "active" || state === "clearing") {
-        const remaining = this.waveManager.getEnemiesRemaining();
-        this.waveStatusText.setText(
-          `${remaining} enem${remaining === 1 ? "y" : "ies"} remaining`
-        );
-      } else if (state === "intermission") {
-        if (this.waveManager.isReadyUp()) {
-          const secs = this.waveManager.getReadyCountdown();
-          this.waveStatusText.setText(`Starting in ${secs}s...`);
-          countdownSecs = secs;
-        } else {
-          const timeLeft = this.waveManager.getIntermissionTimeLeft();
-          this.waveStatusText.setText(`${timeLeft}s  |  SPACE skip  |  B shop`);
-        }
+      countdownSecs = this.waveManager.getPreGameTimeLeft();
+    } else if (state === "intermission") {
+      if (this.waveManager.isReadyUp()) {
+        countdownSecs = this.waveManager.getReadyCountdown();
       }
     }
 
