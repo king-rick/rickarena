@@ -102,6 +102,8 @@ export class BootScene extends Phaser.Scene {
     this.load.image("item-ammo", "/assets/sprites/items/ammo.png");
     this.load.image("item-ammo-box", "/assets/sprites/items/ammo-box.png");
     this.load.image("item-landmine", "/assets/sprites/items/landmine.png");
+    this.load.image("item-bandage", "/assets/sprites/items/bandage.png");
+    this.load.image("item-syringe", "/assets/sprites/items/syringe.png");
     this.load.image("trap-spikes", "/assets/sprites/items/trap-spikes.png");
     this.load.image("trap-barricade", "/assets/sprites/items/trap-barricade.png");
     this.load.image("trap-landmine", "/assets/sprites/items/trap-landmine.png");

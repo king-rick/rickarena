@@ -2409,11 +2409,11 @@ export class GameScene extends Phaser.Scene {
       spikes: "trap-spikes",
       barricade: "trap-barricade",
       landmine: "item-landmine",
+      heal: "item-bandage",
+      dmgBoost: "item-syringe",
     };
     const consumableColors: Record<string, number> = {
-      heal: 0x44bb44,
       fullHeal: 0x33dd99,
-      dmgBoost: 0xdd4444,
     };
 
     const { width, height } = this.cameras.main;
@@ -3115,16 +3115,17 @@ export class GameScene extends Phaser.Scene {
       this.levelUpOverlay.add(hitZone);
     });
 
-    // Keyboard shortcuts (number row + numpad)
+    // Keyboard shortcuts — use a keydown listener instead of addKey().once
+    // so consecutive level-ups don't lose their bindings
     if (this.input.keyboard) {
-      const key1 = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ONE);
-      const key2 = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.TWO);
-      const numpad1 = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.NUMPAD_ONE);
-      const numpad2 = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.NUMPAD_TWO);
-      key1.once("down", () => { if (this.levelUpActive) this.selectLevelUpBuff(0); });
-      key2.once("down", () => { if (this.levelUpActive && options.length > 1) this.selectLevelUpBuff(1); });
-      numpad1.once("down", () => { if (this.levelUpActive) this.selectLevelUpBuff(0); });
-      numpad2.once("down", () => { if (this.levelUpActive && options.length > 1) this.selectLevelUpBuff(1); });
+      const levelUpKeyHandler = (event: KeyboardEvent) => {
+        if (!this.levelUpActive) return;
+        if (event.key === "1") this.selectLevelUpBuff(0);
+        else if (event.key === "2" && options.length > 1) this.selectLevelUpBuff(1);
+      };
+      this.input.keyboard.on("keydown", levelUpKeyHandler);
+      // Store ref so selectLevelUpBuff can clean it up
+      (this.levelUpOverlay as any)._keyHandler = levelUpKeyHandler;
     }
   }
 
@@ -3154,8 +3155,10 @@ export class GameScene extends Phaser.Scene {
       );
     }
 
-    // Clean up UI
+    // Clean up UI + keyboard listener
     this.levelUpActive = false;
+    const handler = (this.levelUpOverlay as any)._keyHandler;
+    if (handler) this.input.keyboard?.off("keydown", handler);
     this.levelUpOverlay.destroy();
 
     // Flash the buff name

@@ -43,7 +43,7 @@ export const BALANCE = {
   // Shop
   shop: {
     items: [
-      { id: "heal", name: "First Aid", desc: "Restore 50% HP", basePrice: 50 },
+      { id: "heal", name: "Bandages", desc: "Restore 50% HP", basePrice: 50 },
       { id: "dmgBoost", name: "Adrenaline", desc: "+25% damage next wave", basePrice: 100 },
       { id: "pistol", name: "Pistol", desc: "30 rounds, accurate", basePrice: 100, unlockWave: 1 },
       { id: "shotgun", name: "Shotgun", desc: "16 shells, spread", basePrice: 300, unlockWave: 4 },
