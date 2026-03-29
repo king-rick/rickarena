@@ -120,6 +120,15 @@ export class BootScene extends Phaser.Scene {
     this.load.image("ui-panel-button", "/assets/sprites/ui/panel-button.png");
     this.load.image("ui-bar-frame", "/assets/sprites/ui/bar-frame.png");
 
+    // Horror UI Kit sprites
+    this.load.image("ui-horror-panel", "/assets/sprites/ui/horror/panel-frame.png");
+    this.load.image("ui-horror-slot", "/assets/sprites/ui/horror/slot-inactive.png");
+    this.load.image("ui-horror-slot-active", "/assets/sprites/ui/horror/slot-active.png");
+    this.load.image("ui-horror-bar-frame", "/assets/sprites/ui/horror/bar-frame.png");
+    this.load.image("ui-horror-button", "/assets/sprites/ui/horror/button-normal.png");
+    this.load.image("ui-horror-button-hover", "/assets/sprites/ui/horror/button-hover.png");
+    this.load.image("ui-horror-divider", "/assets/sprites/ui/horror/divider.png");
+
     // UI tile backgrounds (horror-themed panel surfaces)
     this.load.image("ui-tile-wood", "/assets/sprites/ui/tiles/wood-plank.png");
     this.load.image("ui-tile-stone", "/assets/sprites/ui/tiles/stone-brick.png");
@@ -226,7 +235,7 @@ export class BootScene extends Phaser.Scene {
     this.add
       .text(width / 2, height / 2 - 10, "RICKARENA", {
         fontSize: "24px",
-        fontFamily: "Rajdhani, sans-serif",
+        fontFamily: "HorrorPixel, monospace",
         color: "#2a2a3a",
         fontStyle: "bold",
         align: "center",
@@ -244,7 +253,14 @@ export class BootScene extends Phaser.Scene {
     });
   }
 
-  create() {
+  async create() {
+    // Ensure HorrorPixel font is loaded before any scene tries to use it
+    try {
+      await document.fonts.load("16px HorrorPixel");
+    } catch {
+      // Font may already be loaded via CSS, continue regardless
+    }
+
     // Set nearest-neighbor filtering on all sprite textures so they stay crisp
     // (pixelArt is off globally so text renders smooth)
     this.textures.getTextureKeys().forEach((key) => {

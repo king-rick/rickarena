@@ -287,7 +287,7 @@ export class GameScene extends Phaser.Scene {
     const mmBorder = this.add.graphics();
     mmBorder.setScrollFactor(0);
     mmBorder.setDepth(200);
-    mmBorder.lineStyle(4, 0x5aabff, 0.9);
+    mmBorder.lineStyle(4, 0xff2244, 0.9);
     mmBorder.strokeRect(mmX - 2, mmY - 2, mmSize + 4, mmSize + 4);
     mmBorder.lineStyle(1, 0x0a0a14, 1);
     mmBorder.strokeRect(mmX - 3, mmY - 3, mmSize + 6, mmSize + 6);
@@ -298,7 +298,7 @@ export class GameScene extends Phaser.Scene {
       screenW - mmPadding,
       mmY - 18,
       `${Math.round(this.cameras.main.zoom * 100)}%`,
-      { fontSize: "20px", fontFamily: "Rajdhani, sans-serif", color: "#ffffff" }
+      { fontSize: "20px", fontFamily: "HorrorPixel, monospace", color: "#ffffff" }
     ).setOrigin(1, 0).setDepth(200).setVisible(false);
     this.minimap.ignore(this.zoomText);
 
@@ -730,7 +730,7 @@ export class GameScene extends Phaser.Scene {
     // Set trap index when selecting a trap slot
     if (this.activeSlot === 2) this.selectedTrapIndex = 0; // barricade
     if (this.activeSlot === 3) this.selectedTrapIndex = 1; // mine
-    this.showWeaponMessage(`${names[this.activeSlot]} SELECTED`, "#5aabff");
+    this.showWeaponMessage(`${names[this.activeSlot]} SELECTED`, "#ff4466");
   }
 
   private useActiveSlot() {
@@ -1273,7 +1273,7 @@ export class GameScene extends Phaser.Scene {
     const cam = this.cameras.main;
     const txt = this.add.text(
       this.player.x, this.player.y - 80, msg,
-      { fontFamily: "Rajdhani, sans-serif", fontSize: "22px", color, fontStyle: "bold" }
+      { fontFamily: "HorrorPixel, monospace", fontSize: "22px", color, fontStyle: "bold" }
     ).setDepth(100).setOrigin(0.5);
 
     this.tweens.add({
@@ -1399,7 +1399,7 @@ export class GameScene extends Phaser.Scene {
 
   private showCritEffect(x: number, y: number) {
     const txt = this.add.text(x, y - 20, "CRIT!", {
-      fontFamily: "Rajdhani, sans-serif",
+      fontFamily: "HorrorPixel, monospace",
       fontSize: "14px",
       color: "#ff4444",
       fontStyle: "bold",
@@ -1529,7 +1529,7 @@ export class GameScene extends Phaser.Scene {
     const diedText = this.add
       .text(width / 2, height / 2 - 80, "YOU DIED", {
         fontSize: "80px",
-        fontFamily: "Rajdhani, sans-serif",
+        fontFamily: "HorrorPixel, monospace",
         color: "#cc3333",
         fontStyle: "bold",
       })
@@ -1545,7 +1545,7 @@ export class GameScene extends Phaser.Scene {
         `Wave ${waveReached}  |  ${this.kills} kills`,
         {
           fontSize: "36px",
-          fontFamily: "Rajdhani, sans-serif",
+          fontFamily: "HorrorPixel, monospace",
           color: "#cccccc",
         }
       )
@@ -1605,7 +1605,7 @@ export class GameScene extends Phaser.Scene {
     const MAX_LEN = 8;
 
     const fontBase = {
-      fontFamily: "Rajdhani, sans-serif",
+      fontFamily: "HorrorPixel, monospace",
     };
 
     // "ENTER YOUR NAME" prompt
@@ -1743,7 +1743,7 @@ export class GameScene extends Phaser.Scene {
     entryElements: Phaser.GameObjects.GameObject[]
   ) {
     const { width, height } = this.cameras.main;
-    const fontBase = { fontFamily: "Rajdhani, sans-serif" };
+    const fontBase = { fontFamily: "HorrorPixel, monospace" };
 
     // Fade out entry UI elements (not the overlay/died/stats — keep those)
     this.tweens.add({
@@ -2019,7 +2019,7 @@ export class GameScene extends Phaser.Scene {
     this.pauseTitle = this.add
       .text(width / 2, height / 2 - 80, "PAUSED", {
         fontSize: "64px",
-        fontFamily: "Rajdhani, sans-serif",
+        fontFamily: "HorrorPixel, monospace",
         color: "#d0c8e0",
         fontStyle: "bold",
       })
@@ -2030,7 +2030,7 @@ export class GameScene extends Phaser.Scene {
     this.pauseQuitBtn = this.add
       .text(width / 2, height / 2 + 40, "[ Q ]  Quit to Menu", {
         fontSize: "30px",
-        fontFamily: "Rajdhani, sans-serif",
+        fontFamily: "HorrorPixel, monospace",
         color: "#8a82a0",
       })
       .setOrigin(0.5)
@@ -2052,7 +2052,7 @@ export class GameScene extends Phaser.Scene {
     this.pauseRestartBtn = this.add
       .text(width / 2, height / 2 + 80, "[ R ]  Restart", {
         fontSize: "30px",
-        fontFamily: "Rajdhani, sans-serif",
+        fontFamily: "HorrorPixel, monospace",
         color: "#8a82a0",
       })
       .setOrigin(0.5)
@@ -2074,7 +2074,7 @@ export class GameScene extends Phaser.Scene {
     this.pauseSettingsBtn = this.add
       .text(width / 2, height / 2 + 140, "[ S ]  Settings", {
         fontSize: "30px",
-        fontFamily: "Rajdhani, sans-serif",
+        fontFamily: "HorrorPixel, monospace",
         color: "#8a82a0",
       })
       .setOrigin(0.5)
@@ -2119,14 +2119,14 @@ export class GameScene extends Phaser.Scene {
 
     // Title
     const title = this.add.text(cx, top + 40, "SETTINGS", {
-      fontSize: "36px", fontFamily: "Rajdhani, sans-serif",
+      fontSize: "36px", fontFamily: "HorrorPixel, monospace",
       color: "#d0c8e0", fontStyle: "bold",
     }).setOrigin(0.5);
     this.settingsContainer.add(title);
 
     let yPos = top + 110;
-    const labelStyle = { fontSize: "26px", fontFamily: "Rajdhani, sans-serif", color: "#b0a8c0" };
-    const valStyle = { fontSize: "26px", fontFamily: "Rajdhani, sans-serif", color: "#d0c8e0" };
+    const labelStyle = { fontSize: "26px", fontFamily: "HorrorPixel, monospace", color: "#b0a8c0" };
+    const valStyle = { fontSize: "26px", fontFamily: "HorrorPixel, monospace", color: "#d0c8e0" };
 
     // --- SFX Volume ---
     this.settingsContainer.add(this.add.text(left + 40, yPos, "Sound Volume", labelStyle));
@@ -2174,7 +2174,7 @@ export class GameScene extends Phaser.Scene {
 
     // Back button
     const backBtn = this.add.text(cx, top + panelH - 50, "[ ESC ]  Back", {
-      fontSize: "26px", fontFamily: "Rajdhani, sans-serif", color: "#8a82a0",
+      fontSize: "26px", fontFamily: "HorrorPixel, monospace", color: "#8a82a0",
     }).setOrigin(0.5).setInteractive({ useHandCursor: true });
     backBtn.on("pointerover", () => backBtn.setColor("#d0c8e0"));
     backBtn.on("pointerout", () => backBtn.setColor("#8a82a0"));
@@ -2240,7 +2240,7 @@ export class GameScene extends Phaser.Scene {
     let isOn = initial;
 
     const labelText = this.add.text(x, y, label, {
-      fontSize: "26px", fontFamily: "Rajdhani, sans-serif", color: "#b0a8c0",
+      fontSize: "26px", fontFamily: "HorrorPixel, monospace", color: "#b0a8c0",
     });
     container.add(labelText);
 
@@ -2345,46 +2345,42 @@ export class GameScene extends Phaser.Scene {
     const panelLeft = width / 2 - panelW / 2;
     const panelTop = height / 2 - panelH / 2;
 
-    // Dim overlay — higher opacity to fully cover HUD elements behind
+    // Dim overlay
     const overlay = this.add.graphics();
-    overlay.fillStyle(0x000000, 0.75);
+    overlay.fillStyle(0x000000, 0.8);
     overlay.fillRect(0, 0, width, height);
     this.shopContainer.add(overlay);
 
-    // Panel background — tiled wood plank texture
-    const bgTile = this.add.tileSprite(
-      panelLeft + panelW / 2, panelTop + panelH / 2,
-      panelW, panelH, "ui-tile-wood"
-    ).setAlpha(0.92);
-    this.shopContainer.add(bgTile);
+    // Horror panel frame (9-slice)
+    const panelBg = this.add.nineslice(
+      width / 2, height / 2,
+      "ui-horror-panel",
+      undefined,
+      panelW, panelH,
+      20, 20, 20, 20
+    ).setOrigin(0.5).setAlpha(0.95);
+    this.shopContainer.add(panelBg);
 
-    // Dark vignette overlay on top of wood for readability
+    // Dark fill inside panel for readability
     const bgOverlay = this.add.graphics();
-    bgOverlay.fillStyle(0x060610, 0.55);
-    bgOverlay.fillRect(panelLeft, panelTop, panelW, panelH);
+    bgOverlay.fillStyle(0x080810, 0.7);
+    bgOverlay.fillRect(panelLeft + 8, panelTop + 8, panelW - 16, panelH - 16);
     this.shopContainer.add(bgOverlay);
-
-    // Panel border
-    const bgBorder = this.add.graphics();
-    bgBorder.lineStyle(2, 0x3a2a1a, 0.9);
-    bgBorder.strokeRect(panelLeft, panelTop, panelW, panelH);
-    this.shopContainer.add(bgBorder);
 
     // Header: SHOP + cash
     const shopTitle = this.add.text(panelLeft + 32, panelTop + 28, "SHOP", {
-      fontSize: "36px", fontFamily: "Rajdhani, sans-serif", color: "#ffffff", fontStyle: "bold", letterSpacing: 8,
+      fontSize: "28px", fontFamily: "HorrorPixel, monospace", color: "#ff2244", letterSpacing: 10,
     }).setOrigin(0, 0.5);
     this.shopContainer.add(shopTitle);
 
     this.shopCashText = this.add.text(panelLeft + panelW - 32, panelTop + 28, "$0", {
-      fontSize: "36px", fontFamily: "Rajdhani, sans-serif", color: "#e8c840", fontStyle: "bold",
+      fontSize: "28px", fontFamily: "HorrorPixel, monospace", color: "#e8c840",
     }).setOrigin(1, 0.5);
     this.shopContainer.add(this.shopCashText);
 
-    // Header underline
-    const headerLine = this.add.graphics();
-    headerLine.lineStyle(1, 0x2a2a40, 1);
-    headerLine.lineBetween(panelLeft + 24, panelTop + 56, panelLeft + panelW - 24, panelTop + 56);
+    // Header divider
+    const headerLine = this.add.image(width / 2, panelTop + 54, "ui-horror-divider")
+      .setDisplaySize(panelW - 48, 6);
     this.shopContainer.add(headerLine);
 
     // Three columns
@@ -2394,7 +2390,7 @@ export class GameScene extends Phaser.Scene {
 
     // Column dividers
     const dividers = this.add.graphics();
-    dividers.lineStyle(1, 0x1e1e2e, 1);
+    dividers.lineStyle(1, 0x331122, 0.6);
     dividers.lineBetween(colX[1] - 6, panelTop + 64, colX[1] - 6, panelTop + panelH - 50);
     dividers.lineBetween(colX[2] - 6, panelTop + 64, colX[2] - 6, panelTop + panelH - 50);
     this.shopContainer.add(dividers);
@@ -2402,7 +2398,7 @@ export class GameScene extends Phaser.Scene {
     // Column headers
     for (let c = 0; c < 3; c++) {
       const header = this.add.text(colX[c], panelTop + 74, colHeaders[c], {
-        fontSize: "13px", fontFamily: "Rajdhani, sans-serif", color: "#5a5577", fontStyle: "bold", letterSpacing: 4,
+        fontSize: "12px", fontFamily: "HorrorPixel, monospace", color: "#664455", letterSpacing: 4,
       });
       this.shopContainer.add(header);
     }
@@ -2447,7 +2443,7 @@ export class GameScene extends Phaser.Scene {
 
         // Key badge
         const keyText = this.add.text(cx + 8, cy + 8, `[${keyNum}]`, {
-          fontSize: "13px", fontFamily: "Rajdhani, sans-serif", color: "#5aabff",
+          fontSize: "11px", fontFamily: "HorrorPixel, monospace", color: "#ff4466",
         });
         this.shopContainer.add(keyText);
 
@@ -2461,20 +2457,20 @@ export class GameScene extends Phaser.Scene {
 
         // Name
         const nameText = this.add.text(cx + 76, cy + 14, item.name.toUpperCase(), {
-          fontSize: "18px", fontFamily: "Rajdhani, sans-serif", color: "#e0daf0", fontStyle: "bold",
+          fontSize: "14px", fontFamily: "HorrorPixel, monospace", color: "#e0daf0",
         });
         this.shopContainer.add(nameText);
 
         // Description
         const descText = this.add.text(cx + 76, cy + 36, item.desc, {
-          fontSize: "13px", fontFamily: "Rajdhani, sans-serif", color: "#7a7a99",
+          fontSize: "11px", fontFamily: "HorrorPixel, monospace", color: "#7a7a99",
           wordWrap: { width: colW - 90 },
         });
         this.shopContainer.add(descText);
 
         // Price (right-aligned)
         const priceText = this.add.text(cx + colW - 10, cy + cardH / 2, "", {
-          fontSize: "20px", fontFamily: "Rajdhani, sans-serif", color: "#e8c840", fontStyle: "bold",
+          fontSize: "16px", fontFamily: "HorrorPixel, monospace", color: "#e8c840",
         }).setOrigin(1, 0.5);
         this.shopContainer.add(priceText);
 
@@ -2495,8 +2491,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Footer
-    const footer = this.add.text(width / 2, panelTop + panelH - 20, "[ESC/B] Close  \u00B7  WASD/Arrows to navigate  \u00B7  Enter to buy", {
-      fontSize: "16px", fontFamily: "Rajdhani, sans-serif", color: "#444455",
+    const footer = this.add.text(width / 2, panelTop + panelH - 20, "[ESC/B] Close  \u00B7  WASD/Arrows navigate  \u00B7  Enter buy", {
+      fontSize: "11px", fontFamily: "HorrorPixel, monospace", color: "#444455",
     }).setOrigin(0.5);
     this.shopContainer.add(footer);
 
@@ -2596,13 +2592,13 @@ export class GameScene extends Phaser.Scene {
         if (card.icon) card.icon.setAlpha(0.3);
         card.key.setColor("#333044");
       } else if (isEquipped) {
-        card.name.setColor("#5aabff");
+        card.name.setColor("#ff4466");
         card.desc.setText(item.desc);
         card.desc.setColor("#7a7a99");
         card.price.setText("EQUIPPED");
-        card.price.setColor("#5aabff");
+        card.price.setColor("#ff4466");
         if (card.icon) card.icon.setAlpha(1);
-        card.key.setColor("#5aabff");
+        card.key.setColor("#ff4466");
       } else {
         card.name.setColor("#e0daf0");
         card.desc.setText(item.desc);
@@ -2610,7 +2606,7 @@ export class GameScene extends Phaser.Scene {
         card.price.setText(`$${price}`);
         card.price.setColor(canAfford ? "#e8c840" : "#663333");
         if (card.icon) card.icon.setAlpha(canAfford ? 1 : 0.5);
-        card.key.setColor(canAfford ? "#5aabff" : "#333044");
+        card.key.setColor(canAfford ? "#ff4466" : "#333044");
       }
 
       // Hover highlight
@@ -2633,10 +2629,10 @@ export class GameScene extends Phaser.Scene {
       const cy = cardsStartY + row * (cardH + cardGap);
 
       card.bg.clear();
-      card.bg.fillStyle(isSelected ? 0x1e1e30 : 0x141420, 0.8);
+      card.bg.fillStyle(isSelected ? 0x1a0a10 : 0x0c0c14, 0.8);
       card.bg.fillRoundedRect(cx, cy, colW, cardH, 3);
       if (isSelected) {
-        card.bg.lineStyle(1, 0x5aabff, 0.6);
+        card.bg.lineStyle(1, 0xff2244, 0.5);
         card.bg.strokeRoundedRect(cx, cy, colW, cardH, 3);
       }
     });
@@ -2771,7 +2767,7 @@ export class GameScene extends Phaser.Scene {
     const flash = this.add
       .text(width / 2, height / 2 + 160, "PURCHASED", {
         fontSize: "24px",
-        fontFamily: "Rajdhani, sans-serif",
+        fontFamily: "HorrorPixel, monospace",
         color: "#44cc44",
         fontStyle: "bold",
       })
@@ -2844,7 +2840,7 @@ export class GameScene extends Phaser.Scene {
     this.burnoutText = this.add
       .text(60, 82, "BURNED OUT", {
         fontSize: "18px",
-        fontFamily: "Rajdhani, sans-serif",
+        fontFamily: "HorrorPixel, monospace",
         color: "#ff4444",
         fontStyle: "bold",
       })
@@ -2853,7 +2849,7 @@ export class GameScene extends Phaser.Scene {
 
     this.levelText = this.add.text(20, 82, "Lv.1", {
       fontSize: "18px",
-      fontFamily: "Rajdhani, sans-serif",
+      fontFamily: "HorrorPixel, monospace",
       color: "#d4a843",
       fontStyle: "bold",
     });
@@ -2868,7 +2864,7 @@ export class GameScene extends Phaser.Scene {
     this.killText = this.add
       .text(width - 64, 22, "0", {
         fontSize: "24px",
-        fontFamily: "Rajdhani, sans-serif",
+        fontFamily: "HorrorPixel, monospace",
         color: "#ffffff",
         fontStyle: "bold",
       })
@@ -2881,7 +2877,7 @@ export class GameScene extends Phaser.Scene {
     this.currencyText = this.add
       .text(width - 64, 52, "0", {
         fontSize: "24px",
-        fontFamily: "Rajdhani, sans-serif",
+        fontFamily: "HorrorPixel, monospace",
         color: "#e8c840",
         fontStyle: "bold",
       })
@@ -2892,7 +2888,7 @@ export class GameScene extends Phaser.Scene {
     this.waveText = this.add
       .text(width / 2, 20, "WAVE 1", {
         fontSize: "28px",
-        fontFamily: "Rajdhani, sans-serif",
+        fontFamily: "HorrorPixel, monospace",
         color: "#ffffff",
         fontStyle: "bold",
       })
@@ -2902,7 +2898,7 @@ export class GameScene extends Phaser.Scene {
     this.waveStatusText = this.add
       .text(width / 2, 52, "", {
         fontSize: "20px",
-        fontFamily: "Rajdhani, sans-serif",
+        fontFamily: "HorrorPixel, monospace",
         color: "#cccccc",
       })
       .setOrigin(0.5, 0);
@@ -2941,7 +2937,7 @@ export class GameScene extends Phaser.Scene {
 
       const label = this.add.text(sx + slotW / 2, slotY + 54, slotNames[i], {
         fontSize: "13px",
-        fontFamily: "Rajdhani, sans-serif",
+        fontFamily: "HorrorPixel, monospace",
         color: "#aaaacc",
         fontStyle: "bold",
       }).setOrigin(0.5, 0);
@@ -2950,7 +2946,7 @@ export class GameScene extends Phaser.Scene {
 
       const count = this.add.text(sx + slotW / 2, slotY + 68, "", {
         fontSize: "12px",
-        fontFamily: "Rajdhani, sans-serif",
+        fontFamily: "HorrorPixel, monospace",
         color: "#e8c840",
       }).setOrigin(0.5, 0);
       this.hudContainer.add(count);
@@ -2961,7 +2957,7 @@ export class GameScene extends Phaser.Scene {
     this.abilityNameText = this.add
       .text(20, height - slotH - 42, "", {
         fontSize: "18px",
-        fontFamily: "Rajdhani, sans-serif",
+        fontFamily: "HorrorPixel, monospace",
         color: "#ffffff",
         fontStyle: "bold",
       })
@@ -2971,8 +2967,8 @@ export class GameScene extends Phaser.Scene {
     this.abilityStatusText = this.add
       .text(200, height - slotH - 42, "", {
         fontSize: "18px",
-        fontFamily: "Rajdhani, sans-serif",
-        color: "#5aabff",
+        fontFamily: "HorrorPixel, monospace",
+        color: "#ff4466",
       })
       .setOrigin(0, 0);
     this.hudContainer.add(this.abilityStatusText);
@@ -2981,7 +2977,7 @@ export class GameScene extends Phaser.Scene {
     this.waveAnnouncement = this.add
       .text(width / 2, height / 2 - 80, "", {
         fontSize: "72px",
-        fontFamily: "Rajdhani, sans-serif",
+        fontFamily: "HorrorPixel, monospace",
         color: "#ffffff",
         fontStyle: "bold",
       })
@@ -2992,7 +2988,7 @@ export class GameScene extends Phaser.Scene {
     this.countdownText = this.add
       .text(width / 2, height / 2, "", {
         fontSize: "128px",
-        fontFamily: "Rajdhani, sans-serif",
+        fontFamily: "HorrorPixel, monospace",
         color: "#ffffff",
         fontStyle: "bold",
       })
@@ -3004,7 +3000,7 @@ export class GameScene extends Phaser.Scene {
     const controls = this.add
       .text(width / 2, height - 8, "WASD move | CLICK/SPACE punch | RIGHT-CLICK/F use item | Q/E cycle | R ability | B shop", {
         fontSize: "14px",
-        fontFamily: "Rajdhani, sans-serif",
+        fontFamily: "HorrorPixel, monospace",
         color: "#444455",
       })
       .setOrigin(0.5, 1);
@@ -3155,32 +3151,30 @@ export class GameScene extends Phaser.Scene {
     dim.fillRect(0, 0, width, height);
     this.levelUpOverlay.add(dim);
 
-    // Stone-tiled panel behind buff cards
+    // Horror panel behind buff cards
     const luPanelW = options.length * 280 + (options.length - 1) * 40 + 80;
     const luPanelH = 380;
     const luPanelX = width / 2;
     const luPanelY = height / 2 + 10;
-    const luBgTile = this.add.tileSprite(
-      luPanelX, luPanelY, luPanelW, luPanelH, "ui-tile-stone"
-    ).setAlpha(0.7);
-    this.levelUpOverlay.add(luBgTile);
+    const luPanel = this.add.nineslice(
+      luPanelX, luPanelY,
+      "ui-horror-panel",
+      undefined,
+      luPanelW, luPanelH,
+      20, 20, 20, 20
+    ).setAlpha(0.9);
+    this.levelUpOverlay.add(luPanel);
 
-    // Dark overlay for readability
+    // Dark fill for readability
     const luBgOverlay = this.add.graphics();
-    luBgOverlay.fillStyle(0x0a0a18, 0.5);
-    luBgOverlay.fillRect(luPanelX - luPanelW / 2, luPanelY - luPanelH / 2, luPanelW, luPanelH);
+    luBgOverlay.fillStyle(0x080810, 0.6);
+    luBgOverlay.fillRect(luPanelX - luPanelW / 2 + 8, luPanelY - luPanelH / 2 + 8, luPanelW - 16, luPanelH - 16);
     this.levelUpOverlay.add(luBgOverlay);
-
-    // Panel border
-    const luBgBorder = this.add.graphics();
-    luBgBorder.lineStyle(2, 0x2a2a50, 0.8);
-    luBgBorder.strokeRect(luPanelX - luPanelW / 2, luPanelY - luPanelH / 2, luPanelW, luPanelH);
-    this.levelUpOverlay.add(luBgBorder);
 
     // "LEVEL UP" title
     const title = this.add.text(width / 2, height / 2 - 180, `LEVEL ${level}`, {
       fontSize: "60px",
-      fontFamily: "Rajdhani, sans-serif",
+      fontFamily: "HorrorPixel, monospace",
       color: "#d4a843",
       fontStyle: "bold",
     }).setOrigin(0.5);
@@ -3188,7 +3182,7 @@ export class GameScene extends Phaser.Scene {
 
     const subtitle = this.add.text(width / 2, height / 2 - 120, "Choose a buff", {
       fontSize: "26px",
-      fontFamily: "Rajdhani, sans-serif",
+      fontFamily: "HorrorPixel, monospace",
       color: "#aaaaaa",
     }).setOrigin(0.5);
     this.levelUpOverlay.add(subtitle);
@@ -3223,7 +3217,7 @@ export class GameScene extends Phaser.Scene {
       // Category label
       const catLabel = this.add.text(cx, cy - 70, opt.category.toUpperCase(), {
         fontSize: "18px",
-        fontFamily: "Rajdhani, sans-serif",
+        fontFamily: "HorrorPixel, monospace",
         color: "#888888",
       }).setOrigin(0.5);
       this.levelUpOverlay.add(catLabel);
@@ -3231,7 +3225,7 @@ export class GameScene extends Phaser.Scene {
       // Buff name
       const nameText = this.add.text(cx, cy - 30, opt.name, {
         fontSize: "26px",
-        fontFamily: "Rajdhani, sans-serif",
+        fontFamily: "HorrorPixel, monospace",
         color: "#ffffff",
         fontStyle: "bold",
       }).setOrigin(0.5);
@@ -3240,7 +3234,7 @@ export class GameScene extends Phaser.Scene {
       // Description
       const descText = this.add.text(cx, cy + 16, opt.desc, {
         fontSize: "20px",
-        fontFamily: "Rajdhani, sans-serif",
+        fontFamily: "HorrorPixel, monospace",
         color: "#cccccc",
       }).setOrigin(0.5);
       this.levelUpOverlay.add(descText);
@@ -3248,7 +3242,7 @@ export class GameScene extends Phaser.Scene {
       // Tier label
       const tierText = this.add.text(cx, cy + 56, opt.tier.toUpperCase(), {
         fontSize: "16px",
-        fontFamily: "Rajdhani, sans-serif",
+        fontFamily: "HorrorPixel, monospace",
         color: "#666666",
       }).setOrigin(0.5);
       this.levelUpOverlay.add(tierText);
@@ -3256,7 +3250,7 @@ export class GameScene extends Phaser.Scene {
       // Key hint
       const keyText = this.add.text(cx, cy + cardH / 2 + 24, `[${i + 1}]`, {
         fontSize: "26px",
-        fontFamily: "Rajdhani, sans-serif",
+        fontFamily: "HorrorPixel, monospace",
         color: "#d4a843",
         fontStyle: "bold",
       }).setOrigin(0.5);

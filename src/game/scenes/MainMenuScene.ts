@@ -9,7 +9,6 @@ export class MainMenuScene extends Phaser.Scene {
   private classText!: Phaser.GameObjects.Text;
   private specialtyText!: Phaser.GameObjects.Text;
   private abilityText!: Phaser.GameObjects.Text;
-  private statBars: { label: Phaser.GameObjects.Text; bar: Phaser.GameObjects.Graphics }[] = [];
   private arrowLeft!: Phaser.GameObjects.Text;
   private arrowRight!: Phaser.GameObjects.Text;
   private dotIndicators: Phaser.GameObjects.Graphics[] = [];
@@ -19,62 +18,84 @@ export class MainMenuScene extends Phaser.Scene {
   }
 
   create() {
-    this.statBars = [];
     this.dotIndicators = [];
     this.selectedIndex = 0;
 
-    // 1920 x 1080
     const { width, height } = this.cameras.main;
     const cx = width / 2;
     const cy = height / 2;
 
     // Background
     const bg = this.add.graphics();
-    bg.fillStyle(0x0a0a0f, 1);
+    bg.fillStyle(0x080810, 1);
     bg.fillRect(0, 0, width, height);
 
-    // Title (top center)
-    this.add.text(cx, 40, "RICKARENA", {
-      fontSize: "56px",
-      fontFamily: "Rajdhani, sans-serif",
-      color: "#ffffff",
-      fontStyle: "bold",
-      letterSpacing: 16,
+    // Subtle vignette
+    const vignette = this.add.graphics();
+    vignette.fillStyle(0x000000, 0.3);
+    vignette.fillRect(0, 0, width, height);
+    vignette.fillStyle(0x080810, 0);
+
+    // Title
+    this.add.text(cx, 48, "RICKARENA", {
+      fontSize: "52px",
+      fontFamily: "HorrorPixel, monospace",
+      color: "#ff2244",
+      letterSpacing: 20,
     }).setOrigin(0.5);
 
-    // --- CENTER: Character name + class + sprite ---
-    this.nameText = this.add.text(cx, 144, "", {
-      fontSize: "64px",
-      fontFamily: "Rajdhani, sans-serif",
+    // Subtitle
+    this.add.text(cx, 100, "CHOOSE YOUR FIGHTER", {
+      fontSize: "16px",
+      fontFamily: "HorrorPixel, monospace",
+      color: "#553344",
+      letterSpacing: 8,
+    }).setOrigin(0.5);
+
+    // Center panel frame (9-slice horror panel behind the character)
+    const panelW = 480;
+    const panelH = 520;
+    const panelImg = this.add.nineslice(
+      cx, cy + 20,
+      "ui-horror-panel",
+      undefined,
+      panelW, panelH,
+      20, 20, 20, 20
+    ).setOrigin(0.5).setAlpha(0.7);
+
+    // Character name (large, centered)
+    this.nameText = this.add.text(cx, 160, "", {
+      fontSize: "56px",
+      fontFamily: "HorrorPixel, monospace",
       color: "#ffffff",
-      fontStyle: "bold",
-      letterSpacing: 12,
+      letterSpacing: 10,
     }).setOrigin(0.5).setDepth(5);
 
-    this.classText = this.add.text(cx, 204, "", {
-      fontSize: "26px",
-      fontFamily: "Rajdhani, sans-serif",
-      color: "#5aabff",
+    // Class name
+    this.classText = this.add.text(cx, 220, "", {
+      fontSize: "20px",
+      fontFamily: "HorrorPixel, monospace",
+      color: "#ff4466",
       letterSpacing: 6,
     }).setOrigin(0.5).setDepth(5);
 
     // Sprite (dead center)
-    const spriteY = cy - 30;
+    const spriteY = cy + 10;
     this.showcase = this.add.sprite(cx, spriteY, "rick-south")
       .setScale(4.8)
       .setDepth(2);
 
     // Arrows flanking sprite
-    this.arrowLeft = this.add.text(cx - 260, spriteY + 40, "\u25C0", {
-      fontSize: "56px",
-      fontFamily: "Rajdhani, sans-serif",
-      color: "#5aabff",
+    this.arrowLeft = this.add.text(cx - 220, spriteY + 20, "\u25C0", {
+      fontSize: "48px",
+      fontFamily: "HorrorPixel, monospace",
+      color: "#ff4466",
     }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(3);
 
-    this.arrowRight = this.add.text(cx + 260, spriteY + 40, "\u25B6", {
-      fontSize: "56px",
-      fontFamily: "Rajdhani, sans-serif",
-      color: "#5aabff",
+    this.arrowRight = this.add.text(cx + 220, spriteY + 20, "\u25B6", {
+      fontSize: "48px",
+      fontFamily: "HorrorPixel, monospace",
+      color: "#ff4466",
     }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(3);
 
     this.arrowLeft.on("pointerdown", () => {
@@ -86,10 +107,16 @@ export class MainMenuScene extends Phaser.Scene {
       this.updateSelection();
     });
 
+    // Hover effects
+    [this.arrowLeft, this.arrowRight].forEach((arrow) => {
+      arrow.on("pointerover", () => arrow.setColor("#ff6688"));
+      arrow.on("pointerout", () => arrow.setColor("#ff4466"));
+    });
+
     // Dot indicators below sprite
     const dotSpacing = 28;
     const dotsStartX = cx - ((CHARACTERS.length - 1) * dotSpacing) / 2;
-    const dotsY = spriteY + 300;
+    const dotsY = spriteY + 280;
     for (let i = 0; i < CHARACTERS.length; i++) {
       const dot = this.add.graphics().setDepth(5);
       dot.x = dotsStartX + i * dotSpacing;
@@ -97,91 +124,41 @@ export class MainMenuScene extends Phaser.Scene {
       this.dotIndicators.push(dot);
     }
 
-    // Specialty (below dots)
-    this.specialtyText = this.add.text(cx, dotsY + 32, "", {
-      fontSize: "22px",
-      fontFamily: "Rajdhani, sans-serif",
-      color: "#9988aa",
-      wordWrap: { width: 520 },
+    // Specialty text (below dots)
+    this.specialtyText = this.add.text(cx, dotsY + 36, "", {
+      fontSize: "16px",
+      fontFamily: "HorrorPixel, monospace",
+      color: "#888899",
+      wordWrap: { width: 440 },
       align: "center",
     }).setOrigin(0.5, 0).setDepth(5);
 
-    // --- LEFT SIDE: Stats ---
-    const leftX = cx - 560;
-
-    this.add.text(leftX + 180, 180, "STATS", {
-      fontSize: "20px",
-      fontFamily: "Rajdhani, sans-serif",
-      color: "#555566",
-      fontStyle: "bold",
-      letterSpacing: 6,
-    }).setOrigin(0.5);
-
-    const statDefs = [
-      { key: "hp", label: "HP", color: 0x44bb44, max: 150 },
-      { key: "damage", label: "DMG", color: 0xdd4444, max: 25 },
-      { key: "speed", label: "SPD", color: 0x44aadd, max: 220 },
-      { key: "stamina", label: "STA", color: 0xddaa44, max: 120 },
-    ];
-
-    const statsStartY = 230;
-    const barMaxW = 260;
-    const barH = 20;
-    const statsBarLeft = leftX + 80;
-
-    statDefs.forEach((stat, i) => {
-      const y = statsStartY + i * 56;
-
-      const label = this.add.text(statsBarLeft - 16, y, stat.label, {
-        fontSize: "26px",
-        fontFamily: "Rajdhani, sans-serif",
-        color: "#cccccc",
-        fontStyle: "bold",
-      }).setOrigin(1, 0.5).setDepth(2);
-
-      const bar = this.add.graphics().setDepth(2);
-
-      this.statBars.push({ label, bar });
-    });
-
-    // --- RIGHT SIDE: Abilities ---
-    const rightX = cx + 350;
-
-    this.add.text(rightX + 120, 180, "ABILITIES", {
-      fontSize: "20px",
-      fontFamily: "Rajdhani, sans-serif",
-      color: "#555566",
-      fontStyle: "bold",
-      letterSpacing: 6,
-    }).setOrigin(0.5);
-
-    this.abilityText = this.add.text(rightX, 230, "", {
-      fontSize: "24px",
-      fontFamily: "Rajdhani, sans-serif",
-      color: "#aaaacc",
+    // Ability text (below specialty)
+    this.abilityText = this.add.text(cx, dotsY + 80, "", {
+      fontSize: "15px",
+      fontFamily: "HorrorPixel, monospace",
+      color: "#aa88bb",
       wordWrap: { width: 440 },
-      lineSpacing: 8,
-    }).setOrigin(0, 0);
+      align: "center",
+      lineSpacing: 6,
+    }).setOrigin(0.5, 0).setDepth(5);
 
-    // Ultimate removed — single ability per character
-
-    // --- Bottom bar ---
-    this.add.text(cx, height - 84, "A/D or \u2190/\u2192 to select", {
-      fontSize: "20px",
-      fontFamily: "Rajdhani, sans-serif",
-      color: "#444444",
+    // Bottom controls
+    this.add.text(cx, height - 80, "A/D  or  \u2190/\u2192  to select", {
+      fontSize: "14px",
+      fontFamily: "HorrorPixel, monospace",
+      color: "#333344",
     }).setOrigin(0.5);
 
-    const prompt = this.add.text(cx, height - 40, "ENTER TO PLAY", {
-      fontSize: "42px",
-      fontFamily: "Rajdhani, sans-serif",
-      color: "#5aabff",
-      fontStyle: "bold",
+    const prompt = this.add.text(cx, height - 44, "ENTER TO PLAY", {
+      fontSize: "28px",
+      fontFamily: "HorrorPixel, monospace",
+      color: "#ff2244",
     }).setOrigin(0.5);
 
     this.tweens.add({
       targets: prompt,
-      alpha: 0.4,
+      alpha: 0.3,
       duration: 1200,
       yoyo: true,
       repeat: -1,
@@ -207,10 +184,6 @@ export class MainMenuScene extends Phaser.Scene {
 
   private updateSelection() {
     const char = CHARACTERS[this.selectedIndex];
-    const { width } = this.cameras.main;
-    const cx = width / 2;
-    const leftX = cx - 560;
-    const statsBarLeft = leftX + 80;
 
     // Showcase sprite
     const animKey = getAnimKey(char.id, "breathing-idle", "south");
@@ -224,45 +197,17 @@ export class MainMenuScene extends Phaser.Scene {
     this.nameText.setText(char.name.toUpperCase());
     this.classText.setText(char.className.toUpperCase());
     this.specialtyText.setText(char.specialtyDesc);
-    this.abilityText.setText(`[Q] ${char.ability.name}\n${char.ability.desc}`);
+    this.abilityText.setText(`[R]  ${char.ability.name}\n${char.ability.desc}`);
 
     // Dots
     this.dotIndicators.forEach((dot, i) => {
       dot.clear();
       if (i === this.selectedIndex) {
-        dot.fillStyle(0x5aabff, 1);
+        dot.fillStyle(0xff2244, 1);
         dot.fillCircle(0, 0, 7);
       } else {
         dot.fillStyle(0x333344, 1);
         dot.fillCircle(0, 0, 5);
-      }
-    });
-
-    // Stat bars
-    const statDefs = [
-      { key: "hp" as const, max: 150, color: 0x44bb44 },
-      { key: "damage" as const, max: 25, color: 0xdd4444 },
-      { key: "speed" as const, max: 220, color: 0x44aadd },
-      { key: "stamina" as const, max: 120, color: 0xddaa44 },
-    ];
-    const barMaxW = 260;
-    const barH = 20;
-    const statsStartY = 230;
-
-    statDefs.forEach((stat, i) => {
-      const y = statsStartY + i * 56;
-      const val = char.stats[stat.key];
-      const pct = Math.min(val / stat.max, 1);
-
-      const g = this.statBars[i].bar;
-      g.clear();
-
-      g.fillStyle(0x1a1a2a, 1);
-      g.fillRoundedRect(statsBarLeft, y - barH / 2, barMaxW, barH, 6);
-
-      if (barMaxW * pct > 0) {
-        g.fillStyle(stat.color, 0.9);
-        g.fillRoundedRect(statsBarLeft, y - barH / 2, barMaxW * pct, barH, 6);
       }
     });
   }
