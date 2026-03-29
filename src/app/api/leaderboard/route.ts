@@ -9,7 +9,7 @@ export async function GET() {
       SELECT id, name, kills, wave, character_id, created_at
       FROM leaderboard
       ORDER BY kills DESC, wave DESC
-      LIMIT 20
+      LIMIT 5
     `;
     return NextResponse.json(rows);
   } catch (error) {
