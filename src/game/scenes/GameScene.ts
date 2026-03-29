@@ -57,6 +57,7 @@ export class GameScene extends Phaser.Scene {
   private selectedTrapIndex = 0; // cycles through available trap types
   private readonly trapTypes: TrapType[] = ["barricade", "landmine"];
   private barricadeVertical = false; // toggle for barricade orientation
+  private barricadeGhost!: Phaser.GameObjects.Image;
   private traps!: Phaser.Physics.Arcade.Group;
   private barricades!: Phaser.Physics.Arcade.StaticGroup;
 
@@ -237,9 +238,8 @@ export class GameScene extends Phaser.Scene {
     const mmX = screenW - mmSize - mmPadding;
     const mmY = screenH - mmSize - mmPadding;
     this.minimap = this.cameras.add(mmX, mmY, mmSize, mmSize);
-    this.minimap.setZoom(mmSize / ENDICOTT_MAP_W);
+    this.minimap.setZoom(mmSize / ENDICOTT_MAP_W * 3);
     this.minimap.setBounds(0, 0, ENDICOTT_MAP_W, ENDICOTT_MAP_H);
-    this.minimap.centerOn(ENDICOTT_MAP_W / 2, ENDICOTT_MAP_H / 2);
     this.minimap.setBackgroundColor(0x0a0a14);
     this.minimap.setName("minimap");
 
@@ -326,6 +326,13 @@ export class GameScene extends Phaser.Scene {
 
     // Player can't walk through barricades
     this.physics.add.collider(this.player, this.barricades);
+
+    // Barricade placement ghost preview
+    this.barricadeGhost = this.add.image(0, 0, "trap-barricade");
+    this.barricadeGhost.setAlpha(0.4);
+    this.barricadeGhost.setTint(0x44ff44);
+    this.barricadeGhost.setDepth(3);
+    this.barricadeGhost.setVisible(false);
 
     // --- Hotbar input: Q/E cycle, 1-4 direct select, SPACE/F use active slot ---
     if (this.input.keyboard) {
@@ -438,7 +445,7 @@ export class GameScene extends Phaser.Scene {
         if (this.gameOver || this.paused) return;
         if (this.shopOpen) {
           this.closeShop();
-        } else if (this.waveManager.state === "intermission" || this.waveManager.state === "pre_game") {
+        } else if (this.devMode || this.waveManager.state === "intermission" || this.waveManager.state === "pre_game") {
           this.openShop();
         }
       });
@@ -466,8 +473,10 @@ export class GameScene extends Phaser.Scene {
         backtick.on("down", () => {
           this.devMode = !this.devMode;
           if (this.devMode) {
+            this.currency = 99999;
             this.showWeaponMessage("DEV MODE ON", "#ff00ff");
           } else {
+            this.player.invincible = false;
             this.showWeaponMessage("DEV MODE OFF", "#888888");
           }
         });
@@ -484,10 +493,16 @@ export class GameScene extends Phaser.Scene {
         const f2 = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F2);
         f2.on("down", () => {
           if (!this.devMode) return;
-          // Kill all enemies
+          // Kill all enemies and clear spawn queue
           this.enemies.getChildren().forEach((e) => {
-            if (e.active) (e as Enemy).takeDamage(99999);
+            if (e.active) {
+              (e as Enemy).takeDamage(999999);
+              if (e.active) e.destroy(); // force destroy if still alive
+            }
           });
+          // Zero out remaining spawns so wave ends immediately
+          (this.waveManager as any).enemiesToSpawn = 0;
+          (this.waveManager as any).enemiesAlive = 0;
           this.showWeaponMessage("DEV: WAVE SKIP", "#ff00ff");
         });
 
@@ -515,6 +530,7 @@ export class GameScene extends Phaser.Scene {
     this.hudContainer = this.add.container(0, 0);
     this.hudContainer.setDepth(150);
     this.minimap.ignore(this.hudContainer);
+    this.minimap.ignore(this.barricadeGhost);
 
     this.baseDamage = this.player.stats.damage;
     this.damageBoostActive = false;
@@ -586,7 +602,8 @@ export class GameScene extends Phaser.Scene {
     this.hudContainer.setPosition(cam.worldView.x, cam.worldView.y);
     this.hudContainer.setScale(1 / cam.zoom);
 
-    // Update minimap player dot
+    // Update minimap: follow player and draw dot
+    this.minimap.centerOn(this.player.x, this.player.y);
     this.minimapDot.clear();
     this.minimapDot.fillStyle(0x00ff00, 1);
     this.minimapDot.fillCircle(this.player.x, this.player.y, 40);
@@ -602,6 +619,24 @@ export class GameScene extends Phaser.Scene {
       this.player.update();
     }
     this.waveManager.update(delta);
+
+    // Barricade placement ghost
+    const showGhost = this.activeSlot === 2
+      && !this.shopOpen && !this.levelUpActive
+      && (this.trapInventory.get("barricade" as TrapType) ?? 0) > 0;
+    if (showGhost) {
+      const angle = this.getFacingAngle();
+      const placeDist = 40;
+      let gx = this.player.x + Math.cos(angle) * placeDist;
+      let gy = this.player.y + Math.sin(angle) * placeDist;
+      gx = Math.round(gx / 24) * 24;
+      gy = Math.round(gy / 24) * 24;
+      this.barricadeGhost.setPosition(gx, gy);
+      this.barricadeGhost.setTexture(this.barricadeVertical ? "trap-barricade-v" : "trap-barricade");
+      this.barricadeGhost.setVisible(true);
+    } else {
+      this.barricadeGhost.setVisible(false);
+    }
 
     // Footsteps while player is moving
     const vel = this.player.body?.velocity;
@@ -1317,11 +1352,14 @@ export class GameScene extends Phaser.Scene {
     let placeX = this.player.x + Math.cos(angle) * placeDist;
     let placeY = this.player.y + Math.sin(angle) * placeDist;
 
-    // Snap barricades to 32px grid so they line up cleanly
+    // Snap barricades to 24px grid — tight enough for H/V corners to connect
+    // Same-orientation pieces overlap posts at 48px spacing (every 2 cells)
     if (trapType === "barricade") {
-      placeX = Math.round(placeX / 32) * 32;
-      placeY = Math.round(placeY / 32) * 32;
+      placeX = Math.round(placeX / 24) * 24;
+      placeY = Math.round(placeY / 24) * 24;
     }
+
+    this.barricadeGhost.setVisible(false);
 
     const trap = new Trap(this, placeX, placeY, trapType, trapType === "barricade" && this.barricadeVertical);
 
@@ -1839,7 +1877,7 @@ export class GameScene extends Phaser.Scene {
     const items = BALANCE.shop.items;
     const shopItems = items.map((item, idx) => {
       const unlockWave = (item as any).unlockWave;
-      const locked = unlockWave ? this.waveManager.wave < unlockWave : false;
+      const locked = this.devMode ? false : (unlockWave ? this.waveManager.wave < unlockWave : false);
       const price = this.getItemPrice(idx);
       const canAfford = this.currency >= price;
       const isEquipped = ["pistol", "shotgun", "smg"].includes(item.id) && this.equippedWeapon === item.id;
@@ -1896,9 +1934,9 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // Wave-lock check
+    // Wave-lock check (bypassed in dev mode)
     const unlockWave = (item as any).unlockWave;
-    if (unlockWave && this.waveManager.wave < unlockWave) {
+    if (!this.devMode && unlockWave && this.waveManager.wave < unlockWave) {
       this.playSound("sfx-error", 0.3);
       this.showWeaponMessage(`UNLOCKS WAVE ${unlockWave}`, "#cc3333");
       return;
@@ -2017,6 +2055,9 @@ export class GameScene extends Phaser.Scene {
   private lastCountdownVal = -1;
 
   private updateHUD() {
+    // Dev mode: keep cash topped up
+    if (this.devMode && this.currency < 99999) this.currency = 99999;
+
     // Apply leveling buffs to player effective stats
     const effective = this.levelingSystem.getEffectiveStats(this.characterDef.stats);
     this.player.stats.maxHealth = effective.maxHealth;

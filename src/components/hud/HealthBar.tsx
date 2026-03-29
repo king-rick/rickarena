@@ -3,7 +3,6 @@
 import { memo, useSyncExternalStore } from "react";
 import { hudState } from "@/game/HUDState";
 
-const BODY = "var(--font-special-elite), 'Special Elite', serif";
 const DISPLAY = "ChainsawCarnage, HorrorPixel, monospace";
 
 interface Props {
@@ -47,7 +46,6 @@ export const HealthBar = memo(function HealthBar({ type }: Props) {
   }
 
   const labelColor = type === "stamina" && burnedOut ? "#444444" : "#888899";
-  const valueColor = type === "stamina" && burnedOut ? "#555555" : "#cccccc";
   const label = isHealth ? "HP" : "ST";
 
   return (
@@ -127,18 +125,6 @@ export const HealthBar = memo(function HealthBar({ type }: Props) {
           }}
         />
       </div>
-      <span
-        style={{
-          fontFamily: BODY,
-          fontSize: 12,
-          color: valueColor,
-          width: 58,
-          textAlign: "right",
-          flexShrink: 0,
-        }}
-      >
-        {Math.ceil(current)}/{max}
-      </span>
       {type === "stamina" && burnedOut && (
         <span
           style={{

@@ -31,8 +31,6 @@ export const ShopOverlay = memo(function ShopOverlay() {
       if (e.key === "ArrowDown" || e.key === "s" || e.key === "S") { hudState.dispatchShopAction("nav", 1); return; }
       if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") { hudState.dispatchShopAction("nav", 2); return; }
       if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") { hudState.dispatchShopAction("nav", 3); return; }
-      const num = parseInt(e.key);
-      if (num >= 1 && num <= 9) hudState.dispatchShopAction("buyKey", num);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -49,8 +47,6 @@ export const ShopOverlay = memo(function ShopOverlay() {
     { title: "WEAPONS", items: weapons },
     { title: "TRAPS", items: traps },
   ];
-
-  let keyNum = 0;
 
   return (
     <div
@@ -131,14 +127,12 @@ export const ShopOverlay = memo(function ShopOverlay() {
                 {col.title}
               </span>
               {col.items.map((item) => {
-                keyNum++;
                 const globalIdx = items.indexOf(item);
                 const isSelected = globalIdx === selectedIndex;
                 return (
                   <ShopCard
                     key={item.id}
                     item={item}
-                    keyNum={keyNum}
                     selected={isSelected}
                     onBuy={() => handleBuy(globalIdx)}
                     onHover={() => handleHover(globalIdx)}
@@ -165,21 +159,15 @@ export const ShopOverlay = memo(function ShopOverlay() {
           </div>
         )}
 
-        {/* Footer */}
-        <div className="relative flex justify-center" style={{ marginTop: 12, paddingBottom: 4 }}>
-          <span style={{ fontFamily: BODY, fontSize: 15, color: "#555566" }}>
-            [ESC/B] Close &middot; WASD navigate &middot; Enter buy
-          </span>
-        </div>
       </div>
     </div>
   );
 });
 
 const ShopCard = memo(function ShopCard({
-  item, keyNum, selected, onBuy, onHover,
+  item, selected, onBuy, onHover,
 }: {
-  item: ShopItemData; keyNum: number; selected: boolean; onBuy: () => void; onHover: () => void;
+  item: ShopItemData; selected: boolean; onBuy: () => void; onHover: () => void;
 }) {
   const borderColor = selected ? "rgba(255, 34, 68, 0.6)" : "transparent";
   const bgColor = selected ? "rgba(26, 10, 16, 0.9)" : "rgba(12, 12, 20, 0.8)";
@@ -188,7 +176,6 @@ const ShopCard = memo(function ShopCard({
   let descColor = "#8a8aaa";
   let priceText = `$${item.price}`;
   let priceColor = item.canAfford ? "#ffffff" : "#663333";
-  let keyColor = item.canAfford ? "#ff4466" : "#333044";
   let iconAlpha = item.canAfford ? 1 : 0.5;
 
   if (item.locked) {
@@ -196,13 +183,11 @@ const ShopCard = memo(function ShopCard({
     descColor = "#333044";
     priceText = `WAVE ${item.unlockWave}`;
     priceColor = "#553333";
-    keyColor = "#333044";
     iconAlpha = 0.3;
   } else if (item.equipped) {
     nameColor = "#ff4466";
     priceText = "EQUIPPED";
     priceColor = "#ff4466";
-    keyColor = "#ff4466";
     iconAlpha = 1;
   }
 
@@ -223,9 +208,6 @@ const ShopCard = memo(function ShopCard({
       onClick={onBuy}
       onMouseEnter={onHover}
     >
-      <span style={{ fontSize: 15, color: keyColor, flexShrink: 0, width: 28, textAlign: "center" }}>
-        [{keyNum}]
-      </span>
       {item.icon && (
         <img
           src={item.icon}

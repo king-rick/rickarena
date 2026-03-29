@@ -9,7 +9,6 @@ import { Hotbar } from "./hud/Hotbar";
 import { AbilityIndicator } from "./hud/AbilityIndicator";
 import { WaveInfo } from "./hud/WaveInfo";
 import { ShopOverlay } from "./hud/ShopOverlay";
-import { ControlsHint } from "./hud/ControlsHint";
 import { MinimapBorder } from "./hud/MinimapBorder";
 import { ZoomIndicator } from "./hud/ZoomIndicator";
 import { WaveAnnouncement } from "./hud/WaveAnnouncement";
@@ -111,9 +110,6 @@ export function HUDOverlay({ canvasRect }: Props) {
             <AbilityIndicator />
             <Hotbar />
           </div>
-
-          {/* Controls hint */}
-          <ControlsHint />
 
           {/* Minimap border */}
           <MinimapBorder canvasRect={canvasRect} />

@@ -1,5 +1,32 @@
 # RickArena Changelog
 
+## 2026-03-29 (v2) — Session 1 Balance + Creepy Zombie
+
+**Balance fixes (from 3/28 Discord playtest):**
+- Speed buff cap at 2.5x base speed (prevents runaway stacking)
+- Barricade snap grid (24px) for clean structural placement
+- Barricade ghost preview (semi-transparent green overlay shows placement before committing)
+- Pre-rotated vertical barricade texture (fixes physics body mismatch with setAngle)
+- Removed HP/stamina numeric values from health bars (graphical bars only)
+- Removed ControlsHint from HUD, moved controls reference into PauseMenu
+- Cleaned ShopOverlay: removed hotkey numbers, footer hints, number key handler
+- Minimap zoomed 3x and now follows player position
+
+**New enemy: Creepy Zombie (replaces green "pussy" zombie):**
+- PixelLab-generated character with 4 animation sets (walk 8f, bite 4f, death 17f, taking-punch 6f)
+- All animations in 8 directions (288 total sprite frames)
+- Gunshot death animation with blood splatter (17 frames at 20fps)
+- Scaled up to 0.28 (larger than player at 0.25) for more threatening presence
+
+**Dev mode enhancements (localhost only, backtick toggle):**
+- Unlimited cash (auto-refills to $99,999)
+- All shop items unlocked regardless of wave
+- Shop accessible anytime (not just intermission)
+- F2 wave skip now kills all enemies and clears spawn queue
+
+**UI fixes:**
+- Character select title padding fix (ChainsawCarnage font no longer clips)
+
 ## 2026-03-29
 
 - Hotbar system: fists(1), weapon(2), barricade(3), mine(4). Q/E cycle backward/forward. Click/Space/F uses active slot.

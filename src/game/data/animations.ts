@@ -46,10 +46,11 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "shooting-shotgun", frames: 4 },
     { type: "light-cigarette", frames: 4 },
   ],
-  pussy: [
+  creepyzombie: [
     { type: "walk", frames: 8 },
     { type: "bite", frames: 4 },
-    { type: "falling-back-death", frames: 7 },
+    { type: "death", frames: 17 },
+    { type: "taking-punch", frames: 6 },
   ],
   zombiedog: [
     { type: "walk", frames: 8 },

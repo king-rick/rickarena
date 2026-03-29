@@ -149,6 +149,9 @@ export const BALANCE = {
     placementRange: 60, // must be this far from player to prevent stacking on self
   },
 
+  // Speed cap — max multiplier from buffs (2.5x base speed)
+  maxSpeedMultiplier: 2.5,
+
   // RPG Leveling
   leveling: {
     xpPerKill: { basic: 10, fast: 18, tank: 35 },

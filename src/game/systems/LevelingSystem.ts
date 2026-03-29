@@ -141,6 +141,10 @@ export class LevelingSystem {
       }
     }
 
+    // Enforce speed cap
+    const maxSpeed = base.speed * BALANCE.maxSpeedMultiplier;
+    if (speed > maxSpeed) speed = maxSpeed;
+
     return {
       damage: Math.floor(damage),
       maxHealth: Math.floor(maxHealth),

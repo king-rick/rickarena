@@ -99,6 +99,7 @@ export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Pro
           letterSpacing: "0.08em",
           textShadow: "0 0 30px rgba(255, 34, 68, 0.5), 0 0 60px rgba(255, 34, 68, 0.2)",
           marginBottom: 16,
+          paddingTop: 16,
         }}
       >
         RICKARENA

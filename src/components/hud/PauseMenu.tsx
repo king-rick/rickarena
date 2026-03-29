@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useSyncExternalStore, useEffect, useCallback, useState } from "react";
+import { memo, useSyncExternalStore, useEffect, useCallback, useState, Fragment } from "react";
 import { hudState } from "@/game/HUDState";
 
 const BODY = "var(--font-special-elite), 'Special Elite', serif";
@@ -52,6 +52,7 @@ export const PauseMenu = memo(function PauseMenu() {
           >
             PAUSED
           </span>
+          <ControlsPanel />
           <PauseButton label="[ Q ]  Quit to Menu" action="quit" />
           <PauseButton label="[ R ]  Restart" action="restart" />
           <PauseButton label="[ S ]  Settings" action="openSettings" />
@@ -195,6 +196,41 @@ function SettingsPanel({ sfxVolume, zoomEnabled }: { sfxVolume: number; zoomEnab
       <div className="relative flex justify-center">
         <SettingsBackButton />
       </div>
+    </div>
+  );
+}
+
+function ControlsPanel() {
+  const controls = [
+    ["WASD", "Move"],
+    ["CLICK / SPACE", "Punch"],
+    ["RIGHT-CLICK / F", "Use Item"],
+    ["Q / E", "Cycle Slots"],
+    ["R", "Ability"],
+    ["B", "Shop"],
+    ["V", "Rotate Barricade"],
+    ["ESC", "Pause"],
+  ];
+
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "auto auto",
+        gap: "4px 20px",
+        marginBottom: 8,
+      }}
+    >
+      {controls.map(([key, action]) => (
+        <Fragment key={key}>
+          <span style={{ fontFamily: DISPLAY, fontSize: 13, color: "#ff4466", textAlign: "right" }}>
+            {key}
+          </span>
+          <span style={{ fontFamily: BODY, fontSize: 13, color: "#888899" }}>
+            {action}
+          </span>
+        </Fragment>
+      ))}
     </div>
   );
 }

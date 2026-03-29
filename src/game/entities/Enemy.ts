@@ -26,7 +26,7 @@ const VARIANT_TINTS: Record<EnemyType, number> = {
 };
 
 const VARIANT_SCALES: Record<EnemyType, number> = {
-  basic: 0.2,
+  basic: 0.28,
   fast: 0.2,
   tank: 0.25,
 };
@@ -56,7 +56,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private stuckTimer = 0; // ms since last significant movement
   private lastX = 0;
   private lastY = 0;
-  private spriteId: string; // "pussy", "zombiedog", or "bigzombie"
+  private spriteId: string; // "creepyzombie", "zombiedog", or "bigzombie"
 
   constructor(
     scene: Phaser.Scene,
@@ -67,7 +67,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   ) {
     const isTank = type === "tank";
     const isFast = type === "fast";
-    const spriteId = isTank ? "bigzombie" : isFast ? "zombiedog" : "pussy";
+    const spriteId = isTank ? "bigzombie" : isFast ? "zombiedog" : "creepyzombie";
     super(scene, x, y, `${spriteId}-south`);
 
     this.spriteId = spriteId;

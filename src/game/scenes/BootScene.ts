@@ -38,8 +38,8 @@ export class BootScene extends Phaser.Scene {
     // Load enemy rotation sprites
     for (const dir of DIRECTIONS) {
       this.load.image(
-        `pussy-${dir}`,
-        `/assets/sprites/pussy/rotations/${dir}.png`
+        `creepyzombie-${dir}`,
+        `/assets/sprites/creepyzombie/rotations/${dir}.png`
       );
       this.load.image(
         `bigzombie-${dir}`,
@@ -300,7 +300,7 @@ export class BootScene extends Phaser.Scene {
           else if (anim.type === "throw-grenade") frameRate = 10;
           else if (anim.type === "light-cigarette") frameRate = 6;
           else if (anim.type === "bite") frameRate = 12;
-          else if (anim.type === "death") frameRate = 10;
+          else if (anim.type === "death") frameRate = 20;
           else if (anim.type === "leap") frameRate = 12;
 
           this.anims.create({
@@ -312,6 +312,17 @@ export class BootScene extends Phaser.Scene {
         }
       }
     }
+
+    // Generate pre-rotated vertical barricade texture so physics body works naturally
+    const bSrc = this.textures.get("trap-barricade").getSourceImage() as HTMLImageElement;
+    const canvas = document.createElement("canvas");
+    canvas.width = bSrc.height; // 32
+    canvas.height = bSrc.width; // 64
+    const ctx = canvas.getContext("2d")!;
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate(Math.PI / 2);
+    ctx.drawImage(bSrc, -bSrc.width / 2, -bSrc.height / 2);
+    this.textures.addCanvas("trap-barricade-v", canvas);
 
     this.scene.start("MainMenu");
   }

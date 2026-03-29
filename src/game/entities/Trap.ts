@@ -16,17 +16,14 @@ export class Trap extends Phaser.Physics.Arcade.Image {
   private vertical: boolean;
 
   constructor(scene: Phaser.Scene, x: number, y: number, type: TrapType, vertical = false) {
-    super(scene, x, y, `trap-${type}`);
+    // Vertical barricades use pre-rotated texture — no setAngle needed
+    const textureKey = type === "barricade" && vertical ? "trap-barricade-v" : `trap-${type}`;
+    super(scene, x, y, textureKey);
 
     this.trapType = type;
     this.vertical = vertical;
     this.usesLeft = type === "spikes" ? BALANCE.traps.spikes.uses : 1;
     this.hp = type === "barricade" ? BALANCE.traps.barricade.hp : 0;
-
-    // Rotate barricade 90 degrees if vertical
-    if (type === "barricade" && vertical) {
-      this.setAngle(90);
-    }
 
     this.setDepth(2); // just above ground, below characters
   }
@@ -34,12 +31,14 @@ export class Trap extends Phaser.Physics.Arcade.Image {
   /** Call after adding to physics group */
   init() {
     if (this.trapType === "barricade") {
-      // After staticGroup.add(), body is a StaticBody
+      // Collision matches the full sprite so nothing passes through
+      // Sprite is 64x32; rotation swaps dimensions
+      // Pre-rotated texture means body dimensions match the texture naturally
       const sb = this.body as unknown as Phaser.Physics.Arcade.StaticBody;
       if (this.vertical) {
-        sb.setSize(20, 40);
+        sb.setSize(32, 64);
       } else {
-        sb.setSize(40, 20);
+        sb.setSize(64, 32);
       }
       sb.updateFromGameObject();
     } else if (this.trapType === "spikes") {
