@@ -120,6 +120,15 @@ export class BootScene extends Phaser.Scene {
     this.load.image("ui-panel-button", "/assets/sprites/ui/panel-button.png");
     this.load.image("ui-bar-frame", "/assets/sprites/ui/bar-frame.png");
 
+    // UI tile backgrounds (horror-themed panel surfaces)
+    this.load.image("ui-tile-wood", "/assets/sprites/ui/tiles/wood-plank.png");
+    this.load.image("ui-tile-stone", "/assets/sprites/ui/tiles/stone-brick.png");
+    this.load.image("ui-frame-tl", "/assets/sprites/ui/tiles/frame-tl.png");
+    this.load.image("ui-frame-tr", "/assets/sprites/ui/tiles/frame-tr.png");
+    this.load.image("ui-frame-bl", "/assets/sprites/ui/tiles/frame-bl.png");
+    this.load.image("ui-frame-br", "/assets/sprites/ui/tiles/frame-br.png");
+    this.load.image("ui-splash-graveyard", "/assets/sprites/ui/tiles/splash-graveyard.png");
+
     // Effect sprites
     this.load.image("fx-muzzle-flash", "/assets/sprites/items/muzzle-flash.png");
     this.load.image("fx-explosion", "/assets/sprites/items/explosion.png");

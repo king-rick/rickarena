@@ -1498,6 +1498,13 @@ export class GameScene extends Phaser.Scene {
     overlay.setAlpha(0);
     this.hudContainer.add(overlay);
 
+    // Graveyard splash background (centered, scaled to cover, dimmed)
+    const splash = this.add.image(width / 2, height / 2, "ui-splash-graveyard")
+      .setAlpha(0)
+      .setDisplaySize(width, height);
+    splash.setTint(0x666688);
+    this.hudContainer.add(splash);
+
     const diedText = this.add
       .text(width / 2, height / 2 - 80, "YOU DIED", {
         fontSize: "80px",
@@ -1526,6 +1533,13 @@ export class GameScene extends Phaser.Scene {
     this.hudContainer.add(statsText);
 
     // Fade in death screen, then check if score qualifies for leaderboard
+    // Splash background fades to lower alpha so it doesn't overpower text
+    this.tweens.add({
+      targets: splash,
+      alpha: 0.35,
+      duration: 1000,
+      ease: "Cubic.easeIn",
+    });
     this.tweens.add({
       targets: [overlay, diedText, statsText],
       alpha: 1,
@@ -2310,19 +2324,30 @@ export class GameScene extends Phaser.Scene {
     const panelLeft = width / 2 - panelW / 2;
     const panelTop = height / 2 - panelH / 2;
 
-    // Dim overlay
+    // Dim overlay — higher opacity to fully cover HUD elements behind
     const overlay = this.add.graphics();
-    overlay.fillStyle(0x000000, 0.5);
+    overlay.fillStyle(0x000000, 0.75);
     overlay.fillRect(0, 0, width, height);
     this.shopContainer.add(overlay);
 
-    // Panel background
-    const bg = this.add.graphics();
-    bg.fillStyle(0x0a0a14, 0.95);
-    bg.fillRoundedRect(panelLeft, panelTop, panelW, panelH, 12);
-    bg.lineStyle(1, 0x2a2a40, 0.8);
-    bg.strokeRoundedRect(panelLeft, panelTop, panelW, panelH, 12);
-    this.shopContainer.add(bg);
+    // Panel background — tiled wood plank texture
+    const bgTile = this.add.tileSprite(
+      panelLeft + panelW / 2, panelTop + panelH / 2,
+      panelW, panelH, "ui-tile-wood"
+    ).setAlpha(0.92);
+    this.shopContainer.add(bgTile);
+
+    // Dark vignette overlay on top of wood for readability
+    const bgOverlay = this.add.graphics();
+    bgOverlay.fillStyle(0x060610, 0.55);
+    bgOverlay.fillRect(panelLeft, panelTop, panelW, panelH);
+    this.shopContainer.add(bgOverlay);
+
+    // Panel border
+    const bgBorder = this.add.graphics();
+    bgBorder.lineStyle(2, 0x3a2a1a, 0.9);
+    bgBorder.strokeRect(panelLeft, panelTop, panelW, panelH);
+    this.shopContainer.add(bgBorder);
 
     // Header: SHOP + cash
     const shopTitle = this.add.text(panelLeft + 32, panelTop + 28, "SHOP", {
@@ -3187,6 +3212,28 @@ export class GameScene extends Phaser.Scene {
     dim.fillStyle(0x000000, 0.6);
     dim.fillRect(0, 0, width, height);
     this.levelUpOverlay.add(dim);
+
+    // Stone-tiled panel behind buff cards
+    const luPanelW = options.length * 280 + (options.length - 1) * 40 + 80;
+    const luPanelH = 380;
+    const luPanelX = width / 2;
+    const luPanelY = height / 2 + 10;
+    const luBgTile = this.add.tileSprite(
+      luPanelX, luPanelY, luPanelW, luPanelH, "ui-tile-stone"
+    ).setAlpha(0.7);
+    this.levelUpOverlay.add(luBgTile);
+
+    // Dark overlay for readability
+    const luBgOverlay = this.add.graphics();
+    luBgOverlay.fillStyle(0x0a0a18, 0.5);
+    luBgOverlay.fillRect(luPanelX - luPanelW / 2, luPanelY - luPanelH / 2, luPanelW, luPanelH);
+    this.levelUpOverlay.add(luBgOverlay);
+
+    // Panel border
+    const luBgBorder = this.add.graphics();
+    luBgBorder.lineStyle(2, 0x2a2a50, 0.8);
+    luBgBorder.strokeRect(luPanelX - luPanelW / 2, luPanelY - luPanelH / 2, luPanelW, luPanelH);
+    this.levelUpOverlay.add(luBgBorder);
 
     // "LEVEL UP" title
     const title = this.add.text(width / 2, height / 2 - 180, `LEVEL ${level}`, {
