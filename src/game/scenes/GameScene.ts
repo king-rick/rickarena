@@ -3010,28 +3010,28 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5, 1);
     this.hudContainer.add(controls);
 
-    // Hide Phaser HUD elements that React now renders.
+    // Destroy old Phaser HUD elements — React overlay handles all of these now.
     // Keep: waveAnnouncement, countdownText, controls (Phaser-only overlays)
-    hpIcon.setVisible(false);
-    this.healthBar.setVisible(false);
-    staIcon.setVisible(false);
-    this.staminaBar.setVisible(false);
-    this.burnoutText.setVisible(false);
-    this.levelText.setVisible(false);
-    this.xpBar.setVisible(false);
-    skullIcon.setVisible(false);
-    this.killText.setVisible(false);
-    coinIcon.setVisible(false);
-    this.currencyText.setVisible(false);
-    this.waveText.setVisible(false);
-    this.waveStatusText.setVisible(false);
-    this.abilityNameText.setVisible(false);
-    this.abilityStatusText.setVisible(false);
+    hpIcon.destroy();
+    this.healthBar.destroy();
+    staIcon.destroy();
+    this.staminaBar.destroy();
+    this.burnoutText.destroy();
+    this.levelText.destroy();
+    this.xpBar.destroy();
+    skullIcon.destroy();
+    this.killText.destroy();
+    coinIcon.destroy();
+    this.currencyText.destroy();
+    this.waveText.destroy();
+    this.waveStatusText.destroy();
+    this.abilityNameText.destroy();
+    this.abilityStatusText.destroy();
     for (let i = 0; i < this.slotBgs.length; i++) {
-      this.slotBgs[i].setVisible(false);
-      this.slotIcons[i].setVisible(false);
-      this.slotLabels[i].setVisible(false);
-      this.slotCounts[i].setVisible(false);
+      this.slotBgs[i].destroy();
+      this.slotIcons[i].destroy();
+      this.slotLabels[i].destroy();
+      this.slotCounts[i].destroy();
     }
   }
 
