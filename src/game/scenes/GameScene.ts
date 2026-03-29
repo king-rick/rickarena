@@ -1246,8 +1246,6 @@ export class GameScene extends Phaser.Scene {
 
     if (trapType === "barricade") {
       this.barricades.add(trap, true);
-      // Static body needs manual refresh
-      (trap.body as unknown as Phaser.Physics.Arcade.StaticBody).updateFromGameObject();
     } else {
       this.traps.add(trap, true);
     }

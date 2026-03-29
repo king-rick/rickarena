@@ -34,22 +34,22 @@ export class Trap extends Phaser.Physics.Arcade.Image {
   /** Call after adding to physics group */
   init() {
     if (this.trapType === "barricade") {
-      // Barricade uses a static body (inherently immovable)
-      if ("setImmovable" in this.body) {
-        (this.body as Phaser.Physics.Arcade.Body).setImmovable(true);
-      }
+      // After staticGroup.add(), body is a StaticBody
+      const sb = this.body as unknown as Phaser.Physics.Arcade.StaticBody;
       if (this.vertical) {
-        this.body.setSize(20, 40);
+        sb.setSize(20, 40);
       } else {
-        this.body.setSize(40, 20);
+        sb.setSize(40, 20);
       }
+      sb.updateFromGameObject();
     } else if (this.trapType === "spikes") {
       this.body.setSize(40, 40);
+      this.body.setAllowGravity(false);
     } else {
       // Landmine
       this.body.setSize(16, 16);
+      this.body.setAllowGravity(false);
     }
-    this.body.setAllowGravity(false);
   }
 
   /** Called when an enemy touches this trap. Returns true if trap should be removed. */

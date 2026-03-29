@@ -46,8 +46,12 @@ export class Projectile extends Phaser.Physics.Arcade.Image {
 
   /** Call after adding to physics group to apply velocity */
   launch() {
-    // Generous hitbox (8px radius) so bullets don't ghost through enemies
-    this.body.setCircle(8, -6, -6);
+    // Large circular hitbox centered on the bullet sprite
+    // Sprite is small (32x32 at scale 1), so offset to center the circle
+    const r = 12;
+    const sprW = this.width;
+    const sprH = this.height;
+    this.body.setCircle(r, sprW / 2 - r, sprH / 2 - r);
     this.body.setAllowGravity(false);
     this.body.setVelocity(this.speedX, this.speedY);
   }
