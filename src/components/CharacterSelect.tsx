@@ -13,7 +13,7 @@ interface Props {
 const BODY = "var(--font-special-elite), 'Special Elite', serif";
 const DISPLAY = "ChainsawCarnage, HorrorPixel, monospace";
 
-function AnimatedSprite({ charId, scale }: { charId: string; scale: number }) {
+function AnimatedSprite({ charId, size }: { charId: string; size: number }) {
   const [frameIdx, setFrameIdx] = useState(0);
   const animData = CHARACTER_ANIMATIONS[charId]?.find((a) => a.type === "breathing-idle");
   const frameCount = animData?.frames ?? 1;
@@ -37,8 +37,8 @@ function AnimatedSprite({ charId, scale }: { charId: string; scale: number }) {
       src={framePath}
       alt=""
       style={{
-        width: 32 * scale,
-        height: 32 * scale,
+        width: size,
+        height: size,
         imageRendering: "pixelated",
         userSelect: "none",
         pointerEvents: "none",
@@ -71,6 +71,10 @@ export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Pro
 
   const char = CHARACTERS[charIndex] || CHARACTERS[0];
 
+  // Scale everything relative to container height
+  const h = canvasRect.height;
+  const s = h / 900; // design height baseline
+
   return (
     <div
       className="absolute"
@@ -94,21 +98,21 @@ export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Pro
       <span
         style={{
           fontFamily: DISPLAY,
-          fontSize: "min(12vw, 110px)",
+          fontSize: Math.round(90 * s),
           color: "#ff2244",
           letterSpacing: "0.08em",
           textShadow: "0 0 30px rgba(255, 34, 68, 0.5), 0 0 60px rgba(255, 34, 68, 0.2)",
-          marginBottom: 16,
-          paddingTop: 16,
+          marginBottom: Math.round(12 * s),
+          lineHeight: 1.2,
         }}
       >
         RICKARENA
       </span>
 
-      {/* Main content — sprite panel + character info side by side */}
+      {/* Main content — sprite panel + arrows */}
       <div
         className="flex items-center justify-center"
-        style={{ gap: 40, marginBottom: 20 }}
+        style={{ gap: Math.round(30 * s), marginBottom: Math.round(12 * s) }}
       >
         {/* Left arrow */}
         <button
@@ -117,7 +121,7 @@ export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Pro
             background: "none",
             border: "none",
             cursor: "pointer",
-            fontSize: 56,
+            fontSize: Math.round(44 * s),
             color: "#ff4466",
             padding: "0 8px",
             fontFamily: BODY,
@@ -131,8 +135,8 @@ export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Pro
         {/* Sprite panel */}
         <div
           style={{
-            width: 320,
-            height: 340,
+            width: Math.round(260 * s),
+            height: Math.round(280 * s),
             backgroundImage: "url(/assets/sprites/ui/horror/panel-frame.png)",
             backgroundSize: "100% 100%",
             imageRendering: "pixelated",
@@ -142,7 +146,7 @@ export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Pro
             flexShrink: 0,
           }}
         >
-          <AnimatedSprite charId={char.id} scale={7} />
+          <AnimatedSprite charId={char.id} size={Math.round(180 * s)} />
         </div>
 
         {/* Right arrow */}
@@ -152,7 +156,7 @@ export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Pro
             background: "none",
             border: "none",
             cursor: "pointer",
-            fontSize: 56,
+            fontSize: Math.round(44 * s),
             color: "#ff4466",
             padding: "0 8px",
             fontFamily: BODY,
@@ -168,12 +172,12 @@ export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Pro
       <span
         style={{
           fontFamily: DISPLAY,
-          fontSize: 72,
+          fontSize: Math.round(56 * s),
           color: "#ffffff",
           letterSpacing: "0.06em",
           textShadow: "0 0 16px rgba(255, 255, 255, 0.2)",
           lineHeight: 1,
-          marginBottom: 6,
+          marginBottom: Math.round(4 * s),
         }}
       >
         {char.name.toUpperCase()}
@@ -183,29 +187,32 @@ export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Pro
       <span
         style={{
           fontFamily: BODY,
-          fontSize: 18,
+          fontSize: Math.round(16 * s),
           color: "#555566",
           letterSpacing: "0.15em",
-          marginBottom: 16,
+          marginBottom: Math.round(10 * s),
         }}
       >
         {char.fullName}
       </span>
 
       {/* Dot indicators */}
-      <div className="flex items-center" style={{ gap: 16, marginBottom: 20 }}>
-        {CHARACTERS.map((c, i) => (
-          <div
-            key={c.id}
-            style={{
-              width: i === charIndex ? 16 : 10,
-              height: i === charIndex ? 16 : 10,
-              borderRadius: "50%",
-              background: i === charIndex ? "#ff2244" : "#333344",
-              transition: "all 150ms ease",
-            }}
-          />
-        ))}
+      <div className="flex items-center" style={{ gap: Math.round(12 * s), marginBottom: Math.round(14 * s) }}>
+        {CHARACTERS.map((c, i) => {
+          const dotSize = i === charIndex ? Math.round(14 * s) : Math.round(9 * s);
+          return (
+            <div
+              key={c.id}
+              style={{
+                width: dotSize,
+                height: dotSize,
+                borderRadius: "50%",
+                background: i === charIndex ? "#ff2244" : "#333344",
+                transition: "all 150ms ease",
+              }}
+            />
+          );
+        })}
       </div>
 
       {/* Ability card */}
@@ -214,22 +221,22 @@ export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Pro
           backgroundImage: "url(/assets/sprites/ui/horror/btn-a-normal.png)",
           backgroundSize: "100% 100%",
           imageRendering: "pixelated",
-          padding: "14px 40px",
+          padding: `${Math.round(10 * s)}px ${Math.round(32 * s)}px`,
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          gap: 4,
-          marginBottom: 24,
+          gap: Math.round(3 * s),
+          marginBottom: Math.round(16 * s),
         }}
       >
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <span
             style={{
               fontFamily: DISPLAY,
-              fontSize: 14,
+              fontSize: Math.round(12 * s),
               color: "#ff4466",
               border: "1px solid #ff4466",
-              padding: "2px 8px",
+              padding: `${Math.round(2 * s)}px ${Math.round(6 * s)}px`,
               letterSpacing: "0.05em",
             }}
           >
@@ -238,7 +245,7 @@ export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Pro
           <span
             style={{
               fontFamily: DISPLAY,
-              fontSize: 26,
+              fontSize: Math.round(22 * s),
               color: "#ffffff",
               textShadow: "0 0 8px rgba(255, 255, 255, 0.15)",
             }}
@@ -249,10 +256,10 @@ export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Pro
         <span
           style={{
             fontFamily: BODY,
-            fontSize: 16,
+            fontSize: Math.round(14 * s),
             color: "#999999",
             textAlign: "center",
-            maxWidth: 480,
+            maxWidth: Math.round(400 * s),
           }}
         >
           {char.ability.desc}
@@ -267,7 +274,7 @@ export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Pro
           border: "none",
           cursor: "pointer",
           fontFamily: DISPLAY,
-          fontSize: 52,
+          fontSize: Math.round(40 * s),
           color: "#ff2244",
           textShadow: "0 0 16px rgba(255, 34, 68, 0.5)",
           animation: "pulse-glow 2.4s ease-in-out infinite",

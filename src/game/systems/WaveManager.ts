@@ -44,6 +44,7 @@ export class WaveManager {
 
   // State timers
   private stateTimer = 0;
+  private frozen = false; // pause intermission timer (shop/level-up open)
   private preGameDuration = 3000; // 3s before wave 1
   private countdownDuration = 3000; // 3s countdown before each wave after intermission
   private intermissionDuration = 30000; // 30s max intermission before auto-start
@@ -99,7 +100,10 @@ export class WaveManager {
         break;
 
       case "intermission":
-        this.stateTimer += delta;
+        // Pause auto-timer while shop or level-up is open
+        if (!this.frozen) {
+          this.stateTimer += delta;
+        }
         if (this.readyUp) {
           this.readyCountdown -= delta;
           if (this.readyCountdown <= 0) {
@@ -125,6 +129,9 @@ export class WaveManager {
     this.readyUp = true;
     this.readyCountdown = 3000;
   }
+
+  /** Freeze/unfreeze intermission timer (e.g. while shop or level-up is open) */
+  setFrozen(frozen: boolean) { this.frozen = frozen; }
 
   /** Skip the pre-game countdown and start wave 1 immediately */
   skipPreGame() {

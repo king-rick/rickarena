@@ -5,12 +5,26 @@ import { hudState } from "@/game/HUDState";
 
 const BODY = "var(--font-special-elite), 'Special Elite', serif";
 
-interface SlotInfo {
-  slotIndex: number;
-  label: string;
-  key: string;
-  count: string;
-  countDanger: boolean;
+const ITEM_ICONS: Record<string, string> = {
+  pistol: "/assets/sprites/items/pistol.png",
+  shotgun: "/assets/sprites/items/shotgun.png",
+  smg: "/assets/sprites/items/smg.png",
+  barricade: "/assets/sprites/items/trap-barricade.png",
+  landmine: "/assets/sprites/items/trap-landmine.png",
+};
+
+function getActiveIcon(activeSlot: number, equippedWeapon: string | null): { icon: string | null; label: string } {
+  if (activeSlot === 1 && equippedWeapon) return { icon: ITEM_ICONS[equippedWeapon] ?? null, label: equippedWeapon.toUpperCase() };
+  if (activeSlot === 2) return { icon: ITEM_ICONS.barricade, label: "BARRICADE" };
+  if (activeSlot === 3) return { icon: ITEM_ICONS.landmine, label: "LANDMINE" };
+  return { icon: null, label: "" };
+}
+
+function getActiveCount(activeSlot: number, ammo: number, maxAmmo: number, barricadeCount: number, mineCount: number): { count: string; danger: boolean } {
+  if (activeSlot === 1) return { count: `${ammo}/${maxAmmo}`, danger: ammo === 0 };
+  if (activeSlot === 2) return { count: `x${barricadeCount}`, danger: false };
+  if (activeSlot === 3) return { count: `x${mineCount}`, danger: false };
+  return { count: "", danger: false };
 }
 
 export const Hotbar = memo(function Hotbar() {
@@ -21,96 +35,44 @@ export const Hotbar = memo(function Hotbar() {
   const barricadeCount = useSyncExternalStore(hudState.subscribe, () => hudState.getField("barricadeCount"));
   const mineCount = useSyncExternalStore(hudState.subscribe, () => hudState.getField("mineCount"));
 
-  const slots: SlotInfo[] = [];
+  const { icon, label } = getActiveIcon(activeSlot, equippedWeapon);
+  const { count, danger } = getActiveCount(activeSlot, ammo, maxAmmo, barricadeCount, mineCount);
 
-  if (equippedWeapon) {
-    slots.push({
-      slotIndex: 1,
-      label: equippedWeapon.toUpperCase(),
-      key: "2",
-      count: `${ammo}/${maxAmmo}`,
-      countDanger: ammo === 0,
-    });
-  }
-  if (barricadeCount > 0) {
-    slots.push({
-      slotIndex: 2,
-      label: "BARR",
-      key: "3",
-      count: `x${barricadeCount}`,
-      countDanger: false,
-    });
-  }
-  if (mineCount > 0) {
-    slots.push({
-      slotIndex: 3,
-      label: "MINE",
-      key: "4",
-      count: `x${mineCount}`,
-      countDanger: false,
-    });
-  }
-
-  if (slots.length === 0) return null;
+  // Nothing equipped — don't render
+  if (!icon) return null;
 
   return (
-    <div className="flex" style={{ gap: 6 }}>
-      {slots.map((slot) => {
-        const active = activeSlot === slot.slotIndex;
-        const slotBg = active
-          ? "/assets/sprites/ui/horror/slot-dark-active.png"
-          : "/assets/sprites/ui/horror/slot-dark-inactive.png";
+    <div className="relative flex flex-col items-center">
+      {/* Item icon */}
+      <img
+        src={icon}
+        alt={label}
+        style={{
+          width: 64,
+          height: 64,
+          imageRendering: "pixelated",
+          filter: "drop-shadow(0 0 6px rgba(255, 34, 68, 0.5)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.8))",
+        }}
+        draggable={false}
+      />
 
-        return (
-          <div
-            key={slot.slotIndex}
-            className="relative flex flex-col items-center justify-center"
-            style={{
-              width: 84,
-              height: 84,
-              backgroundImage: `url(${slotBg})`,
-              backgroundSize: "100% 100%",
-              imageRendering: "pixelated",
-              boxShadow: active ? "0 0 14px rgba(255, 34, 68, 0.4)" : "none",
-            }}
-          >
-            <span
-              className="absolute"
-              style={{
-                top: 5,
-                left: 7,
-                fontSize: 14,
-                fontFamily: BODY,
-                color: active ? "#ff4466" : "#555566",
-              }}
-            >
-              {slot.key}
-            </span>
-            <span
-              style={{
-                fontFamily: BODY,
-                fontSize: 14,
-                marginTop: 8,
-                color: active ? "#eeeeee" : "#778899",
-              }}
-            >
-              {slot.label}
-            </span>
-            {slot.count && (
-              <span
-                style={{
-                  fontFamily: BODY,
-                  fontSize: 14,
-                  color: slot.countDanger ? "#ff0000" : "#ffffff",
-                  textShadow: slot.countDanger ? "0 0 4px rgba(255, 0, 0, 0.4)" : "none",
-                }}
-              >
-                {slot.count}
-              </span>
-            )}
-          </div>
-        );
-      })}
+      {/* Ammo / count */}
+      {count && (
+        <span
+          style={{
+            marginTop: 2,
+            fontSize: 16,
+            fontWeight: 700,
+            fontFamily: BODY,
+            color: danger ? "#ff0000" : "#ffffff",
+            textShadow: danger
+              ? "0 0 6px rgba(255, 0, 0, 0.5)"
+              : "0 0 6px rgba(255, 34, 68, 0.4), 0 1px 2px rgba(0, 0, 0, 0.9)",
+          }}
+        >
+          {count}
+        </span>
+      )}
     </div>
   );
 });

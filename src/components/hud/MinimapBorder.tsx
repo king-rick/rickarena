@@ -27,21 +27,41 @@ export const MinimapBorder = memo(function MinimapBorder({ canvasRect }: Props) 
   const cssY = mmY * scaleY;
   const cssW = mmSize * scaleX;
   const cssH = mmSize * scaleY;
-  const border = Math.max(2, Math.round(3 * scaleX));
+
+  // Ring overlaps slightly beyond the minimap area
+  const ringPad = Math.round(8 * scaleX);
 
   return (
-    <div
-      className="absolute pointer-events-none"
-      style={{
-        left: cssX - border,
-        top: cssY - border,
-        width: cssW + border * 2,
-        height: cssH + border * 2,
-        border: `${border}px solid #661122`,
-        boxShadow:
-          "0 0 8px rgba(255, 34, 68, 0.4), 0 0 16px rgba(255, 34, 68, 0.15), inset 0 0 6px rgba(255, 34, 68, 0.2)",
-        zIndex: 15,
-      }}
-    />
+    <>
+      {/* Circular clip mask over the Phaser minimap camera */}
+      <div
+        className="absolute pointer-events-none"
+        style={{
+          left: cssX,
+          top: cssY,
+          width: cssW,
+          height: cssH,
+          borderRadius: "50%",
+          overflow: "hidden",
+          zIndex: 14,
+          boxShadow: "inset 0 0 10px rgba(0, 0, 0, 0.8)",
+        }}
+      />
+      {/* Brown ring border on top */}
+      <img
+        src="/assets/sprites/ui/minimap-ring.png"
+        alt=""
+        className="absolute pointer-events-none"
+        style={{
+          left: cssX - ringPad,
+          top: cssY - ringPad,
+          width: cssW + ringPad * 2,
+          height: cssH + ringPad * 2,
+          imageRendering: "pixelated",
+          zIndex: 16,
+        }}
+        draggable={false}
+      />
+    </>
   );
 });

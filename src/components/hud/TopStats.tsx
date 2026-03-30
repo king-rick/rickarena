@@ -4,7 +4,6 @@ import { memo, useSyncExternalStore } from "react";
 import { hudState } from "@/game/HUDState";
 
 const BODY = "var(--font-special-elite), 'Special Elite', serif";
-const DISPLAY = "ChainsawCarnage, HorrorPixel, monospace";
 
 export const TopStats = memo(function TopStats() {
   const kills = useSyncExternalStore(hudState.subscribe, () => hudState.getField("kills"));
@@ -13,32 +12,37 @@ export const TopStats = memo(function TopStats() {
 
   return (
     <div className="flex items-center gap-4">
-      <StatItem label="LV" value={`${level}`} color="#cc9933" />
-      <StatItem label="KILLS" value={`${kills}`} color="#cc3344" />
-      <StatItem label="$" value={`${currency}`} color="#88aa44" />
+      <StatItem icon="/assets/sprites/ui/icon-star.png" value={`${level}`} size={20} />
+      <StatItem icon="/assets/sprites/ui/icon-skull.png" value={`${kills}`} size={20} />
+      <StatItem icon="/assets/sprites/ui/icon-cash.png" value={`${currency}`} size={20} />
     </div>
   );
 });
 
-function StatItem({ label, value, color }: { label: string; value: string; color: string }) {
+function StatItem({ icon, value, size = 18 }: { icon: string; value: string; size?: number }) {
   return (
-    <div className="flex items-baseline gap-1">
+    <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+      <img
+        src={icon}
+        alt=""
+        style={{
+          width: size,
+          height: size,
+          imageRendering: "pixelated",
+          flexShrink: 0,
+        }}
+        draggable={false}
+      />
       <span
         style={{
           fontFamily: BODY,
-          fontSize: 12,
-          color: "#666677",
-          letterSpacing: "0.05em",
-        }}
-      >
-        {label}
-      </span>
-      <span
-        style={{
-          fontFamily: DISPLAY,
-          fontSize: 20,
-          color,
-          textShadow: `0 0 6px ${color}44`,
+          fontSize: 18,
+          fontWeight: 700,
+          color: "#ffffff",
+          textShadow: "0 0 6px rgba(255, 34, 68, 0.5), 0 0 12px rgba(255, 34, 68, 0.2), 0 1px 2px rgba(0, 0, 0, 0.9)",
+          letterSpacing: "0.06em",
+          lineHeight: 1,
+          verticalAlign: "middle",
         }}
       >
         {value}

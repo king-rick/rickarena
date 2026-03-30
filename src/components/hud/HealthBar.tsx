@@ -3,141 +3,101 @@
 import { memo, useSyncExternalStore } from "react";
 import { hudState } from "@/game/HUDState";
 
-const DISPLAY = "ChainsawCarnage, HorrorPixel, monospace";
+// Native sprite: 128x32. Red fill area: x 23-122, y 11-22 (99px wide, 11px tall).
+const NATIVE_W = 128;
+const NATIVE_H = 32;
+const FILL_X = 23;
+const FILL_Y = 11;
+const FILL_W = 99;
+const FILL_H = 11;
 
-interface Props {
-  type: "health" | "stamina";
-}
+const SCALE = 1.125;
 
-export const HealthBar = memo(function HealthBar({ type }: Props) {
-  const current = useSyncExternalStore(
+export const HealthBar = memo(function HealthBar() {
+  const health = useSyncExternalStore(
     hudState.subscribe,
-    () => hudState.getField(type === "health" ? "health" : "stamina")
+    () => hudState.getField("health")
   );
-  const max = useSyncExternalStore(
+  const maxHealth = useSyncExternalStore(
     hudState.subscribe,
-    () => hudState.getField(type === "health" ? "maxHealth" : "maxStamina")
-  );
-  const burnedOut = useSyncExternalStore(
-    hudState.subscribe,
-    () => hudState.getField("burnedOut")
+    () => hudState.getField("maxHealth")
   );
 
-  const pct = max > 0 ? (current / max) * 100 : 0;
-  const low = pct < 25;
-  const isHealth = type === "health";
+  const pct = maxHealth > 0 ? Math.max(0, Math.min(1, health / maxHealth)) : 0;
+  const low = pct < 0.25;
 
-  // Use different bar frame images for health vs stamina
-  const frameImg = isHealth
-    ? "/assets/sprites/ui/horror/healthbar-c-full.png"
-    : "/assets/sprites/ui/horror/healthbar-l.png";
+  const w = Math.round(NATIVE_W * SCALE);
+  const h = Math.round(NATIVE_H * SCALE);
 
-  let barColor: string;
-  let barGlow: string;
-  if (isHealth) {
-    barColor = low ? "#ff0033" : "#cc1133";
-    barGlow = low ? "0 0 8px rgba(255, 0, 0, 0.6)" : "none";
-  } else if (burnedOut) {
-    barColor = "#222230";
-    barGlow = "none";
-  } else {
-    barColor = pct > 30 ? "#1188cc" : "#cc8800";
-    barGlow = "none";
-  }
-
-  const labelColor = type === "stamina" && burnedOut ? "#444444" : "#888899";
-  const label = isHealth ? "HP" : "ST";
+  // Fill area in scaled coordinates
+  const fillX = Math.round(FILL_X * SCALE);
+  const fillY = Math.round(FILL_Y * SCALE);
+  const fillW = Math.round(FILL_W * SCALE);
+  const fillH = Math.round(FILL_H * SCALE);
 
   return (
-    <div className="flex items-center gap-2">
-      <span
-        style={{
-          fontFamily: DISPLAY,
-          fontSize: 13,
-          color: labelColor,
-          width: 20,
-          textAlign: "right",
-          flexShrink: 0,
-        }}
-      >
-        {label}
-      </span>
+    <div
+      style={{
+        position: "relative",
+        width: w,
+        height: h,
+        filter: low ? "drop-shadow(0 0 6px rgba(255, 0, 0, 0.6))" : "none",
+      }}
+    >
+      {/* Dark background behind the bar area */}
       <div
         style={{
-          flex: 1,
-          height: 18,
-          position: "relative",
+          position: "absolute",
+          top: fillY,
+          left: fillX,
+          width: fillW,
+          height: fillH,
+          background: "#0a0a0a",
+        }}
+      />
+      {/* Red fill clipped to HP% */}
+      <div
+        style={{
+          position: "absolute",
+          top: fillY,
+          left: fillX,
+          width: fillW * pct,
+          height: fillH,
           overflow: "hidden",
-          boxShadow: barGlow,
+          transition: "width 120ms linear",
         }}
       >
-        {/* Frame image as background */}
         <img
-          src={frameImg}
+          src="/assets/sprites/ui/healthbar/standard-1.png"
           alt=""
           style={{
             position: "absolute",
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: "100%",
-            objectFit: "fill",
+            top: -fillY,
+            left: -fillX,
+            width: w,
+            height: h,
             imageRendering: "pixelated",
-            zIndex: 2,
             pointerEvents: "none",
           }}
-        />
-        {/* Dark track behind the fill */}
-        <div
-          style={{
-            position: "absolute",
-            top: 2,
-            left: 2,
-            right: 2,
-            bottom: 2,
-            background: "#0a0a12",
-            zIndex: 0,
-          }}
-        />
-        {/* Colored fill bar */}
-        <div
-          style={{
-            position: "absolute",
-            top: 2,
-            left: 2,
-            bottom: 2,
-            width: `calc(${pct}% - 4px)`,
-            background: barColor,
-            transition: "width 80ms linear",
-            zIndex: 1,
-          }}
-        />
-        {/* Highlight strip on top of fill */}
-        <div
-          style={{
-            position: "absolute",
-            top: 2,
-            left: 2,
-            height: "35%",
-            width: `calc(${pct}% - 4px)`,
-            background: "rgba(255, 255, 255, 0.12)",
-            zIndex: 1,
-          }}
+          draggable={false}
         />
       </div>
-      {type === "stamina" && burnedOut && (
-        <span
-          style={{
-            fontFamily: DISPLAY,
-            fontSize: 10,
-            color: "#ff2244",
-            letterSpacing: "0.05em",
-            textShadow: "0 0 4px rgba(255, 34, 68, 0.5)",
-          }}
-        >
-          BURNED OUT
-        </span>
-      )}
+      {/* Frame + heart on top */}
+      <img
+        src="/assets/sprites/ui/healthbar/standard-empty-1.png"
+        alt=""
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: w,
+          height: h,
+          imageRendering: "pixelated",
+          pointerEvents: "none",
+          zIndex: 1,
+        }}
+        draggable={false}
+      />
     </div>
   );
 });

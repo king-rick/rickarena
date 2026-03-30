@@ -146,9 +146,9 @@ export class BootScene extends Phaser.Scene {
 
     // Audio
     // Weapons (2 variants per weapon for variety)
-    this.load.audio("sfx-pistol", "/assets/audio/weapons/pistol-fire-1.wav");
+    this.load.audio("sfx-pistol", "/assets/audio/weapons/weapon-sfx-misc.wav");
     this.load.audio("sfx-pistol2", "/assets/audio/weapons/pistol-fire-2.wav");
-    this.load.audio("sfx-shotgun", "/assets/audio/weapons/shotgun-blast.wav");
+    this.load.audio("sfx-shotgun", "/assets/audio/weapons/pistol-fire-1.wav");
     this.load.audio("sfx-shotgun2", "/assets/audio/weapons/shotgun-blast-el.wav");
     this.load.audio("sfx-shotgun-pump", "/assets/audio/weapons/shotgun-pump.wav");
     this.load.audio("sfx-smg", "/assets/audio/weapons/smg-fire-1.wav");

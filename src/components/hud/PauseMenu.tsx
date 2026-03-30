@@ -35,7 +35,7 @@ export const PauseMenu = memo(function PauseMenu() {
       className="absolute inset-0 flex items-center justify-center pointer-events-auto"
       style={{ zIndex: 30 }}
     >
-      <div className="absolute inset-0" style={{ background: "rgba(0, 0, 0, 0.65)" }} />
+      <div className="absolute inset-0" style={{ background: "rgba(0, 0, 0, 0.82)" }} />
 
       {settingsOpen ? (
         <SettingsPanel sfxVolume={sfxVolume} zoomEnabled={zoomEnabled} />
@@ -53,9 +53,9 @@ export const PauseMenu = memo(function PauseMenu() {
             PAUSED
           </span>
           <ControlsPanel />
-          <PauseButton label="[ Q ]  Quit to Menu" action="quit" />
-          <PauseButton label="[ R ]  Restart" action="restart" />
-          <PauseButton label="[ S ]  Settings" action="openSettings" />
+          <PauseButton label="Quit to Menu" action="quit" />
+          <PauseButton label="Restart" action="restart" />
+          <PauseButton label="Settings" action="openSettings" />
         </div>
       )}
     </div>
@@ -75,17 +75,21 @@ function PauseButton({ label, action }: { label: string; action: string }) {
     <button
       style={{
         fontFamily: BODY,
-        fontSize: 22,
+        fontSize: 18,
         color: state === "normal" ? "#cccccc" : "#ffffff",
         background: "none",
         border: "none",
         cursor: "pointer",
-        padding: "10px 40px",
+        padding: "12px 40px",
         backgroundImage: `url(${bgMap[state]})`,
         backgroundSize: "100% 100%",
         imageRendering: "pixelated" as const,
         transition: "color 100ms ease",
         minWidth: 280,
+        textAlign: "center",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
       }}
       onMouseEnter={() => setState("hover")}
       onMouseLeave={() => setState("normal")}
@@ -217,16 +221,16 @@ function ControlsPanel() {
       style={{
         display: "grid",
         gridTemplateColumns: "auto auto",
-        gap: "4px 20px",
+        gap: "8px 24px",
         marginBottom: 8,
       }}
     >
       {controls.map(([key, action]) => (
         <Fragment key={key}>
-          <span style={{ fontFamily: DISPLAY, fontSize: 13, color: "#ff4466", textAlign: "right" }}>
+          <span style={{ fontFamily: DISPLAY, fontSize: 16, color: "#ff4466", textAlign: "right" }}>
             {key}
           </span>
-          <span style={{ fontFamily: BODY, fontSize: 13, color: "#888899" }}>
+          <span style={{ fontFamily: BODY, fontSize: 16, color: "#cccccc" }}>
             {action}
           </span>
         </Fragment>

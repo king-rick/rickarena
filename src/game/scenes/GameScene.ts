@@ -243,6 +243,13 @@ export class GameScene extends Phaser.Scene {
     this.minimap.setBackgroundColor(0x0a0a14);
     this.minimap.setName("minimap");
 
+    // Circular mask for minimap
+    const mmMaskGraphics = this.make.graphics({ x: 0, y: 0, add: false });
+    mmMaskGraphics.fillStyle(0xffffff);
+    mmMaskGraphics.fillCircle(mmX + mmSize / 2, mmY + mmSize / 2, mmSize / 2);
+    const mmMask = mmMaskGraphics.createGeometryMask();
+    this.minimap.setMask(mmMask);
+
     // Push minimap position to React for border rendering
     hudState.update({ minimapX: mmX, minimapY: mmY, minimapSize: mmSize });
 
@@ -409,17 +416,17 @@ export class GameScene extends Phaser.Scene {
     // Left click = melee punch, Right click = use active item slot
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
       if (this.gameOver || this.paused || this.shopOpen) return;
-      if (pointer.rightButtonDown()) {
+      if (pointer.button === 2) {
         this.fireHeld = true;
         this.useActiveSlot();
-      } else {
+      } else if (pointer.button === 0) {
         this.meleeAttack();
       }
     });
     this.input.mouse?.disableContextMenu();
 
     this.input.on("pointerup", (pointer: Phaser.Input.Pointer) => {
-      if (pointer.rightButtonReleased()) {
+      if (pointer.button === 2) {
         this.fireHeld = false;
       }
     });
@@ -1239,7 +1246,8 @@ export class GameScene extends Phaser.Scene {
   private fireWeapon() {
     if (!this.equippedWeapon) return;
     if (this.ammo <= 0) {
-      this.equippedWeapon = null;
+      this.playSound("sfx-dryfire", 0.4);
+      this.showWeaponMessage("OUT OF AMMO", "#cc3333");
       return;
     }
 
@@ -1281,7 +1289,14 @@ export class GameScene extends Phaser.Scene {
     // Play shooting animation on the player sprite
     this.player.playShoot(this.equippedWeapon!);
 
-    // MUTED — pending sound audit
+    // Weapon fire sound
+    if (this.equippedWeapon === "pistol") {
+      this.playSound("sfx-pistol", 0.4);
+    } else if (this.equippedWeapon === "shotgun") {
+      this.playSound("sfx-shotgun", 0.4);
+    } else if (this.equippedWeapon === "smg") {
+      this.playSound("sfx-smg", 0.3);
+    }
 
     // Muzzle flash sprite
     const flashDist = 20;
@@ -1296,8 +1311,7 @@ export class GameScene extends Phaser.Scene {
     this.time.delayedCall(60, () => flash.destroy());
 
     if (this.ammo <= 0) {
-      this.equippedWeapon = null;
-      // MUTED — pending sound audit
+      this.playSound("sfx-dryfire", 0.4);
       this.showWeaponMessage("OUT OF AMMO", "#cc3333");
     }
   }
@@ -1733,11 +1747,23 @@ export class GameScene extends Phaser.Scene {
     // Pause actions from React
     hudState.registerPauseAction((action: string, payload?: any) => {
       switch (action) {
-        case "quit": this.scene.start("MainMenu"); break;
-        case "restart": this.scene.restart({ characterId: this.characterDef.id }); break;
+        case "quit":
+          hudState.update({ paused: false, settingsOpen: false, hudVisible: false });
+          this.scene.start("MainMenu");
+          break;
+        case "restart":
+          hudState.update({ paused: false, settingsOpen: false, hudVisible: false });
+          this.scene.restart({ characterId: this.characterDef.id });
+          break;
         case "resume": this.resumeGame(); break;
-        case "openSettings": this.settingsOpen = true; break;
-        case "closeSettings": this.settingsOpen = false; break;
+        case "openSettings":
+          this.settingsOpen = true;
+          hudState.update({ settingsOpen: true });
+          break;
+        case "closeSettings":
+          this.settingsOpen = false;
+          hudState.update({ settingsOpen: false });
+          break;
         case "setVolume": {
           const val = payload as number;
           this.sfxVolume = val;
@@ -1917,12 +1943,14 @@ export class GameScene extends Phaser.Scene {
     this.shopNavCol = 0;
     this.shopNavRow = 0;
     this.shopSelectedIndex = this.shopGrid[0]?.[0] ?? 0;
+    this.waveManager.setFrozen(true);
     this.pushShopData();
     this.updateHUD();
   }
 
   private closeShop() {
     this.shopOpen = false;
+    this.waveManager.setFrozen(false);
     this.updateHUD();
   }
 
@@ -2131,6 +2159,7 @@ export class GameScene extends Phaser.Scene {
 
   private showLevelUpUI(level: number, options: BuffOption[]) {
     this.levelUpActive = true;
+    this.waveManager.setFrozen(true);
     hudState.update({ levelUpActive: true, levelUpLevel: level, levelUpOptions: options });
   }
 
@@ -2153,6 +2182,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.levelUpActive = false;
+    this.waveManager.setFrozen(false);
     hudState.update({ levelUpActive: false });
     this.showWeaponMessage(buff.name.toUpperCase(), "#ffffff");
 
@@ -2168,9 +2198,9 @@ export class GameScene extends Phaser.Scene {
       this.levelingSystem.setPending(next.options);
       this.showLevelUpUI(next.level, next.options);
     } else {
-      if (this.waveManager.state === "intermission") {
-        this.openShop();
-      }
+      // Always open shop after level-ups resolve (don't gate on state —
+      // the intermission auto-timer could have expired during level-up picks)
+      this.openShop();
     }
   }
 }

@@ -3,19 +3,17 @@
 import { useSyncExternalStore } from "react";
 import { hudState } from "@/game/HUDState";
 import type { CanvasRect } from "./Game";
-import { HealthBar } from "./hud/HealthBar";
-import { TopStats } from "./hud/TopStats";
-import { Hotbar } from "./hud/Hotbar";
-import { AbilityIndicator } from "./hud/AbilityIndicator";
-import { WaveInfo } from "./hud/WaveInfo";
 import { ShopOverlay } from "./hud/ShopOverlay";
 import { MinimapBorder } from "./hud/MinimapBorder";
-import { ZoomIndicator } from "./hud/ZoomIndicator";
+import { HealthBar } from "./hud/HealthBar";
+import { TopStats } from "./hud/TopStats";
+import { WaveInfo } from "./hud/WaveInfo";
 import { WaveAnnouncement } from "./hud/WaveAnnouncement";
 import { Countdown } from "./hud/Countdown";
 import { PauseMenu } from "./hud/PauseMenu";
 import { LevelUpOverlay } from "./hud/LevelUpOverlay";
 import { GameOverOverlay } from "./hud/GameOverOverlay";
+import { Hotbar } from "./hud/Hotbar";
 
 interface Props {
   canvasRect: CanvasRect;
@@ -41,8 +39,6 @@ export function HUDOverlay({ canvasRect }: Props) {
 
   if (!hudVisible && !gameOver) return null;
 
-  const pad = Math.round(canvasRect.width * 0.018);
-
   const baseStyle = {
     left: canvasRect.left,
     top: canvasRect.top,
@@ -59,7 +55,7 @@ export function HUDOverlay({ canvasRect }: Props) {
         </div>
       )}
 
-      {/* HUD elements — fade when shop is open, hidden on game over */}
+      {/* HUD elements — hidden on game over */}
       {!gameOver && (
         <div
           className="absolute pointer-events-none"
@@ -71,51 +67,44 @@ export function HUDOverlay({ canvasRect }: Props) {
             transition: "opacity 150ms ease-out",
           }}
         >
-          {/* TOP-LEFT: Health + Stamina */}
-          <div
-            className="absolute flex flex-col"
-            style={{
-              top: pad,
-              left: pad,
-              width: Math.round(canvasRect.width * 0.24),
-              gap: 3,
-            }}
-          >
-            <HealthBar type="health" />
-            <HealthBar type="stamina" />
+          {/* Health bar — top left */}
+          <div style={{ position: "absolute", top: 16, left: 16 }}>
+            <HealthBar />
           </div>
-
-          {/* TOP-RIGHT: Stats + Wave */}
-          <div
-            className="absolute flex flex-col items-end"
-            style={{
-              top: pad + 2,
-              right: pad,
-              gap: 2,
-            }}
-          >
-            <TopStats />
-            <WaveInfo />
+          {/* Kill counter + stats — top right */}
+          <div style={{
+            position: "absolute", top: 8, right: 8,
+            display: "flex", flexDirection: "column", alignItems: "center",
+            padding: "16px 20px 12px",
+            backgroundImage: "url(/assets/sprites/ui/horror/panel-frame.png)",
+            backgroundSize: "100% 100%",
+            imageRendering: "pixelated",
+            filter: "drop-shadow(0 0 8px rgba(255, 34, 68, 0.15))",
+          }}>
+            <div style={{
+              position: "absolute", inset: 6,
+              background: "linear-gradient(180deg, rgba(8, 4, 12, 0.92) 0%, rgba(16, 8, 16, 0.95) 100%)",
+              borderRadius: 2,
+            }} />
+            <div style={{ position: "relative" }}><TopStats /></div>
+            <div style={{
+              position: "relative",
+              width: "80%", height: 1,
+              background: "linear-gradient(90deg, transparent, rgba(255, 34, 68, 0.3), transparent)",
+              margin: "6px 0 4px",
+            }} />
+            <div style={{ position: "relative" }}><WaveInfo /></div>
           </div>
-
-          {/* BOTTOM-LEFT: Ability + Hotbar */}
-          <div
-            className="absolute flex flex-col"
-            style={{
-              bottom: pad,
-              left: pad,
-              gap: 6,
-            }}
-          >
-            <AbilityIndicator />
+          {/* Hotbar — bottom center */}
+          <div style={{
+            position: "absolute",
+            bottom: 16,
+            left: 16,
+          }}>
             <Hotbar />
           </div>
-
           {/* Minimap border */}
           <MinimapBorder canvasRect={canvasRect} />
-
-          {/* Zoom indicator */}
-          <ZoomIndicator />
         </div>
       )}
 
