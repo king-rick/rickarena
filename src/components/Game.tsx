@@ -69,6 +69,20 @@ export default function Game() {
     };
   }, [updateRect]);
 
+  // Keep canvas focused so Phaser keyboard input works
+  const refocusCanvas = useCallback(() => {
+    gameRef.current?.canvas?.focus();
+  }, []);
+
+  // Refocus canvas whenever game container is clicked
+  // Also forward all keyboard events to canvas in case it loses focus
+  useEffect(() => {
+    const handler = () => refocusCanvas();
+    const container = document.getElementById("game-container");
+    container?.addEventListener("mousedown", handler);
+    return () => container?.removeEventListener("mousedown", handler);
+  }, [refocusCanvas]);
+
   return (
     <div id="game-container" style={{ width: "100vw", height: "100vh", position: "relative" }}>
       {canvasRect && (

@@ -1,13 +1,14 @@
 import { BALANCE } from "../data/balance";
 
-export type BuffCategory = "strength" | "health" | "stamina" | "speed" | "luck";
+export type BuffCategory = "strength" | "health" | "stamina" | "speed" | "luck" | "scavenger";
 export type BuffTier = "basic" | "advanced" | "elite";
 
 export interface AppliedBuff {
   category: BuffCategory;
   tier: BuffTier;
   name: string;
-  multiplier: number; // or flatCrit for luck
+  flat: number; // flat bonus value (damage, hp, stamina, speed, crit, or kill bonus)
+  regenFlat?: number; // stamina regen bonus
 }
 
 export interface BuffOption {
@@ -15,9 +16,10 @@ export interface BuffOption {
   tier: BuffTier;
   name: string;
   desc: string;
-  mult?: number;
-  regenMult?: number;
+  flat?: number;
+  regenFlat?: number;
   flatCrit?: number;
+  killBonus?: number;
 }
 
 export interface EffectiveStats {
@@ -27,6 +29,7 @@ export interface EffectiveStats {
   speed: number;
   regen: number;
   critChance: number;
+  killBonusPct: number; // extra % on kill rewards
 }
 
 export class LevelingSystem {
@@ -66,23 +69,20 @@ export class LevelingSystem {
     return this.xp / this.xpToNextLevel();
   }
 
-  /** Whether the game is waiting for a buff selection */
   isPendingLevelUp(): boolean {
     return this.pendingLevelUp;
   }
 
-  /** Re-arm the pending state for queued level-ups (called by GameScene when dequeuing) */
   setPending(options: BuffOption[]) {
     this.pendingLevelUp = true;
     this.buffOptions = options;
   }
 
-  /** Get the current buff options (only valid during pending level-up) */
   getBuffOptions(): BuffOption[] {
     return this.buffOptions;
   }
 
-  /** Player selects a buff (index 0 or 1) */
+  /** Player selects a buff */
   selectBuff(index: number): AppliedBuff | null {
     if (!this.pendingLevelUp || index < 0 || index >= this.buffOptions.length) return null;
 
@@ -91,7 +91,8 @@ export class LevelingSystem {
       category: option.category,
       tier: option.tier,
       name: option.name,
-      multiplier: option.mult ?? option.flatCrit ?? 1,
+      flat: option.flat ?? option.flatCrit ?? option.killBonus ?? 0,
+      regenFlat: option.regenFlat,
     };
     this.appliedBuffs.push(buff);
     this.pendingLevelUp = false;
@@ -99,7 +100,7 @@ export class LevelingSystem {
     return buff;
   }
 
-  /** Calculate effective stats from base stats with all buffs applied */
+  /** Calculate effective stats from base stats with all flat buffs applied */
   getEffectiveStats(base: {
     damage: number;
     hp: number;
@@ -114,29 +115,28 @@ export class LevelingSystem {
     let speed = base.speed;
     let regen = base.regen;
     let critChance = base.critChance;
+    let killBonusPct = 0;
 
     for (const buff of this.appliedBuffs) {
       switch (buff.category) {
         case "strength":
-          damage *= buff.multiplier;
+          damage += buff.flat;
           break;
         case "health":
-          maxHealth *= buff.multiplier;
+          maxHealth += buff.flat;
           break;
-        case "stamina": {
-          maxStamina *= buff.multiplier;
-          // Find the regen multiplier from the balance data
-          const tierData = (BALANCE.leveling.buffs.stamina as any)[buff.tier];
-          if (tierData?.regenMult) {
-            regen *= tierData.regenMult;
-          }
+        case "stamina":
+          maxStamina += buff.flat;
+          if (buff.regenFlat) regen += buff.regenFlat;
           break;
-        }
         case "speed":
-          speed *= buff.multiplier;
+          speed += buff.flat;
           break;
         case "luck":
-          critChance += buff.multiplier; // flatCrit stored as multiplier
+          critChance += buff.flat;
+          break;
+        case "scavenger":
+          killBonusPct += buff.flat;
           break;
       }
     }
@@ -150,12 +150,12 @@ export class LevelingSystem {
       maxHealth: Math.floor(maxHealth),
       maxStamina: Math.floor(maxStamina),
       speed: Math.floor(speed),
-      regen: Math.floor(regen * 10) / 10, // one decimal
+      regen: Math.floor(regen * 10) / 10,
       critChance,
+      killBonusPct,
     };
   }
 
-  /** Count how many buffs the player has in a given category */
   buffCountByCategory(category: BuffCategory): number {
     return this.appliedBuffs.filter(b => b.category === category).length;
   }
@@ -165,20 +165,19 @@ export class LevelingSystem {
   private rollBuffOptions(): BuffOption[] {
     const categories = Object.keys(BALANCE.leveling.categoryWeights) as BuffCategory[];
     const weights = BALANCE.leveling.categoryWeights;
+    const numChoices = BALANCE.leveling.buffChoices;
 
-    // Weighted random pick for first category
-    const cat1 = this.weightedPick(categories, weights);
-
-    // Second must be different
-    const remaining = categories.filter(c => c !== cat1);
-    const cat2 = this.weightedPick(remaining, weights);
-
-    const opt1 = this.getBestTierForCategory(cat1);
-    const opt2 = this.getBestTierForCategory(cat2);
-
+    const picked: BuffCategory[] = [];
     const options: BuffOption[] = [];
-    if (opt1) options.push(opt1);
-    if (opt2) options.push(opt2);
+
+    for (let i = 0; i < numChoices; i++) {
+      const remaining = categories.filter(c => !picked.includes(c));
+      if (remaining.length === 0) break;
+      const cat = this.weightedPick(remaining, weights);
+      picked.push(cat);
+      const opt = this.getBestTierForCategory(cat);
+      if (opt) options.push(opt);
+    }
 
     return options;
   }
@@ -195,9 +194,10 @@ export class LevelingSystem {
           tier,
           name: data.name,
           desc: data.desc,
-          mult: data.mult,
-          regenMult: data.regenMult,
+          flat: data.flat,
+          regenFlat: data.regenFlat,
           flatCrit: data.flatCrit,
+          killBonus: data.killBonus,
         };
       }
     }

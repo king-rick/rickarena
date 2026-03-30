@@ -244,7 +244,7 @@ export class GameScene extends Phaser.Scene {
     this.minimap.setName("minimap");
 
     // Circular mask for minimap
-    const mmMaskGraphics = this.make.graphics({ x: 0, y: 0, add: false });
+    const mmMaskGraphics = this.make.graphics({ x: 0, y: 0, add: false } as any);
     mmMaskGraphics.fillStyle(0xffffff);
     mmMaskGraphics.fillCircle(mmX + mmSize / 2, mmY + mmSize / 2, mmSize / 2);
     const mmMask = mmMaskGraphics.createGeometryMask();
@@ -539,6 +539,8 @@ export class GameScene extends Phaser.Scene {
     this.minimap.ignore(this.hudContainer);
     this.minimap.ignore(this.barricadeGhost);
 
+    // Health/stamina bars are rendered in React (HUDOverlay)
+
     this.baseDamage = this.player.stats.damage;
     this.damageBoostActive = false;
 
@@ -591,6 +593,21 @@ export class GameScene extends Phaser.Scene {
     };
 
     this.waveManager.onIntermissionStart = () => {
+      // Wave completion bonus
+      const waveBonus = BALANCE.economy.waveCompletionBonus.base +
+        this.waveManager.wave * BALANCE.economy.waveCompletionBonus.perWave;
+      this.currency += waveBonus;
+      this.showWeaponMessage(`+$${waveBonus} WAVE CLEAR`, "#44dd66");
+
+      // Interest on banked cash
+      const interest = Math.min(
+        Math.floor(this.currency * BALANCE.economy.interestRate),
+        BALANCE.economy.interestCap
+      );
+      if (interest > 0) {
+        this.currency += interest;
+      }
+
       this.showIntermissionAnnouncement();
       // Show queued level-ups first, then open shop
       this.time.delayedCall(1000, () => {
@@ -612,10 +629,19 @@ export class GameScene extends Phaser.Scene {
     // Update minimap: follow player and draw dot
     this.minimap.centerOn(this.player.x, this.player.y);
     this.minimapDot.clear();
+    // Player dot — small green with white center
     this.minimapDot.fillStyle(0x00ff00, 1);
-    this.minimapDot.fillCircle(this.player.x, this.player.y, 40);
+    this.minimapDot.fillCircle(this.player.x, this.player.y, 18);
     this.minimapDot.fillStyle(0xffffff, 1);
-    this.minimapDot.fillCircle(this.player.x, this.player.y, 20);
+    this.minimapDot.fillCircle(this.player.x, this.player.y, 8);
+    // Enemy dots — small red
+    this.enemies.getChildren().forEach((e) => {
+      const enemy = e as Enemy;
+      if (enemy.active) {
+        this.minimapDot.fillStyle(0xff2244, 0.8);
+        this.minimapDot.fillCircle(enemy.x, enemy.y, 12);
+      }
+    });
 
     if (this.gameOver || this.paused) return;
 
@@ -674,12 +700,19 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    // Panting — play once on burnout start
+    if (this.player.burnedOut && !this.wasBurnedOut) {
+      this.playSound("sfx-player-panting", 0.3);
+    }
+    this.wasBurnedOut = this.player.burnedOut;
+
     this.updateHUD();
   }
 
   // ------- Audio Helpers -------
 
   private lastPunchSfx = 0;
+  private wasBurnedOut = false;
   private lastDeathSfx = 0;
   private lastBiteSfx = 0;
   private lastFootstepTime = 0;
@@ -705,7 +738,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   private playRandomEnemyDeath() {
-    // MUTED — pending sound audit
+    const deathKeys = [
+      "sfx-enemy-death1", "sfx-enemy-death2", "sfx-enemy-death3", "sfx-enemy-death4",
+      "sfx-enemy-death5", "sfx-enemy-death6", "sfx-enemy-death7", "sfx-enemy-death8",
+    ];
+    this.playSound(deathKeys[Math.floor(Math.random() * deathKeys.length)], 0.3);
+    // ~30% chance to layer gore splat on top
+    if (Math.random() < 0.3) {
+      this.playSound("sfx-gore-splat", 0.25);
+    }
   }
 
   private playBiteSound() {
@@ -863,15 +904,17 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getFacingAngle(): number {
-    switch (this.player.facing) {
-      case "right":
-        return 0;
-      case "down":
-        return Math.PI / 2;
-      case "left":
-        return Math.PI;
-      case "up":
-        return -Math.PI / 2;
+    const dir = (this.player as any).currentDir as string;
+    switch (dir) {
+      case "east":        return 0;
+      case "south-east":  return Math.PI / 4;
+      case "south":       return Math.PI / 2;
+      case "south-west":  return Math.PI * 3 / 4;
+      case "west":        return Math.PI;
+      case "north-west":  return -Math.PI * 3 / 4;
+      case "north":       return -Math.PI / 2;
+      case "north-east":  return -Math.PI / 4;
+      default:            return Math.PI / 2; // fallback south
     }
   }
 
@@ -879,12 +922,16 @@ export class GameScene extends Phaser.Scene {
 
   private onEnemyKilled(enemy: Enemy) {
     this.kills++;
-    this.currency += BALANCE.economy.killReward[enemy.enemyType];
+    // Kill reward with scavenger bonus
+    const effective = this.levelingSystem.getEffectiveStats(this.characterDef.stats);
+    const baseReward = BALANCE.economy.killReward[enemy.enemyType];
+    const bonus = Math.floor(baseReward * effective.killBonusPct);
+    this.currency += baseReward + bonus;
     this.waveManager.onEnemyKilled();
     this.playRandomEnemyDeath();
 
     // RPG XP
-    const xpReward = BALANCE.leveling.xpPerKill[enemy.enemyType];
+    const xpReward = BALANCE.economy.xpPerKill[enemy.enemyType];
     this.levelingSystem.addXP(xpReward);
   }
 
@@ -1317,17 +1364,24 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showWeaponMessage(msg: string, color: string) {
-    const cam = this.cameras.main;
     const txt = this.add.text(
       this.player.x, this.player.y - 80, msg,
-      { fontFamily: "Special Elite, serif", fontSize: "22px", color, fontStyle: "bold" }
+      {
+        fontFamily: "ChainsawCarnage, HorrorPixel, monospace",
+        fontSize: "18px",
+        color,
+        stroke: "#000000",
+        strokeThickness: 4,
+        shadow: { offsetX: 0, offsetY: 0, color: color, blur: 12, fill: true, stroke: false },
+      }
     ).setDepth(100).setOrigin(0.5);
 
     this.tweens.add({
       targets: txt,
-      y: this.player.y - 140,
+      y: this.player.y - 130,
       alpha: 0,
-      duration: 800,
+      duration: 1000,
+      ease: "Power2",
       onComplete: () => txt.destroy(),
     });
   }
@@ -1476,7 +1530,7 @@ export class GameScene extends Phaser.Scene {
         this.showCritEffect(enemy.x, enemy.y);
       }
 
-      const killed = enemy.takeDamage(damage);
+      const killed = enemy.takeDamage(damage, "ranged");
       if (killed) {
         this.onEnemyKilled(enemy);
       }
@@ -1978,20 +2032,32 @@ export class GameScene extends Phaser.Scene {
         this.currency -= price;
         this.player.stats.health = Math.min(
           this.player.stats.maxHealth,
-          this.player.stats.health + this.player.stats.maxHealth * 0.5
+          this.player.stats.health + 30
         );
+        this.showWeaponMessage("+30 HP", "#44dd66");
+        break;
+      }
+      case "medkit": {
+        if (this.player.stats.health >= this.player.stats.maxHealth) return;
+        this.currency -= price;
+        this.player.stats.health = Math.min(
+          this.player.stats.maxHealth,
+          this.player.stats.health + 80
+        );
+        this.showWeaponMessage("+80 HP", "#44dd66");
         break;
       }
       case "dmgBoost": {
         if (this.damageBoostActive) return;
         this.currency -= price;
         this.damageBoostActive = true;
-        this.player.stats.damage = Math.floor(this.baseDamage * 1.25);
+        this.player.stats.damage += 5;
+        this.showWeaponMessage("+5 DAMAGE", "#ff8844");
         break;
       }
       case "pistol":
-      case "shotgun": {
-      // case "smg": // SMG disabled pending balance pass
+      case "shotgun":
+      case "smg": {
         // Already holding this weapon with ammo — buy ammo refill instead
         if (this.equippedWeapon === itemId && this.ammo > 0) {
           if (this.ammo >= this.maxAmmo) return;
@@ -2022,19 +2088,6 @@ export class GameScene extends Phaser.Scene {
         if (this.ammo >= this.maxAmmo) return; // already full
         this.currency -= price;
         this.ammo = this.maxAmmo;
-        break;
-      }
-      case "extraClip": {
-        if (!this.equippedWeapon) return; // no weapon
-        if (this.hasExtraClip) {
-          this.showWeaponMessage("ALREADY UPGRADED", "#cc3333");
-          return;
-        }
-        this.currency -= price;
-        this.hasExtraClip = true;
-        this.maxAmmo = this.maxAmmo * 2;
-        this.ammo = this.maxAmmo; // refill to new max
-        this.showWeaponMessage("EXTRA CLIP — AMMO DOUBLED", "#44dd44");
         break;
       }
       case "barricade":
@@ -2135,6 +2188,7 @@ export class GameScene extends Phaser.Scene {
       mineCount: this.trapInventory.get("landmine" as TrapType) ?? 0,
       abilityName: this.characterDef.ability.name,
       abilityCooldown: this.abilityCooldownTimer > 0 ? this.abilityCooldownTimer / 1000 : 0,
+      abilityMaxCooldown: this.characterDef.ability.cooldown,
       abilityKey: "R",
       kills: this.kills,
       currency: this.currency,

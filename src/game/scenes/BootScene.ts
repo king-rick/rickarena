@@ -98,6 +98,7 @@ export class BootScene extends Phaser.Scene {
     this.load.image("item-smg", "/assets/sprites/items/smg.png");
     this.load.image("item-grenade", "/assets/sprites/items/grenade.png");
     this.load.image("bullet", "/assets/sprites/items/bullet.png");
+    this.load.image("bullet-fire", "/assets/sprites/items/bullet-fire.png");
     this.load.image("item-ammo", "/assets/sprites/items/ammo.png");
     this.load.image("item-ammo-box", "/assets/sprites/items/ammo-box.png");
     this.load.image("item-landmine", "/assets/sprites/items/landmine.png");
@@ -106,6 +107,12 @@ export class BootScene extends Phaser.Scene {
     this.load.image("trap-spikes", "/assets/sprites/items/trap-spikes.png");
     this.load.image("trap-barricade", "/assets/sprites/items/trap-barricade.png");
     this.load.image("trap-landmine", "/assets/sprites/items/trap-landmine.png");
+
+    // Health/stamina bars (Pulsing Heart pack, split into halves)
+    this.load.image("ui-bar-hp-full", "/assets/sprites/ui/bar-full-red.png");
+    this.load.image("ui-bar-hp-empty", "/assets/sprites/ui/bar-empty-top.png");
+    this.load.image("ui-bar-st-full", "/assets/sprites/ui/bar-full-blue.png");
+    this.load.image("ui-bar-st-empty", "/assets/sprites/ui/bar-empty-bot.png");
 
     // HUD UI sprites
     this.load.image("ui-icon-heart", "/assets/sprites/ui/horror/icon-heart.png");
@@ -167,19 +174,17 @@ export class BootScene extends Phaser.Scene {
     this.load.audio("sfx-grunt", "/assets/audio/melee/grunt-effort.wav");
     // Player
     this.load.audio("sfx-player-grunt", "/assets/audio/player/player-grunt.wav");
-    // Enemies (expanded death pool)
-    this.load.audio("sfx-enemy-death1", "/assets/audio/enemies/enemy-death-retro.wav");
-    this.load.audio("sfx-enemy-death2", "/assets/audio/enemies/enemy-horror-moan.wav");
-    this.load.audio("sfx-enemy-death3", "/assets/audio/enemies/wilhelm-1.wav");
-    this.load.audio("sfx-enemy-death4", "/assets/audio/enemies/wilhelm-2.wav");
-    this.load.audio("sfx-enemy-death5", "/assets/audio/enemies/death-scream-deep.wav");
-    this.load.audio("sfx-enemy-death6", "/assets/audio/enemies/death-scream-intense.wav");
-    this.load.audio("sfx-enemy-death7", "/assets/audio/enemies/enemy-death-grunt.wav");
-    this.load.audio("sfx-enemy-death8", "/assets/audio/enemies/enemy-death-retro-2.wav");
-    this.load.audio("sfx-enemy-death9", "/assets/audio/enemies/enemy-horror-moan-2.wav");
-    this.load.audio("sfx-enemy-death10", "/assets/audio/enemies/wilhelm-scream-3.wav");
-    this.load.audio("sfx-enemy-death11", "/assets/audio/enemies/wilhelm-scream-4.wav");
-    this.load.audio("sfx-enemy-death12", "/assets/audio/enemies/male-scream.wav");
+    this.load.audio("sfx-player-panting", "/assets/audio/player/player-panting.wav");
+    // Enemies — zombie groans as death sounds
+    this.load.audio("sfx-enemy-death1", "/assets/audio/enemies/zombie-death-1.wav");
+    this.load.audio("sfx-enemy-death2", "/assets/audio/enemies/zombie-death-2.wav");
+    this.load.audio("sfx-enemy-death3", "/assets/audio/enemies/zombie-death-3.wav");
+    this.load.audio("sfx-enemy-death4", "/assets/audio/enemies/zombie-death-4.wav");
+    this.load.audio("sfx-enemy-death5", "/assets/audio/enemies/zombie-death-5.wav");
+    this.load.audio("sfx-enemy-death6", "/assets/audio/enemies/zombie-death-6.wav");
+    this.load.audio("sfx-enemy-death7", "/assets/audio/enemies/zombie-death-7.wav");
+    this.load.audio("sfx-enemy-death8", "/assets/audio/enemies/zombie-death-8.wav");
+    this.load.audio("sfx-gore-splat", "/assets/audio/enemies/gore-splat.wav");
     // Enemy bites (expanded)
     this.load.audio("sfx-bite", "/assets/audio/enemies/bite-chomp.wav");
     this.load.audio("sfx-zombie-bite", "/assets/audio/enemies/zombie-bite-1.wav");
@@ -301,6 +306,7 @@ export class BootScene extends Phaser.Scene {
           else if (anim.type === "light-cigarette") frameRate = 6;
           else if (anim.type === "bite") frameRate = 12;
           else if (anim.type === "death") frameRate = 20;
+          else if (anim.type === "gunshot-death") frameRate = 16;
           else if (anim.type === "leap") frameRate = 12;
 
           this.anims.create({

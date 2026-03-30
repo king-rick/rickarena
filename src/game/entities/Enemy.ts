@@ -47,9 +47,13 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private hasBiteAnim: boolean;
   private hasDeathAnim: boolean;
   private hasLeapAnim: boolean;
+  private hasTakingPunchAnim: boolean;
+  private hasFallingBackDeath: boolean;
+  private hasGunshotDeath: boolean;
   private biting = false;
   private leaping = false;
   private dying = false;
+  private takingPunch = false;
   private leapCooldown = 0; // ms until next leap allowed
   private baseTint: number;
   private stunTimer = 0; // ms remaining where enemy is slowed/stopped
@@ -63,7 +67,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     x: number,
     y: number,
     type: EnemyType,
-    waveMultiplier: number = 1
+    waveMultiplier: number = 1,
+    waveDamageMultiplier: number = 1
   ) {
     const isTank = type === "tank";
     const isFast = type === "fast";
@@ -76,7 +81,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.maxHealth = Math.floor(baseStats.hp * waveMultiplier);
     this.health = this.maxHealth;
     this.speed = baseStats.speed * (1 + (waveMultiplier - 1) * 0.5);
-    this.damage = Math.floor(baseStats.damage * waveMultiplier);
+    this.damage = Math.floor(baseStats.damage * waveDamageMultiplier);
     this.baseTint = VARIANT_TINTS[type];
 
     scene.add.existing(this);
@@ -106,6 +111,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.hasBiteAnim = hasAnimation(spriteId, "bite");
     this.hasDeathAnim = hasAnimation(spriteId, "death");
     this.hasLeapAnim = hasAnimation(spriteId, "leap");
+    this.hasTakingPunchAnim = hasAnimation(spriteId, "taking-punch");
+    this.hasFallingBackDeath = hasAnimation(spriteId, "falling-back-death");
+    this.hasGunshotDeath = hasAnimation(spriteId, "gunshot-death");
     this.leapCooldown = 2000 + Math.random() * 2000; // stagger initial leap timing
     this.lastX = x;
     this.lastY = y;
@@ -124,7 +132,11 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.stunTimer = Math.max(this.stunTimer, ms);
   }
 
-  takeDamage(amount: number): boolean {
+  /**
+   * @param amount damage to deal
+   * @param source "melee" for punches, "ranged" for bullets/projectiles
+   */
+  takeDamage(amount: number, source: "melee" | "ranged" = "melee"): boolean {
     this.health -= amount;
     this.hitFlashTimer = 100;
     this.setTint(0xffffff);
@@ -133,13 +145,36 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.stunTimer = this.enemyType === "fast" ? 400 : 200;
 
     if (this.health <= 0) {
-      this.die();
+      this.die(source);
       return true;
     }
+
+    // Play taking-punch reaction (creepyzombie only, non-lethal hits)
+    if (this.hasTakingPunchAnim && !this.takingPunch && !this.biting && !this.leaping) {
+      this.playTakingPunch();
+    }
+
     return false;
   }
 
-  private die() {
+  /** Play taking-punch flinch, then resume walk */
+  private playTakingPunch() {
+    this.takingPunch = true;
+    const key = getAnimKey(this.spriteId, "taking-punch", this.currentDir);
+    if (this.scene.anims.exists(key)) {
+      this.play(key);
+      this.once("animationcomplete", () => {
+        this.takingPunch = false;
+        if (this.hasWalkAnim && !this.biting && !this.dying) {
+          this.play(getAnimKey(this.spriteId, "walk", this.currentDir), true);
+        }
+      });
+    } else {
+      this.takingPunch = false;
+    }
+  }
+
+  private die(source: "melee" | "ranged" = "melee") {
     if (this.dying) return;
     this.dying = true;
 
@@ -169,24 +204,58 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     this.healthBarGfx.destroy();
 
-    // Play death animation if available, then destroy
-    if (this.hasDeathAnim) {
-      const deathKey = getAnimKey(this.spriteId, "death", this.currentDir);
-      if (this.scene.anims.exists(deathKey)) {
-        this.play(deathKey);
-        this.once("animationcomplete", () => {
-          // Fade out then destroy
-          this.scene.tweens.add({
-            targets: this,
-            alpha: 0,
-            duration: 300,
-            onComplete: () => this.destroy(),
-          });
+    // Pick death animation based on damage source
+    const deathAnim = this.pickDeathAnim(source);
+    if (deathAnim) {
+      this.play(deathAnim);
+      this.once("animationcomplete", () => {
+        this.scene.tweens.add({
+          targets: this,
+          alpha: 0,
+          duration: 300,
+          onComplete: () => this.destroy(),
         });
-        return;
+      });
+      return;
+    }
+
+    this.destroy();
+  }
+
+  /** Choose the best death animation for the damage source */
+  private pickDeathAnim(source: "melee" | "ranged"): string | null {
+    const dir = this.currentDir;
+
+    if (source === "melee") {
+      // Punch kill: falling-back-death only
+      if (this.hasFallingBackDeath) {
+        const key = getAnimKey(this.spriteId, "falling-back-death", dir);
+        if (this.scene.anims.exists(key)) return key;
+      }
+    } else {
+      // Gun kill: 2/3 gunshot-death, 1/3 falling-back-death
+      const useGunshot = Math.random() < 0.67;
+      if (useGunshot && this.hasGunshotDeath) {
+        const key = getAnimKey(this.spriteId, "gunshot-death", dir);
+        if (this.scene.anims.exists(key)) return key;
+      }
+      if (this.hasFallingBackDeath) {
+        const key = getAnimKey(this.spriteId, "falling-back-death", dir);
+        if (this.scene.anims.exists(key)) return key;
+      }
+      if (this.hasGunshotDeath) {
+        const key = getAnimKey(this.spriteId, "gunshot-death", dir);
+        if (this.scene.anims.exists(key)) return key;
       }
     }
-    this.destroy();
+
+    // Fallback: generic death animation
+    if (this.hasDeathAnim) {
+      const key = getAnimKey(this.spriteId, "death", dir);
+      if (this.scene.anims.exists(key)) return key;
+    }
+
+    return null;
   }
 
   /** Play bite animation when attacking the player */
@@ -304,7 +373,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     const newDir = angleToDirection(angle) as Direction;
     if (newDir !== this.currentDir) {
       this.currentDir = newDir;
-      if (!this.biting && !this.leaping) {
+      if (!this.biting && !this.leaping && !this.takingPunch) {
         if (this.hasWalkAnim) {
           this.play(getAnimKey(this.spriteId, "walk", newDir), true);
         } else {

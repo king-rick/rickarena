@@ -164,9 +164,19 @@ export class WaveManager {
     return Math.max(0, Math.ceil(remaining / 1000));
   }
 
-  /** Wave multiplier for enemy stat scaling: 1.0 at wave 1, +10% per wave */
+  /** Wave multiplier for enemy HP scaling */
+  getWaveHpMultiplier(): number {
+    return 1 + (this.wave - 1) * BALANCE.waves.hpScalePerWave;
+  }
+
+  /** Wave multiplier for enemy damage scaling */
+  getWaveDamageMultiplier(): number {
+    return 1 + (this.wave - 1) * BALANCE.waves.damageScalePerWave;
+  }
+
+  /** Legacy — used by Enemy constructor, returns HP multiplier */
   getWaveMultiplier(): number {
-    return 1 + (this.wave - 1) * BALANCE.waves.statScalePerWave;
+    return this.getWaveHpMultiplier();
   }
 
   /** Enemies still alive or waiting to spawn */
@@ -186,13 +196,13 @@ export class WaveManager {
     this.wave++;
     this.setState("active");
 
-    // Calculate enemy count for this wave
+    // Calculate enemy count — fewer enemies that are individually tougher
     const base = BALANCE.waves.baseEnemyCount;
     const perWave = BALANCE.waves.enemiesPerWave;
     const playerMod =
       BALANCE.waves.playerCountModifiers[this.playerCount - 1] || 1.0;
     this.totalWaveEnemies = Math.floor(
-      (base + this.wave * perWave) * playerMod
+      (base + Math.floor(this.wave * perWave)) * playerMod
     );
     this.enemiesToSpawn = this.totalWaveEnemies;
     this.enemiesAlive = 0;
@@ -257,9 +267,10 @@ export class WaveManager {
     }
 
     const type = this.pickEnemyType();
-    const waveMultiplier = this.getWaveMultiplier();
+    const hpMultiplier = this.getWaveHpMultiplier();
+    const dmgMultiplier = this.getWaveDamageMultiplier();
 
-    const enemy = new Enemy(this.scene, sx, sy, type, waveMultiplier);
+    const enemy = new Enemy(this.scene, sx, sy, type, hpMultiplier, dmgMultiplier);
     enemy.body.setCollideWorldBounds(true);
     this.enemies.add(enemy);
 
@@ -271,16 +282,18 @@ export class WaveManager {
     const w = this.wave;
     const roll = Math.random();
 
-    // Wave 6+: 50% basic, 25% fast, 25% tank
+    // Wave 6+: 35% basic, 45% dogs, 20% tanks
     if (w >= BALANCE.waves.tankVariantWave) {
-      if (roll < 0.50) return "basic";
-      if (roll < 0.75) return "fast";
+      const comp = BALANCE.waves.composition.full;
+      if (roll < comp.basic) return "basic";
+      if (roll < comp.basic + comp.fast) return "fast";
       return "tank";
     }
 
-    // Wave 4-5: 70% basic, 30% fast
-    if (w >= BALANCE.waves.fastVariantWave) {
-      if (roll < 0.70) return "basic";
+    // Wave 4-5: 60% basic, 40% dogs
+    if (w >= BALANCE.waves.dogVariantWave) {
+      const comp = BALANCE.waves.composition.dogsEarly;
+      if (roll < comp.basic) return "basic";
       return "fast";
     }
 

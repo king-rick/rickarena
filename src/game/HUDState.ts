@@ -50,6 +50,7 @@ export interface HUDData {
   // Ability
   abilityName: string;
   abilityCooldown: number;
+  abilityMaxCooldown: number;
   abilityKey: string;
 
   // Economy
@@ -132,6 +133,7 @@ const DEFAULT_STATE: HUDData = {
   mineCount: 0,
   abilityName: "",
   abilityCooldown: 0,
+  abilityMaxCooldown: 0,
   abilityKey: "R",
   kills: 0,
   currency: 0,

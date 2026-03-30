@@ -5,9 +5,9 @@ import { hudState } from "@/game/HUDState";
 import type { CanvasRect } from "./Game";
 import { ShopOverlay } from "./hud/ShopOverlay";
 import { MinimapBorder } from "./hud/MinimapBorder";
-import { HealthBar } from "./hud/HealthBar";
 import { TopStats } from "./hud/TopStats";
 import { WaveInfo } from "./hud/WaveInfo";
+import { AbilityIndicator } from "./hud/AbilityIndicator";
 import { WaveAnnouncement } from "./hud/WaveAnnouncement";
 import { Countdown } from "./hud/Countdown";
 import { PauseMenu } from "./hud/PauseMenu";
@@ -67,10 +67,6 @@ export function HUDOverlay({ canvasRect }: Props) {
             transition: "opacity 150ms ease-out",
           }}
         >
-          {/* Health bar — top left */}
-          <div style={{ position: "absolute", top: 16, left: 16 }}>
-            <HealthBar />
-          </div>
           {/* Kill counter + stats — top right */}
           <div style={{
             position: "absolute", top: 8, right: 8,
@@ -95,13 +91,17 @@ export function HUDOverlay({ canvasRect }: Props) {
             }} />
             <div style={{ position: "relative" }}><WaveInfo /></div>
           </div>
-          {/* Hotbar — bottom center */}
+          {/* Hotbar + Ability — bottom left */}
           <div style={{
             position: "absolute",
             bottom: 16,
             left: 16,
+            display: "flex",
+            alignItems: "flex-end",
+            gap: 12,
           }}>
             <Hotbar />
+            <AbilityIndicator />
           </div>
           {/* Minimap border */}
           <MinimapBorder canvasRect={canvasRect} />

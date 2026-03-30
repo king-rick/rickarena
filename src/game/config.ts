@@ -15,6 +15,9 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
     mouse: {
       preventDefaultDown: true,
     },
+    keyboard: {
+      target: typeof window !== "undefined" ? window : undefined,
+    },
   },
   physics: {
     default: "arcade",

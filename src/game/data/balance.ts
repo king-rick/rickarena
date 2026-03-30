@@ -20,39 +20,53 @@ export const BALANCE = {
     knockback: 100,
   },
 
-  // Wave system
+  // Wave system — fewer enemies, each one matters
   waves: {
-    intermissionEarlyMs: 10000, // 10s for waves 1-4
-    intermissionLateMs: 20000, // 20s from wave 5+
-    intermissionLateWave: 5, // wave where longer intermission kicks in
-    baseEnemyCount: 6,
-    enemiesPerWave: 3,
-    playerCountModifiers: [1.0, 1.5, 2.0, 2.5], // 1-4 players
-    statScalePerWave: 0.1, // 10% increase per wave
-    fastVariantWave: 4,
+    intermissionEarlyMs: 10000,
+    intermissionLateMs: 20000,
+    intermissionLateWave: 5,
+    // New formula: base + floor(wave * perWave)
+    baseEnemyCount: 4,
+    enemiesPerWave: 1.2,
+    playerCountModifiers: [1.0, 1.5, 2.0, 2.5],
+    // Slower stat scaling — fewer enemies but tougher
+    hpScalePerWave: 0.08,
+    damageScalePerWave: 0.05,
+    dogVariantWave: 4,
     tankVariantWave: 6,
-    spawnStaggerMs: 800, // ms between each enemy spawn within a wave
+    spawnStaggerMs: 1000,
+    // Wave composition (ratios by phase)
+    composition: {
+      // Waves 1-3: all basic
+      // Waves 4-5: basic + dogs
+      dogsEarly: { basic: 0.60, fast: 0.40, tank: 0 },
+      // Waves 6+: basic + dogs + tanks
+      full: { basic: 0.35, fast: 0.45, tank: 0.20 },
+    },
   },
 
-  // Economy — money should always be moderately tight
+  // Economy — tight early, loosens slightly mid-game
   economy: {
-    killReward: { basic: 10, fast: 20, tank: 40 },
-    priceInflationPerWave: 0.05,
+    killReward: { basic: 10, fast: 8, tank: 50 },
+    xpPerKill: { basic: 10, fast: 8, tank: 50 },
+    waveCompletionBonus: { base: 30, perWave: 10 }, // $30 + wave * $10
+    priceInflationPerWave: 0.10, // 10% per wave
+    interestRate: 0.05, // 5% interest on banked cash per intermission
+    interestCap: 50, // max $50 interest per wave
   },
 
   // Shop
   shop: {
     items: [
-      { id: "heal", name: "Bandages", desc: "Restore 50% HP", basePrice: 50 },
-      { id: "dmgBoost", name: "Adrenaline", desc: "+25% damage next wave", basePrice: 100 },
-      { id: "pistol", name: "Pistol", desc: "30 rounds, accurate", basePrice: 100, unlockWave: 1 },
-      { id: "shotgun", name: "Shotgun", desc: "16 shells, spread", basePrice: 300, unlockWave: 4 },
-      // SMG disabled pending balance pass — weapon data kept in BALANCE.weapons.smg
-      // { id: "smg", name: "SMG", desc: "60 rounds, rapid fire", basePrice: 450, unlockWave: 6 },
-      { id: "ammo", name: "Ammo Refill", desc: "Refill current weapon", basePrice: 75 },
-      { id: "extraClip", name: "Extra Clip", desc: "Double ammo capacity", basePrice: 150 },
+      { id: "heal", name: "Bandages", desc: "Heal 30 HP", basePrice: 40 },
+      { id: "medkit", name: "Medkit", desc: "Heal 80 HP", basePrice: 120 },
+      { id: "dmgBoost", name: "Adrenaline", desc: "+5 damage next wave", basePrice: 100 },
+      { id: "pistol", name: "Pistol", desc: "12 rounds, accurate", basePrice: 150, unlockWave: 1 },
+      { id: "shotgun", name: "Shotgun", desc: "8 shells, spread", basePrice: 350, unlockWave: 4 },
+      { id: "smg", name: "SMG", desc: "30 rounds, rapid fire", basePrice: 500, unlockWave: 7 },
+      { id: "ammo", name: "Ammo Refill", desc: "Refill current weapon", basePrice: 100 },
       { id: "barricade", name: "Barricade", desc: "Blocks enemies, 120 HP", basePrice: 60 },
-      { id: "landmine", name: "Landmine", desc: "AoE explosion on contact", basePrice: 75 },
+      { id: "landmine", name: "Landmine", desc: "AoE explosion on contact", basePrice: 80 },
     ],
   },
 
@@ -60,134 +74,139 @@ export const BALANCE = {
   weapons: {
     pistol: {
       name: "Pistol",
-      damage: 8,
-      fireRate: 350, // ms between shots
-      speed: 600, // projectile px/s
-      range: 350, // max travel distance
-      spread: 0, // degrees of random spread
+      damage: 10,
+      fireRate: 350,
+      speed: 600,
+      range: 350,
+      spread: 0,
       pellets: 1,
-      ammo: 30,
-      price: 100,
-      proficiency: "Pistols", // matches character weaponSpecialty
-      dropoff: 0.4, // 40% damage at max range
-      auto: false, // semi-auto: one shot per click
+      ammo: 12,
+      price: 150,
+      proficiency: "Pistols",
+      dropoff: 0.4,
+      auto: false,
     },
     shotgun: {
       name: "Shotgun",
-      damage: 8, // per pellet
+      damage: 12,
       fireRate: 700,
       speed: 400,
       range: 180,
-      spread: 18, // tight cone
+      spread: 18,
       pellets: 5,
-      ammo: 16,
-      price: 300,
+      ammo: 8,
+      price: 350,
       proficiency: "Shotguns",
-      dropoff: 0, // no dropoff, already short range
-      auto: false, // pump action: one blast per click
-      knockback: 80, // per pellet, stacks — shotgun creates space
+      dropoff: 0,
+      auto: false,
+      knockback: 80,
     },
     smg: {
       name: "SMG",
-      damage: 12, // shreds at close range
-      fireRate: 100, // faster fire rate
+      damage: 12,
+      fireRate: 100,
       speed: 500,
       range: 280,
-      spread: 5, // tight spray
+      spread: 5,
       pellets: 1,
-      ammo: 60,
-      price: 450,
-      proficiency: "Pistols", // PJ gets bonus here too
-      dropoff: 0.6, // heavy dropoff rewards close range
-      auto: true, // full auto: hold to spray
+      ammo: 30,
+      price: 500,
+      proficiency: "Pistols",
+      dropoff: 0.6,
+      auto: true,
     },
   },
   proficiencyBonus: {
-    damageMultiplier: 1.3, // +30% damage with specialty weapon
-    reloadSpeedMultiplier: 0.7, // 30% faster reload
-    ammoBonus: 1.25, // 25% more starting ammo
-    critBonus: 0.03, // +3% crit chance with specialty weapon
-    generalistMultiplier: 1.1, // Dan: +10% damage with everything
-    generalistCritBonus: 0.02, // Dan: +2% crit with everything
+    damageMultiplier: 1.3,
+    reloadSpeedMultiplier: 0.7,
+    ammoBonus: 1.25,
+    critBonus: 0.03,
+    generalistMultiplier: 1.1,
+    generalistCritBonus: 0.02,
   },
 
   // Critical hits
   crit: {
-    damageMultiplier: 2.0, // crits do 2x damage
-    // Per-weapon base crit chance
+    damageMultiplier: 2.0,
     weaponCrit: {
-      pistol: 0.05, // 5% — precise weapon
-      shotgun: 0.02, // 2% per pellet — low individually but 5 rolls
-      smg: 0.03, // 3% — lots of rolls
-      fists: 0.04, // 4% — base melee
+      pistol: 0.05,
+      shotgun: 0.02,
+      smg: 0.03,
+      fists: 0.04,
     },
-    // Distance bonus: closer = higher crit (max bonus at point blank)
-    closeCritBonus: 0.05, // +5% at point blank, scales to 0% at max range
+    closeCritBonus: 0.05,
   },
 
-  // Traps (placeable during intermission)
+  // Traps
   traps: {
     spikes: {
       name: "Spike Trap",
-      damage: 50, // heavy damage
-      uses: 6, // more uses
-      slowDuration: 800, // ms enemies are slowed after hitting
+      damage: 50,
+      uses: 6,
+      slowDuration: 800,
       price: 40,
     },
     barricade: {
       name: "Barricade",
-      hp: 120, // buffed from 80
+      hp: 120,
       price: 60,
     },
     landmine: {
       name: "Landmine",
-      damage: 80, // buffed from 50
-      radius: 100, // buffed from 80
-      price: 75,
+      damage: 80,
+      radius: 100,
+      price: 80,
     },
-    maxPerType: 5, // max of each trap type on the field
-    placementRange: 60, // must be this far from player to prevent stacking on self
+    maxPerType: 5,
+    placementRange: 60,
   },
 
-  // Speed cap — max multiplier from buffs (2.5x base speed)
+  // Speed cap
   maxSpeedMultiplier: 2.5,
 
-  // RPG Leveling
+  // RPG Leveling — flat bonuses, not percentages
   leveling: {
-    xpPerKill: { basic: 10, fast: 18, tank: 35 },
-    xpFormula: { base: 150, perLevel: 75 }, // XP_needed = base + (level * perLevel) — slow grind
+    xpFormula: { base: 80, perLevel: 50 }, // First level-up at 80 XP (wave 1)
+    buffChoices: 3, // 3 options per level-up
     buffs: {
       strength: {
-        basic:    { name: "Strong Arm",        desc: "+15% damage",         mult: 1.15, minLevel: 1 },
-        advanced: { name: "Heavy Hitter",      desc: "+25% damage",         mult: 1.25, minLevel: 5 },
-        elite:    { name: "Devastating Force",  desc: "+35% damage",        mult: 1.35, minLevel: 9 },
+        basic:    { name: "Strong Arm",        desc: "+3 damage",          flat: 3,  minLevel: 1 },
+        advanced: { name: "Heavy Hitter",      desc: "+5 damage",          flat: 5,  minLevel: 5 },
+        elite:    { name: "Devastating Force",  desc: "+8 damage",         flat: 8,  minLevel: 9 },
       },
       health: {
-        basic:    { name: "Tough Skin",         desc: "+20% max HP",        mult: 1.20, minLevel: 1 },
-        advanced: { name: "Iron Constitution",  desc: "+30% max HP",        mult: 1.30, minLevel: 5 },
-        elite:    { name: "Unkillable",         desc: "+40% max HP",        mult: 1.40, minLevel: 9 },
+        basic:    { name: "Tough Skin",         desc: "+20 max HP",        flat: 20, minLevel: 1 },
+        advanced: { name: "Iron Constitution",  desc: "+35 max HP",        flat: 35, minLevel: 5 },
+        elite:    { name: "Unkillable",         desc: "+50 max HP",        flat: 50, minLevel: 9 },
       },
       stamina: {
-        basic:    { name: "Second Wind",   desc: "+20% stamina, +15% regen", mult: 1.20, regenMult: 1.15, minLevel: 1 },
-        advanced: { name: "Endurance",     desc: "+30% stamina, +25% regen", mult: 1.30, regenMult: 1.25, minLevel: 5 },
-        elite:    { name: "Perpetual Motion", desc: "+40% stamina, +35% regen", mult: 1.40, regenMult: 1.35, minLevel: 9 },
+        basic:    { name: "Second Wind",   desc: "+15 stamina, +1 regen",  flat: 15, regenFlat: 1,  minLevel: 1 },
+        advanced: { name: "Endurance",     desc: "+25 stamina, +2 regen",  flat: 25, regenFlat: 2,  minLevel: 5 },
+        elite:    { name: "Perpetual Motion", desc: "+40 stamina, +3 regen", flat: 40, regenFlat: 3, minLevel: 9 },
       },
       speed: {
-        basic:    { name: "Quick Feet", desc: "+12% speed",  mult: 1.12, minLevel: 1 },
-        advanced: { name: "Fleet",      desc: "+20% speed", mult: 1.20, minLevel: 5 },
-        elite:    { name: "Blur",       desc: "+30% speed", mult: 1.30, minLevel: 9 },
+        basic:    { name: "Quick Feet", desc: "+8 speed",   flat: 8,  minLevel: 1 },
+        advanced: { name: "Fleet",      desc: "+15 speed",  flat: 15, minLevel: 5 },
+        elite:    { name: "Blur",       desc: "+22 speed",  flat: 22, minLevel: 9 },
       },
       luck: {
-        basic:    { name: "Lucky Strike", desc: "+5% crit chance", flatCrit: 0.05, minLevel: 1 },
+        basic:    { name: "Lucky Strike",    desc: "+3% crit",   flatCrit: 0.03, minLevel: 1 },
+        advanced: { name: "Sharp Eye",       desc: "+6% crit",   flatCrit: 0.06, minLevel: 5 },
+        elite:    { name: "Death's Touch",   desc: "+10% crit",  flatCrit: 0.10, minLevel: 9 },
+      },
+      scavenger: {
+        basic:    { name: "Scavenger",      desc: "+15% kill $",  killBonus: 0.15, minLevel: 1 },
+        advanced: { name: "Looter",         desc: "+25% kill $",  killBonus: 0.25, minLevel: 5 },
+        elite:    { name: "War Profiteer",  desc: "+40% kill $",  killBonus: 0.40, minLevel: 9 },
       },
     },
-    categoryWeights: { strength: 25, health: 25, stamina: 20, speed: 15, luck: 15 } as Record<string, number>,
+    categoryWeights: { strength: 22, health: 22, stamina: 18, speed: 14, luck: 12, scavenger: 12 } as Record<string, number>,
   },
 
-  // Enemy base stats
+  // Enemy base stats — fewer but stronger
   enemies: {
-    basic: { hp: 20, damage: 10, speed: 45 },
-    fast: { hp: 15, damage: 8, speed: 100 },
-    tank: { hp: 90, damage: 18, speed: 40 },
+    basic: { hp: 30, damage: 15, speed: 45 },
+    fast:  { hp: 12, damage: 4,  speed: 120, attackCooldown: 400 },  // dog: glass cannon, fast bites
+    tank:  { hp: 200, damage: 25, speed: 30, knockbackResist: 0.7 }, // brute: slow, tanky, hits hard
   },
 } as const;

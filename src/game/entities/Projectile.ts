@@ -1,14 +1,13 @@
 import Phaser from "phaser";
 
-/** Generate a clean tiny bullet texture at runtime */
+/** Generate a clean tiny bullet texture at runtime (fallback) */
 export function ensureBulletTexture(scene: Phaser.Scene) {
   if (scene.textures.exists("bullet-small")) return;
   const gfx = scene.add.graphics();
-  // 6x3 bright yellow/white bullet
   gfx.fillStyle(0xffffcc, 1);
   gfx.fillRect(0, 0, 6, 3);
   gfx.fillStyle(0xffffff, 1);
-  gfx.fillRect(1, 1, 4, 1); // bright center line
+  gfx.fillRect(1, 1, 4, 1);
   gfx.generateTexture("bullet-small", 6, 3);
   gfx.destroy();
 }
@@ -38,7 +37,9 @@ export class Projectile extends Phaser.Physics.Arcade.Image {
     dropoff: number = 0,
     weaponType: string = "pistol"
   ) {
-    super(scene, x, y, "bullet-small");
+    // Use fire bullet sprite for guns, fallback to runtime texture for others
+    const isGun = weaponType === "pistol" || weaponType === "shotgun" || weaponType === "smg";
+    super(scene, x, y, isGun ? "bullet-fire" : "bullet-small");
 
     this.baseDamage = damage;
     this.damage = damage;
@@ -52,6 +53,9 @@ export class Projectile extends Phaser.Physics.Arcade.Image {
 
     this.setDepth(50);
     this.setRotation(angle);
+    if (isGun) {
+      this.setScale(0.1);
+    }
   }
 
   /** Call after adding to physics group to apply velocity */
