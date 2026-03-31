@@ -63,7 +63,7 @@ export const BALANCE = {
       { id: "dmgBoost", name: "Adrenaline", desc: "+5 damage next wave", basePrice: 100 },
       { id: "pistol", name: "Pistol", desc: "12 rounds, accurate", basePrice: 150, unlockWave: 1 },
       { id: "shotgun", name: "Shotgun", desc: "8 shells, spread", basePrice: 350, unlockWave: 4 },
-      { id: "smg", name: "SMG", desc: "30 rounds, rapid fire", basePrice: 500, unlockWave: 7 },
+      { id: "smg", name: "SMG", desc: "50 rounds, rapid fire", basePrice: 500, unlockWave: 7 },
       { id: "ammo", name: "Ammo Refill", desc: "Refill current weapon", basePrice: 100 },
       { id: "barricade", name: "Barricade", desc: "Blocks enemies, 120 HP", basePrice: 60 },
       { id: "landmine", name: "Landmine", desc: "AoE explosion on contact", basePrice: 80 },
@@ -109,7 +109,7 @@ export const BALANCE = {
       range: 280,
       spread: 5,
       pellets: 1,
-      ammo: 30,
+      ammo: 50,
       price: 500,
       proficiency: "Pistols",
       dropoff: 0.6,
@@ -205,7 +205,7 @@ export const BALANCE = {
 
   // Enemy base stats — fewer but stronger
   enemies: {
-    basic: { hp: 30, damage: 15, speed: 45 },
+    basic: { hp: 45, damage: 20, speed: 50 },
     fast:  { hp: 12, damage: 4,  speed: 120, attackCooldown: 400 },  // dog: glass cannon, fast bites
     tank:  { hp: 200, damage: 25, speed: 30, knockbackResist: 0.7 }, // brute: slow, tanky, hits hard
   },

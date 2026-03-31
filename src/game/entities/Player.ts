@@ -4,7 +4,7 @@ import { BALANCE } from "../data/balance";
 import { hasAnimation, getAnimKey } from "../data/animations";
 
 export type Facing = "down" | "up" | "left" | "right";
-type PlayerAnim = "walk" | "breathing-idle" | "idle" | "cross-punch" | "taking-punch" | "falling-back-death" | "shooting-pistol" | "shooting-shotgun" | "high-kick" | "swinging-katana" | "throw-grenade";
+type PlayerAnim = "walk" | "breathing-idle" | "idle" | "cross-punch" | "taking-punch" | "falling-back-death" | "shooting-pistol" | "shooting-shotgun" | "shooting-smg" | "high-kick" | "swinging-katana" | "throw-grenade";
 
 export interface PlayerStats {
   speed: number;
@@ -53,6 +53,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private hasDeathAnim: boolean;
   private punching = false;
   private shooting = false; // true during shoot animation — doesn't block movement
+  private holdingShoot = false; // true for auto weapons holding last frame
   private locked = false; // true during hurt/death — blocks all input
 
   /** True while punch animation is active — grants i-frames */
@@ -323,9 +324,10 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     const animMap: Record<string, string> = {
       pistol: "shooting-pistol",
       shotgun: "shooting-shotgun",
-      smg: "shooting-pistol", // SMG reuses pistol animation
+      smg: "shooting-smg",
     };
 
+    const isAuto = weaponType === "smg";
     const animType = animMap[weaponType];
     if (!animType || !hasAnimation(this.characterId, animType)) return;
 
@@ -333,19 +335,70 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     if (!this.scene.anims.exists(shootKey)) return;
 
     this.shooting = true;
+    this.holdingShoot = isAuto;
     this.currentAnim = animType as PlayerAnim;
+
+    // For auto weapons, don't restart if already in shoot pose
+    if (isAuto && this.anims.currentAnim?.key === shootKey) {
+      return;
+    }
 
     this.off("animationcomplete", this.handleShootComplete, this);
     try {
       this.play(shootKey);
     } catch {
       this.shooting = false;
+      this.holdingShoot = false;
       return;
     }
-    this.once("animationcomplete", this.handleShootComplete, this);
+
+    if (isAuto) {
+      // For auto weapons, let animation play to ~60% (gun peak), then hold
+      const anim = this.anims.currentAnim;
+      if (anim) {
+        const peakIdx = Math.floor(anim.frames.length * 0.6);
+        const peakFrame = anim.frames[peakIdx];
+        // Wait a bit for the animation to reach the peak, then freeze
+        const msToReachPeak = (peakIdx / (anim.frameRate || 16)) * 1000;
+        this.scene.time.delayedCall(msToReachPeak, () => {
+          if (this.holdingShoot && this.anims.currentAnim?.key === shootKey) {
+            this.anims.pause(peakFrame);
+          }
+        });
+      }
+    } else {
+      this.once("animationcomplete", this.handleShootComplete, this);
+    }
+  }
+
+  /** Release the held shoot pose (called on trigger release) */
+  stopHoldShoot() {
+    if (!this.holdingShoot) return;
+    this.holdingShoot = false;
+    this.shooting = false;
+    this.currentAnim = "idle";
+
+    const vx = this.body?.velocity?.x ?? 0;
+    const vy = this.body?.velocity?.y ?? 0;
+    const isMoving = Math.abs(vx) > 1 || Math.abs(vy) > 1;
+
+    if (isMoving && this.hasWalkAnim) {
+      this.currentAnim = "walk";
+      this.play(getAnimKey(this.characterId, "walk", this.currentDir), true);
+    } else if (this.hasIdleAnim) {
+      this.play(getAnimKey(this.characterId, "breathing-idle", this.currentDir), true);
+    } else {
+      this.setTexture(`${this.characterId}-${this.currentDir}`);
+    }
   }
 
   private handleShootComplete = () => {
+    // Auto weapons: hold on last frame while trigger is held
+    if (this.holdingShoot) {
+      this.anims.pause();
+      return;
+    }
+
     this.shooting = false;
     this.currentAnim = "idle";
 

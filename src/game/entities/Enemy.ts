@@ -27,7 +27,7 @@ const VARIANT_TINTS: Record<EnemyType, number> = {
 
 const VARIANT_SCALES: Record<EnemyType, number> = {
   basic: 0.28,
-  fast: 0.2,
+  fast: 0.4,
   tank: 0.25,
 };
 
@@ -45,6 +45,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private currentDir: Direction = "south";
   private hasWalkAnim: boolean;
   private hasBiteAnim: boolean;
+  private hasLungeBiteAnim: boolean;
   private hasDeathAnim: boolean;
   private hasLeapAnim: boolean;
   private hasTakingPunchAnim: boolean;
@@ -54,6 +55,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private leaping = false;
   private dying = false;
   private takingPunch = false;
+  private leapBiteCombo = false; // true when leap chains into bite for 1.5x damage
   private leapCooldown = 0; // ms until next leap allowed
   private baseTint: number;
   private stunTimer = 0; // ms remaining where enemy is slowed/stopped
@@ -109,6 +111,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     this.hasWalkAnim = hasAnimation(spriteId, "walk");
     this.hasBiteAnim = hasAnimation(spriteId, "bite");
+    this.hasLungeBiteAnim = hasAnimation(spriteId, "lunge-bite");
     this.hasDeathAnim = hasAnimation(spriteId, "death");
     this.hasLeapAnim = hasAnimation(spriteId, "leap");
     this.hasTakingPunchAnim = hasAnimation(spriteId, "taking-punch");
@@ -258,39 +261,69 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     return null;
   }
 
-  /** Play bite animation when attacking the player */
+  /** Get effective damage (1.5x during leap+bite combo) */
+  getEffectiveDamage(): number {
+    if (this.leapBiteCombo) {
+      return Math.floor(this.damage * 1.5);
+    }
+    return this.damage;
+  }
+
+  /** Play bite animation when attacking the player (randomly picks lunge-bite variant) */
   playBite() {
     if (!this.hasBiteAnim || this.biting) return;
 
     this.biting = true;
-    const biteKey = getAnimKey(this.spriteId, "bite", this.currentDir);
+
+    // Randomly pick between bite and lunge-bite if both available
+    const useLunge = this.hasLungeBiteAnim && Math.random() < 0.5;
+    const animType = useLunge ? "lunge-bite" : "bite";
+    const biteKey = getAnimKey(this.spriteId, animType, this.currentDir);
 
     if (this.scene.anims.exists(biteKey)) {
       this.off("animationcomplete", this.handleBiteComplete, this);
       this.play(biteKey);
       this.once("animationcomplete", this.handleBiteComplete, this);
     } else {
-      this.biting = false;
+      // Fallback to regular bite
+      const fallbackKey = getAnimKey(this.spriteId, "bite", this.currentDir);
+      if (this.scene.anims.exists(fallbackKey)) {
+        this.off("animationcomplete", this.handleBiteComplete, this);
+        this.play(fallbackKey);
+        this.once("animationcomplete", this.handleBiteComplete, this);
+      } else {
+        this.biting = false;
+        this.leapBiteCombo = false;
+      }
     }
   }
 
   private handleBiteComplete = () => {
     this.biting = false;
+    this.leapBiteCombo = false;
     // Resume walk animation
     if (this.hasWalkAnim) {
       this.play(getAnimKey(this.spriteId, "walk", this.currentDir), true);
     }
   };
 
-  /** Start a lunge attack toward the player */
-  private startLeap(angle: number) {
+  /** Start a leap attack toward the player. May combo into bite for extra damage. */
+  private startLeap(angle: number, dist: number) {
     if (this.leaping || this.biting || this.dying) return;
 
     this.leaping = true;
     this.leapCooldown = 3000 + Math.random() * 2000; // 3-5s cooldown
 
-    // Leap animation disabled (visually broken — needs new sprite work).
-    // Dogs still lunge mechanically using walk anim at higher speed.
+    // Decide if this leap combos into a bite (closer = more likely)
+    // Under 80px: 60% combo, 80-120px: 30% combo
+    const comboChance = dist < 80 ? 0.6 : 0.3;
+    const willCombo = Math.random() < comboChance;
+
+    // Play leap animation
+    const leapKey = getAnimKey(this.spriteId, "leap", this.currentDir);
+    if (this.scene.anims.exists(leapKey)) {
+      this.play(leapKey);
+    }
 
     // Lunge forward at 2.5x speed
     const leapSpeed = this.speed * 2.5;
@@ -303,7 +336,12 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.scene.time.delayedCall(300, () => {
       if (!this.active) return;
       this.leaping = false;
-      if (this.hasWalkAnim && !this.biting && !this.dying) {
+
+      if (willCombo && !this.dying) {
+        // Leap+bite combo: play bite with 1.5x damage flag
+        this.leapBiteCombo = true;
+        this.playBite();
+      } else if (this.hasWalkAnim && !this.biting && !this.dying) {
         this.play(getAnimKey(this.spriteId, "walk", this.currentDir), true);
       }
     });
@@ -358,7 +396,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     // Leap attack — dogs lunge when within range and off cooldown
     if (this.hasLeapAnim && !this.leaping && !this.biting && this.stunTimer <= 0
         && this.leapCooldown <= 0 && dist > 40 && dist < 120) {
-      this.startLeap(angle);
+      this.startLeap(angle, dist);
     }
 
     if (this.stunTimer <= 0 && !this.leaping) {

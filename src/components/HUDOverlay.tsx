@@ -14,6 +14,8 @@ import { PauseMenu } from "./hud/PauseMenu";
 import { LevelUpOverlay } from "./hud/LevelUpOverlay";
 import { GameOverOverlay } from "./hud/GameOverOverlay";
 import { Hotbar } from "./hud/Hotbar";
+import { HealthBar } from "./hud/HealthBar";
+import { StaminaBar } from "./hud/StaminaBar";
 
 interface Props {
   canvasRect: CanvasRect;
@@ -67,6 +69,14 @@ export function HUDOverlay({ canvasRect }: Props) {
             transition: "opacity 150ms ease-out",
           }}
         >
+          {/* Health + Stamina bars — top left */}
+          <div style={{
+            position: "absolute", top: 12, left: 12,
+            display: "flex", flexDirection: "column", gap: 4,
+          }}>
+            <HealthBar />
+            <StaminaBar />
+          </div>
           {/* Kill counter + stats — top right */}
           <div style={{
             position: "absolute", top: 8, right: 8,
@@ -98,7 +108,7 @@ export function HUDOverlay({ canvasRect }: Props) {
             left: 16,
             display: "flex",
             alignItems: "flex-end",
-            gap: 12,
+            gap: 8,
           }}>
             <Hotbar />
             <AbilityIndicator />

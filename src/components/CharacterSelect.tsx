@@ -70,10 +70,9 @@ export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Pro
   if (!menuVisible) return null;
 
   const char = CHARACTERS[charIndex] || CHARACTERS[0];
-
-  // Scale everything relative to container height
   const h = canvasRect.height;
-  const s = h / 900; // design height baseline
+  const w = canvasRect.width;
+  const s = Math.min(h / 700, w / 1000); // scale to fill more of the screen
 
   return (
     <div
@@ -87,202 +86,260 @@ export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Pro
         background: "#080810",
         fontFamily: BODY,
         overflow: "hidden",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 0,
       }}
     >
-      {/* Title */}
-      <span
-        style={{
-          fontFamily: DISPLAY,
-          fontSize: Math.round(90 * s),
-          color: "#ff2244",
-          letterSpacing: "0.08em",
-          textShadow: "0 0 30px rgba(255, 34, 68, 0.5), 0 0 60px rgba(255, 34, 68, 0.2)",
-          marginBottom: Math.round(12 * s),
-          lineHeight: 1.2,
-        }}
-      >
-        RICKARENA
-      </span>
-
-      {/* Main content — sprite panel + arrows */}
-      <div
-        className="flex items-center justify-center"
-        style={{ gap: Math.round(30 * s), marginBottom: Math.round(12 * s) }}
-      >
-        {/* Left arrow */}
-        <button
-          onClick={handlePrev}
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            fontSize: Math.round(44 * s),
-            color: "#ff4466",
-            padding: "0 8px",
-            fontFamily: BODY,
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = "#ff6688")}
-          onMouseLeave={(e) => (e.currentTarget.style.color = "#ff4466")}
-        >
-          &#9664;
-        </button>
-
-        {/* Sprite panel */}
-        <div
-          style={{
-            width: Math.round(260 * s),
-            height: Math.round(280 * s),
-            backgroundImage: "url(/assets/sprites/ui/horror/panel-frame.png)",
-            backgroundSize: "100% 100%",
-            imageRendering: "pixelated",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexShrink: 0,
-          }}
-        >
-          <AnimatedSprite charId={char.id} size={Math.round(180 * s)} />
-        </div>
-
-        {/* Right arrow */}
-        <button
-          onClick={handleNext}
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            fontSize: Math.round(44 * s),
-            color: "#ff4466",
-            padding: "0 8px",
-            fontFamily: BODY,
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = "#ff6688")}
-          onMouseLeave={(e) => (e.currentTarget.style.color = "#ff4466")}
-        >
-          &#9654;
-        </button>
-      </div>
-
-      {/* Character name */}
-      <span
-        style={{
-          fontFamily: DISPLAY,
-          fontSize: Math.round(56 * s),
-          color: "#ffffff",
-          letterSpacing: "0.06em",
-          textShadow: "0 0 16px rgba(255, 255, 255, 0.2)",
-          lineHeight: 1,
-          marginBottom: Math.round(4 * s),
-        }}
-      >
-        {char.name.toUpperCase()}
-      </span>
-
-      {/* Full name */}
-      <span
-        style={{
-          fontFamily: BODY,
-          fontSize: Math.round(16 * s),
-          color: "#555566",
-          letterSpacing: "0.15em",
-          marginBottom: Math.round(10 * s),
-        }}
-      >
-        {char.fullName}
-      </span>
-
-      {/* Dot indicators */}
-      <div className="flex items-center" style={{ gap: Math.round(12 * s), marginBottom: Math.round(14 * s) }}>
-        {CHARACTERS.map((c, i) => {
-          const dotSize = i === charIndex ? Math.round(14 * s) : Math.round(9 * s);
-          return (
-            <div
-              key={c.id}
-              style={{
-                width: dotSize,
-                height: dotSize,
-                borderRadius: "50%",
-                background: i === charIndex ? "#ff2244" : "#333344",
-                transition: "all 150ms ease",
-              }}
-            />
-          );
-        })}
-      </div>
-
-      {/* Ability card */}
+      {/* Backdrop tileset image — dark, tiled, atmospheric */}
       <div
         style={{
-          backgroundImage: "url(/assets/sprites/ui/horror/btn-a-normal.png)",
-          backgroundSize: "100% 100%",
+          position: "absolute",
+          inset: 0,
+          backgroundImage: "url(/assets/sprites/ui/tiles/splash-graveyard.png)",
+          backgroundSize: "cover",
+          backgroundPosition: "center",
           imageRendering: "pixelated",
-          padding: `${Math.round(10 * s)}px ${Math.round(32 * s)}px`,
+          opacity: 0.12,
+          filter: "brightness(0.5) saturate(0.3)",
+        }}
+      />
+      {/* Dark vignette overlay */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: "radial-gradient(ellipse at center, transparent 20%, rgba(8, 4, 16, 0.85) 70%, rgba(8, 4, 16, 1) 100%)",
+        }}
+      />
+
+      {/* Content layer */}
+      <div
+        style={{
+          position: "relative",
+          width: "100%",
+          height: "100%",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          gap: Math.round(3 * s),
-          marginBottom: Math.round(16 * s),
+          justifyContent: "center",
         }}
       >
-        <div className="flex items-center gap-2">
-          <span
-            style={{
-              fontFamily: DISPLAY,
-              fontSize: Math.round(12 * s),
-              color: "#ff4466",
-              border: "1px solid #ff4466",
-              padding: `${Math.round(2 * s)}px ${Math.round(6 * s)}px`,
-              letterSpacing: "0.05em",
-            }}
-          >
-            R
-          </span>
-          <span
-            style={{
-              fontFamily: DISPLAY,
-              fontSize: Math.round(22 * s),
-              color: "#ffffff",
-              textShadow: "0 0 8px rgba(255, 255, 255, 0.15)",
-            }}
-          >
-            {char.ability.name}
-          </span>
-        </div>
+        {/* Title */}
         <span
           style={{
-            fontFamily: BODY,
-            fontSize: Math.round(14 * s),
-            color: "#999999",
-            textAlign: "center",
-            maxWidth: Math.round(400 * s),
+            fontFamily: DISPLAY,
+            fontSize: Math.round(100 * s),
+            color: "#ff2244",
+            letterSpacing: "0.08em",
+            textShadow: "0 0 30px rgba(255, 34, 68, 0.5), 0 0 60px rgba(255, 34, 68, 0.2)",
+            marginBottom: Math.round(40 * s),
+            lineHeight: 1.2,
           }}
         >
-          {char.ability.desc}
+          RICKARENA
         </span>
-      </div>
 
-      {/* Enter prompt */}
-      <button
-        onClick={handleStart}
-        style={{
-          background: "none",
-          border: "none",
-          cursor: "pointer",
-          fontFamily: DISPLAY,
-          fontSize: Math.round(40 * s),
-          color: "#ff2244",
-          textShadow: "0 0 16px rgba(255, 34, 68, 0.5)",
-          animation: "pulse-glow 2.4s ease-in-out infinite",
-          padding: 0,
-        }}
-      >
-        ENTER TO PLAY
-      </button>
+        {/* Two-column layout: character left, info right */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: Math.round(64 * s),
+            marginBottom: Math.round(32 * s),
+            width: "100%",
+            maxWidth: Math.round(800 * s),
+          }}
+        >
+          {/* Left column — character sprite + arrows + name + dots */}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+            {/* Arrows + sprite */}
+            <div style={{ display: "flex", alignItems: "center", gap: Math.round(20 * s) }}>
+              <button
+                onClick={handlePrev}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: Math.round(44 * s),
+                  color: "#ff4466",
+                  padding: "0 8px",
+                  fontFamily: BODY,
+                  transition: "color 150ms ease",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = "#ff6688")}
+                onMouseLeave={(e) => (e.currentTarget.style.color = "#ff4466")}
+              >
+                &#9664;
+              </button>
+
+              <div
+                style={{
+                  width: Math.round(300 * s),
+                  height: Math.round(340 * s),
+                  background: "radial-gradient(ellipse at center, rgba(30, 16, 32, 0.6) 0%, transparent 70%)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <AnimatedSprite charId={char.id} size={Math.round(300 * s)} />
+              </div>
+
+              <button
+                onClick={handleNext}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: Math.round(44 * s),
+                  color: "#ff4466",
+                  padding: "0 8px",
+                  fontFamily: BODY,
+                  transition: "color 150ms ease",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = "#ff6688")}
+                onMouseLeave={(e) => (e.currentTarget.style.color = "#ff4466")}
+              >
+                &#9654;
+              </button>
+            </div>
+
+            {/* Character name */}
+            <span
+              style={{
+                fontFamily: DISPLAY,
+                fontSize: Math.round(56 * s),
+                color: "#ffffff",
+                letterSpacing: "0.06em",
+                textShadow: "0 0 16px rgba(255, 255, 255, 0.2)",
+                lineHeight: 1,
+                marginTop: Math.round(16 * s),
+              }}
+            >
+              {char.name.toUpperCase()}
+            </span>
+
+            {/* Dot indicators */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: Math.round(12 * s),
+                marginTop: Math.round(12 * s),
+              }}
+            >
+              {CHARACTERS.map((c, i) => {
+                const dotSize = i === charIndex ? Math.round(14 * s) : Math.round(9 * s);
+                return (
+                  <div
+                    key={c.id}
+                    style={{
+                      width: dotSize,
+                      height: dotSize,
+                      borderRadius: "50%",
+                      background: i === charIndex ? "#ff2244" : "#333344",
+                      boxShadow: i === charIndex ? "0 0 8px rgba(255, 34, 68, 0.5)" : "none",
+                      transition: "all 150ms ease",
+                    }}
+                  />
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Right column — ability info */}
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "flex-start",
+              gap: Math.round(14 * s),
+              minWidth: Math.round(240 * s),
+            }}
+          >
+            {/* Ability label */}
+            <span
+              style={{
+                fontFamily: BODY,
+                fontSize: Math.round(14 * s),
+                color: "#555566",
+                letterSpacing: "0.2em",
+                textTransform: "uppercase",
+              }}
+            >
+              Ability
+            </span>
+
+            {/* Ability name + key */}
+            <div style={{ display: "flex", alignItems: "center", gap: Math.round(12 * s) }}>
+              <span
+                style={{
+                  fontFamily: DISPLAY,
+                  fontSize: Math.round(14 * s),
+                  color: "#ff4466",
+                  border: "1px solid rgba(255, 68, 102, 0.5)",
+                  padding: `${Math.round(4 * s)}px ${Math.round(10 * s)}px`,
+                  letterSpacing: "0.05em",
+                  lineHeight: 1,
+                }}
+              >
+                R
+              </span>
+              <span
+                style={{
+                  fontFamily: DISPLAY,
+                  fontSize: Math.round(32 * s),
+                  color: "#ffffff",
+                  textShadow: "0 0 8px rgba(255, 255, 255, 0.15)",
+                  lineHeight: 1,
+                }}
+              >
+                {char.ability.name}
+              </span>
+            </div>
+
+            {/* Divider */}
+            <div
+              style={{
+                width: "100%",
+                height: 1,
+                background: "linear-gradient(90deg, rgba(255, 34, 68, 0.4), transparent)",
+              }}
+            />
+
+            {/* Ability description */}
+            <span
+              style={{
+                fontFamily: BODY,
+                fontSize: Math.round(16 * s),
+                color: "#888899",
+                lineHeight: 1.6,
+                maxWidth: Math.round(280 * s),
+              }}
+            >
+              {char.ability.desc}
+            </span>
+          </div>
+        </div>
+
+        {/* Enter prompt */}
+        <button
+          onClick={handleStart}
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            fontFamily: DISPLAY,
+            fontSize: Math.round(48 * s),
+            color: "#ff2244",
+            textShadow: "0 0 16px rgba(255, 34, 68, 0.5)",
+            animation: "pulse-glow 2.4s ease-in-out infinite",
+            padding: 0,
+          }}
+        >
+          ENTER TO PLAY
+        </button>
+      </div>
     </div>
   );
 });

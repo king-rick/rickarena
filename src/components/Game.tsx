@@ -74,10 +74,14 @@ export default function Game() {
     gameRef.current?.canvas?.focus();
   }, []);
 
-  // Refocus canvas whenever game container is clicked
-  // Also forward all keyboard events to canvas in case it loses focus
+  // Refocus canvas whenever game container is clicked (but not on HUD overlays)
   useEffect(() => {
-    const handler = () => refocusCanvas();
+    const handler = (e: MouseEvent) => {
+      // Don't steal focus from interactive HUD elements (sliders, buttons, etc.)
+      const target = e.target as HTMLElement;
+      if (target.closest("[data-hud-interactive]")) return;
+      refocusCanvas();
+    };
     const container = document.getElementById("game-container");
     container?.addEventListener("mousedown", handler);
     return () => container?.removeEventListener("mousedown", handler);

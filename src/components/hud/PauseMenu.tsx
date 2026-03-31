@@ -113,6 +113,7 @@ function SettingsPanel({ sfxVolume, zoomEnabled }: { sfxVolume: number; zoomEnab
 
   return (
     <div
+      data-hud-interactive
       className="relative flex flex-col"
       style={{
         width: 640,

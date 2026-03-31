@@ -3,11 +3,8 @@
 import { memo, useSyncExternalStore } from "react";
 import { hudState } from "@/game/HUDState";
 
-const NATIVE_W = 90;
-const NATIVE_H = 14;
-const SCALE = 3.5;
-const W = NATIVE_W * SCALE;
-const H = NATIVE_H * SCALE;
+const BAR_W = 200;
+const BAR_H = 24;
 
 export const HealthBar = memo(function HealthBar() {
   const health = useSyncExternalStore(hudState.subscribe, () => hudState.getField("health"));
@@ -17,33 +14,29 @@ export const HealthBar = memo(function HealthBar() {
   const low = pct < 0.25;
 
   return (
-    <div style={{ position: "relative", width: W, height: H }}>
-      {/* Empty track */}
-      <img
-        src="/assets/sprites/ui/bar-empty-top.png"
-        alt=""
-        style={{ position: "absolute", top: 0, left: 0, width: W, height: H, imageRendering: "pixelated" }}
-        draggable={false}
-      />
-      {/* Full bar — width scales with HP */}
-      <div style={{ position: "absolute", top: 0, left: 0, width: W * pct, height: H, overflow: "hidden", transition: "width 100ms linear" }}>
+    <div style={{ position: "relative", width: BAR_W, height: BAR_H }}>
+      {/* Red bar clipped by health % */}
+      <div style={{
+        position: "absolute", top: 0, left: 0,
+        width: BAR_W * pct, height: BAR_H,
+        overflow: "hidden",
+        transition: "width 120ms linear",
+      }}>
         <img
-          src="/assets/sprites/ui/bar-full-red.png"
+          src="/assets/sprites/ui/healthbar-full-red.png"
           alt=""
           style={{
-            width: W,
-            height: H,
+            width: BAR_W, height: BAR_H,
             imageRendering: "pixelated",
-            filter: low ? "brightness(1.3) saturate(1.5)" : "none",
+            filter: low ? "brightness(1.4) saturate(1.5)" : "none",
           }}
           draggable={false}
         />
       </div>
+      {/* Low health glow */}
       {low && (
         <div style={{
-          position: "absolute",
-          inset: 0,
-          borderRadius: 2,
+          position: "absolute", inset: 0,
           boxShadow: "0 0 8px rgba(255, 0, 0, 0.6), inset 0 0 4px rgba(255, 0, 0, 0.3)",
           pointerEvents: "none",
         }} />

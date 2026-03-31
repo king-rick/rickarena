@@ -162,7 +162,7 @@ const DEFAULT_STATE: HUDData = {
   zoomPercent: 100,
   zoomVisible: false,
   settingsOpen: false,
-  sfxVolume: 0.3,
+  sfxVolume: 0.5,
   zoomEnabled: false,
   levelUpActive: false,
   levelUpLevel: 1,

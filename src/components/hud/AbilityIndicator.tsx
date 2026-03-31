@@ -3,7 +3,7 @@
 import { memo, useSyncExternalStore } from "react";
 import { hudState } from "@/game/HUDState";
 
-const SIZE = 40;
+const SIZE = 32;
 
 export const AbilityIndicator = memo(function AbilityIndicator() {
   const cooldown = useSyncExternalStore(hudState.subscribe, () => hudState.getField("abilityCooldown"));
@@ -18,42 +18,68 @@ export const AbilityIndicator = memo(function AbilityIndicator() {
         position: "relative",
         width: SIZE,
         height: SIZE,
-        borderRadius: 4,
-        border: `2px solid ${ready ? "#ff4466" : "#333344"}`,
-        background: "#0a0a0a",
-        overflow: "hidden",
-        transition: "border-color 200ms ease",
-        boxShadow: ready ? "0 0 10px rgba(255, 68, 102, 0.5), 0 0 20px rgba(255, 68, 102, 0.2)" : "none",
-        animation: ready ? "ability-pulse 1.5s ease-in-out infinite" : "none",
+        marginBottom: 22,
       }}
     >
-      {/* Cooldown fill (fills bottom to top) */}
+      {/* Dark hourglass (background — always visible, dimmed) */}
+      <img
+        src="/assets/sprites/ui/hourglass.png"
+        alt=""
+        draggable={false}
+        style={{
+          position: "absolute",
+          width: SIZE,
+          height: SIZE,
+          imageRendering: "pixelated",
+          opacity: ready ? 0 : 0.15,
+          filter: "brightness(0.4)",
+        }}
+      />
+
+      {/* Filling hourglass — clipped from bottom up during cooldown */}
       {!ready && (
         <div
           style={{
             position: "absolute",
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: `${pct * 100}%`,
-            background: "linear-gradient(180deg, #ff4466 0%, #aa2244 100%)",
-            opacity: 0.4,
-            transition: "height 200ms linear",
+            width: SIZE,
+            height: SIZE,
+            clipPath: `inset(${(1 - pct) * 100}% 0 0 0)`,
+            transition: "clip-path 200ms linear",
           }}
-        />
+        >
+          <img
+            src="/assets/sprites/ui/hourglass.png"
+            alt=""
+            draggable={false}
+            style={{
+              width: SIZE,
+              height: SIZE,
+              imageRendering: "pixelated",
+              opacity: 0.6,
+              filter: "brightness(0.7)",
+            }}
+          />
+        </div>
       )}
-      {/* Ready state — full fill */}
+
+      {/* Ready state — fully lit hourglass with glow */}
       {ready && (
-        <div
+        <img
+          src="/assets/sprites/ui/hourglass.png"
+          alt=""
+          draggable={false}
           style={{
             position: "absolute",
-            inset: 0,
-            background: "linear-gradient(180deg, #ff4466 0%, #cc2244 100%)",
-            opacity: 0.3,
+            width: SIZE,
+            height: SIZE,
+            imageRendering: "pixelated",
+            filter: "brightness(1.4) drop-shadow(0 0 8px rgba(255, 68, 102, 0.9)) drop-shadow(0 0 16px rgba(255, 68, 102, 0.5))",
+            animation: "hourglass-glow 1.5s ease-in-out infinite",
           }}
         />
       )}
-      {/* Cooldown seconds text (only when on cooldown) */}
+
+      {/* Cooldown seconds */}
       {!ready && (
         <span
           style={{
@@ -63,18 +89,20 @@ export const AbilityIndicator = memo(function AbilityIndicator() {
             alignItems: "center",
             justifyContent: "center",
             fontFamily: "ChainsawCarnage, HorrorPixel, monospace",
-            fontSize: 16,
-            color: "#555566",
+            fontSize: 14,
+            color: "#aa3355",
+            textShadow: "0 0 4px rgba(0, 0, 0, 0.9)",
+            pointerEvents: "none",
           }}
         >
           {Math.ceil(cooldown)}
         </span>
       )}
-      {/* Inline keyframes */}
+
       <style>{`
-        @keyframes ability-pulse {
-          0%, 100% { box-shadow: 0 0 10px rgba(255, 68, 102, 0.5), 0 0 20px rgba(255, 68, 102, 0.2); }
-          50% { box-shadow: 0 0 16px rgba(255, 68, 102, 0.8), 0 0 30px rgba(255, 68, 102, 0.4); }
+        @keyframes hourglass-glow {
+          0%, 100% { filter: brightness(1.4) drop-shadow(0 0 8px rgba(255, 68, 102, 0.9)) drop-shadow(0 0 16px rgba(255, 68, 102, 0.5)); }
+          50% { filter: brightness(1.8) drop-shadow(0 0 14px rgba(255, 68, 102, 1)) drop-shadow(0 0 24px rgba(255, 68, 102, 0.7)); }
         }
       `}</style>
     </div>

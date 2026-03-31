@@ -49,6 +49,7 @@ export class GameScene extends Phaser.Scene {
   private maxAmmo = 0;
   private lastFireTime = 0;
   private fireHeld = false;
+  private dryFired = false; // true after empty click, reset on trigger release
   private hasExtraClip = false; // doubled ammo capacity for current weapon
   private projectiles!: Phaser.Physics.Arcade.Group;
 
@@ -85,7 +86,7 @@ export class GameScene extends Phaser.Scene {
   private minimap!: Phaser.Cameras.Scene2D.Camera;
   private minimapDot!: Phaser.GameObjects.Graphics;
   private settingsOpen = false;
-  private sfxVolume = 0.3;
+  private sfxVolume = 0.5;
   private musicVolume = 1;
   private sfxMuted = false;
   private musicMuted = false;
@@ -370,7 +371,7 @@ export class GameScene extends Phaser.Scene {
         this.fireHeld = true;
         if (!this.gameOver && !this.paused && !this.shopOpen) this.useActiveSlot();
       });
-      fKey.on("up", () => { this.fireHeld = false; });
+      fKey.on("up", () => { this.fireHeld = false; this.dryFired = false; this.player.stopHoldShoot(); });
 
       // E: cycle forward through hotbar
       const eKey = this.input.keyboard.addKey(
@@ -428,6 +429,8 @@ export class GameScene extends Phaser.Scene {
     this.input.on("pointerup", (pointer: Phaser.Input.Pointer) => {
       if (pointer.button === 2) {
         this.fireHeld = false;
+        this.dryFired = false;
+        this.player.stopHoldShoot();
       }
     });
 
@@ -718,10 +721,14 @@ export class GameScene extends Phaser.Scene {
   private lastFootstepTime = 0;
   private lastGroanTime = 0;
 
+  /** Normalized volume tiers to keep all SFX consistent regardless of source file levels.
+   *  Pass raw 0-1 volume — it gets scaled by master sfxVolume and clamped. */
   private playSound(key: string, volume = 0.5) {
     if (this.sfxMuted) return;
     if (this.cache.audio.exists(key)) {
-      this.sound.play(key, { volume: volume * this.sfxVolume });
+      // Clamp final volume to prevent any single sound from blowing out
+      const final = Math.min(volume * this.sfxVolume, 0.6);
+      this.sound.play(key, { volume: final });
     }
   }
 
@@ -1014,9 +1021,9 @@ export class GameScene extends Phaser.Scene {
       onComplete: () => arcGfx.destroy(),
     });
 
-    this.playSound("sfx-punch1", 0.6);
-    this.playSound("sfx-hit-classic", 0.5);
-    if (hits > 0) this.playSound("sfx-whoosh", 0.4);
+    this.playSound("sfx-punch1", 0.4);
+    this.playSound("sfx-hit-classic", 0.35);
+    if (hits > 0) this.playSound("sfx-whoosh", 0.3);
     this.showWeaponMessage("SUPERKICK!", "#ff4444");
   }
 
@@ -1180,8 +1187,8 @@ export class GameScene extends Phaser.Scene {
       onComplete: () => arcGfx.destroy(),
     });
 
-    this.playSound("sfx-whoosh", 0.5);
-    if (hits > 0) this.playSound("sfx-hit-classic", 0.5);
+    this.playSound("sfx-whoosh", 0.35);
+    if (hits > 0) this.playSound("sfx-hit-classic", 0.35);
     this.showWeaponMessage("KATANA SLASH!", "#eeeeff");
   }
 
@@ -1293,8 +1300,11 @@ export class GameScene extends Phaser.Scene {
   private fireWeapon() {
     if (!this.equippedWeapon) return;
     if (this.ammo <= 0) {
-      this.playSound("sfx-dryfire", 0.4);
-      this.showWeaponMessage("OUT OF AMMO", "#cc3333");
+      if (!this.dryFired) {
+        this.playSound("sfx-dryfire", 0.4);
+        this.showWeaponMessage("OUT OF AMMO", "#cc3333");
+        this.dryFired = true;
+      }
       return;
     }
 
@@ -1312,14 +1322,19 @@ export class GameScene extends Phaser.Scene {
       : isGeneralist ? BALANCE.proficiencyBonus.generalistMultiplier
       : 1;
 
+    // Spawn projectiles offset from player center so point-blank shots work
+    const spawnOffset = 24;
+    const spawnX = this.player.x + Math.cos(angle) * spawnOffset;
+    const spawnY = this.player.y + Math.sin(angle) * spawnOffset;
+
     for (let i = 0; i < weaponDef.pellets; i++) {
       const spreadRad = Phaser.Math.DegToRad(weaponDef.spread);
       const pelletAngle = angle + (Math.random() - 0.5) * spreadRad;
 
       const proj = new Projectile(
         this,
-        this.player.x,
-        this.player.y,
+        spawnX,
+        spawnY,
         pelletAngle,
         weaponDef.speed,
         Math.floor(weaponDef.damage * dmgMult),
@@ -1358,8 +1373,7 @@ export class GameScene extends Phaser.Scene {
     this.time.delayedCall(60, () => flash.destroy());
 
     if (this.ammo <= 0) {
-      this.playSound("sfx-dryfire", 0.4);
-      this.showWeaponMessage("OUT OF AMMO", "#cc3333");
+      // Don't auto-play dry fire here; let the next click trigger it once
     }
   }
 
@@ -1458,7 +1472,7 @@ export class GameScene extends Phaser.Scene {
 
       const shouldRemove = trap.trigger(enemy, this);
       if (trap.trapType === "landmine" && shouldRemove) {
-        this.playSound("sfx-explosion", 0.5);
+        this.playSound("sfx-explosion", 0.4);
       }
       if (shouldRemove) {
         trap.destroy();
@@ -1482,7 +1496,7 @@ export class GameScene extends Phaser.Scene {
       if (now - this.lastBarricadeHitTime < 500) return;
       this.lastBarricadeHitTime = now;
 
-      barricade.takeDamage(enemy.damage);
+      barricade.takeDamage(enemy.getEffectiveDamage());
     };
 
   private rollCrit(weaponKey: string, distanceRatio: number): boolean {
@@ -1577,7 +1591,7 @@ export class GameScene extends Phaser.Scene {
       this.lastDamageTime = now;
 
       const enemy = enemyObj as Enemy;
-      this.player.stats.health -= enemy.damage;
+      this.player.stats.health -= enemy.getEffectiveDamage();
       enemy.playBite();
       this.playBiteSound();
 

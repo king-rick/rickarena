@@ -13,6 +13,7 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "falling-back-death", frames: 7 },
     { type: "shooting-pistol", frames: 4 },
     { type: "shooting-shotgun", frames: 4 },
+    { type: "shooting-smg", frames: 9 },
     { type: "high-kick", frames: 7 },
   ],
   dan: [
@@ -23,6 +24,7 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "falling-back-death", frames: 7 },
     { type: "shooting-pistol", frames: 4 },
     { type: "shooting-shotgun", frames: 4 },
+    { type: "shooting-smg", frames: 9 },
     { type: "throw-grenade", frames: 4 },
   ],
   // mason: temporarily removed from roster (sprite rework)
@@ -34,6 +36,7 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "falling-back-death", frames: 7 },
     { type: "shooting-pistol", frames: 4 },
     { type: "shooting-shotgun", frames: 4 },
+    { type: "shooting-smg", frames: 16 },
     { type: "swinging-katana", frames: 4 },
   ],
   jason: [
@@ -44,11 +47,13 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "falling-back-death", frames: 7 },
     { type: "shooting-pistol", frames: 4 },
     { type: "shooting-shotgun", frames: 4 },
+    { type: "shooting-smg", frames: 9 },
     { type: "light-cigarette", frames: 4 },
   ],
   creepyzombie: [
     { type: "walk", frames: 8 },
     { type: "bite", frames: 4 },
+    { type: "lunge-bite", frames: 4 },
     { type: "death", frames: 17 },
     { type: "taking-punch", frames: 6 },
     { type: "falling-back-death", frames: 7 },

@@ -300,11 +300,13 @@ export class BootScene extends Phaser.Scene {
           else if (anim.type === "falling-back-death") frameRate = 10;
           else if (anim.type === "shooting-pistol") frameRate = 12;
           else if (anim.type === "shooting-shotgun") frameRate = 10;
+          else if (anim.type === "shooting-smg") frameRate = 16;
           else if (anim.type === "high-kick") frameRate = 16;
           else if (anim.type === "swinging-katana") frameRate = 14;
           else if (anim.type === "throw-grenade") frameRate = 10;
           else if (anim.type === "light-cigarette") frameRate = 6;
           else if (anim.type === "bite") frameRate = 12;
+          else if (anim.type === "lunge-bite") frameRate = 12;
           else if (anim.type === "death") frameRate = 20;
           else if (anim.type === "gunshot-death") frameRate = 16;
           else if (anim.type === "leap") frameRate = 12;

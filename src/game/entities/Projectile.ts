@@ -60,8 +60,8 @@ export class Projectile extends Phaser.Physics.Arcade.Image {
 
   /** Call after adding to physics group to apply velocity */
   launch() {
-    // Hitbox: 8px radius circle, centered on the tiny sprite
-    const r = 8;
+    // Larger hitbox so projectiles reliably overlap with enemy bodies
+    const r = 14;
     const sprW = this.width;
     const sprH = this.height;
     this.body.setCircle(r, sprW / 2 - r, sprH / 2 - r);
