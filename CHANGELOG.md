@@ -1,5 +1,33 @@
 # RickArena Changelog
 
+## 2026-03-31 — WaW Zombie Scaling + Combat Overhaul
+
+**WaW-style difficulty scaling:**
+- Zombie HP now scales linearly waves 1-9 (+25%/wave), then exponentially wave 10+ (1.1x/wave). Base zombie HP raised from 45 to 75.
+- Speed tiers: waves 1-3 all shamblers (35 speed), waves 4-6 mixed (40% shamble, 50% jog, 10% run), waves 7-9 mostly runners, wave 10+ swarm mode (85% runners at 95 speed).
+- Damage stays flat across all waves. Pressure comes from speed and volume, not per-hit damage.
+
+**Combat fixes:**
+- Point-blank melee: enemies overlapping the player (< 20px) now always get hit, bypassing the arc check. Knockback uses facing direction.
+- Point-blank guns: enemies within 30px take direct damage from all pellets instead of projectiles spawning behind them.
+- Punch range increased 50 → 70px, arc widened 100° → 120°.
+- Punch stamina cost reduced 15 → 8.
+- Shotgun buffed: 12dmg x 5 pellets → 22dmg x 6 pellets (132 max vs 60). Knockback 80 → 120.
+
+**Weapon specialties removed:**
+- All characters now have identical base stats. No proficiency damage/crit/ammo bonuses.
+- Character abilities are the only differentiator (Superkick, EMP, Katana, Smokescreen).
+
+**Map border:**
+- Fence border around map perimeter using barricade sprites with collision.
+- Road gaps at north, west, and south exits.
+- Tree wall road exclusion zones prevent trees from encroaching on roads.
+
+**UI/UX fixes:**
+- DevPanel wrapper no longer eats mouse clicks (was blocking left-click punch).
+- Settings volume slider and zoom toggle now update in real-time.
+- Enemy health bars shrunk (40x4 → 24x2 basic, 60x6 → 40x4 boss).
+
 ## 2026-03-29 (v2) — Session 1 Balance + Creepy Zombie
 
 **Balance fixes (from 3/28 Discord playtest):**

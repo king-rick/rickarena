@@ -116,6 +116,11 @@ export interface HUDData {
   gameOverCharName: string;
   leaderboard: LeaderboardEntry[];
   leaderboardHighlightId: number | null;
+
+  // Dev panel
+  devPanelOpen: boolean;
+  devMode: boolean;
+  devSpawningDisabled: boolean;
 }
 
 const DEFAULT_STATE: HUDData = {
@@ -173,6 +178,9 @@ const DEFAULT_STATE: HUDData = {
   gameOverCharName: "",
   leaderboard: [],
   leaderboardHighlightId: null,
+  devPanelOpen: false,
+  devMode: false,
+  devSpawningDisabled: false,
 };
 
 type Listener = () => void;
@@ -203,6 +211,10 @@ class HUDStateStore {
 
   registerGameOverAction(handler: ActionHandler) { this.gameOverAction = handler; }
   dispatchGameOverAction(action: string, payload?: any) { this.gameOverAction?.(action, payload); }
+
+  private devAction: ActionHandler | null = null;
+  registerDevAction(handler: ActionHandler) { this.devAction = handler; }
+  dispatchDevAction(action: string, payload?: any) { this.devAction?.(action, payload); }
 
   /** Called by Phaser every frame (or on change) to push new state */
   update(partial: Partial<HUDData>) {

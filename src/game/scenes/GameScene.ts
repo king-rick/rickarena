@@ -176,11 +176,14 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    // Obstacles group — must be created before fence so fence can register collision
+    this.obstacles = this.physics.add.staticGroup();
+
     // East tree wall — individual sprites so they overlap naturally
     this.spawnTreeWall();
 
-    // Obstacles — loaded from Tiled object layer
-    this.obstacles = this.physics.add.staticGroup();
+    // Fence border around the map perimeter
+    this.spawnFenceBorder();
     const collisionLayer = map.getObjectLayer("collision");
     if (collisionLayer) {
       for (const obj of collisionLayer.objects) {
@@ -487,8 +490,11 @@ export class GameScene extends Phaser.Scene {
             this.showWeaponMessage("DEV MODE ON", "#ff00ff");
           } else {
             this.player.invincible = false;
+            hudState.update({ devPanelOpen: false, devSpawningDisabled: false });
+            this.waveManager.spawningDisabled = false;
             this.showWeaponMessage("DEV MODE OFF", "#888888");
           }
+          hudState.update({ devMode: this.devMode });
         });
 
         // F1: give $9999
@@ -533,6 +539,53 @@ export class GameScene extends Phaser.Scene {
           this.player.invincible = !this.player.invincible;
           this.showWeaponMessage(this.player.invincible ? "DEV: GOD MODE ON" : "DEV: GOD MODE OFF", "#ff00ff");
         });
+
+        // F5: dev panel toggle
+        const f5 = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F5);
+        f5.on("down", () => {
+          if (!this.devMode) return;
+          const isOpen = hudState.getField("devPanelOpen");
+          hudState.update({ devPanelOpen: !isOpen });
+        });
+
+        // Register dev action handler
+        hudState.registerDevAction((action: string, payload?: any) => {
+          if (!this.devMode) return;
+          switch (action) {
+            case "closePanel":
+              hudState.update({ devPanelOpen: false });
+              break;
+            case "jumpToWave":
+              this.waveManager.devJumpToWave(payload as number);
+              this.showWeaponMessage(`DEV: JUMP TO WAVE ${payload}`, "#ff00ff");
+              break;
+            case "toggleSpawning":
+              this.waveManager.spawningDisabled = !this.waveManager.spawningDisabled;
+              hudState.update({ devSpawningDisabled: this.waveManager.spawningDisabled });
+              this.showWeaponMessage(
+                this.waveManager.spawningDisabled ? "DEV: SPAWNING OFF" : "DEV: SPAWNING ON",
+                "#ff00ff"
+              );
+              break;
+            case "killAll":
+              this.enemies.getChildren().forEach((e) => {
+                if (e.active) {
+                  (e as Enemy).takeDamage(999999);
+                  if (e.active) e.destroy();
+                }
+              });
+              (this.waveManager as any).enemiesToSpawn = 0;
+              (this.waveManager as any).enemiesAlive = 0;
+              this.showWeaponMessage("DEV: KILLED ALL", "#ff00ff");
+              break;
+            case "spawnEnemy": {
+              const { type, count } = payload as { type: string; count: number };
+              this.waveManager.devSpawnEnemy(type as any, count);
+              this.showWeaponMessage(`DEV: SPAWNED ${count}x ${type.toUpperCase()}`, "#ff00ff");
+              break;
+            }
+          }
+        });
       }
     }
 
@@ -567,7 +620,8 @@ export class GameScene extends Phaser.Scene {
 
     this.waveManager.onWaveStart = (wave) => {
       this.closeShop();
-      // MUTED — pending sound audit
+      // Church bell toll on wave start
+      this.playSound("sfx-church-bell", 0.6);
       // Layer in rain ambience starting wave 5
       if (wave === 5 && this.cache.audio.exists("sfx-ambient-rain")) {
         const rain = this.sound.add("sfx-ambient-rain", { volume: 0.08, loop: true });
@@ -838,11 +892,7 @@ export class GameScene extends Phaser.Scene {
   // ------- Combat -------
 
   private meleeAttack() {
-    // Fist specialists (Rick) use less stamina on melee
-    const baseCost = BALANCE.stamina.punchCost;
-    const cost = this.characterDef.weaponSpecialty === "Fists"
-      ? Math.floor(baseCost * 0.5) // 50% stamina cost
-      : baseCost;
+    const cost = BALANCE.stamina.punchCost;
     if (!this.player.useStamina(cost)) return;
 
     this.player.playPunch(() => {
@@ -867,38 +917,37 @@ export class GameScene extends Phaser.Scene {
         );
         if (dist > range) return;
 
-        const angleToEnemy = Phaser.Math.Angle.Between(
-          this.player.x,
-          this.player.y,
-          enemy.x,
-          enemy.y
-        );
+        // Angle to enemy for arc check + knockback direction
+        // At point-blank (< 20px), skip arc check — always hits
+        const angleToEnemy = dist < 20
+          ? attackAngle  // use facing direction for knockback when overlapping
+          : Phaser.Math.Angle.Between(this.player.x, this.player.y, enemy.x, enemy.y);
 
-        let angleDiff = Math.abs(attackAngle - angleToEnemy);
-        if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
-
-        if (angleDiff <= arcHalf) {
-          hitAny = true;
-          let finalDmg = damage;
-          if (this.rollCrit("fists", 0)) { // distance 0 = melee range
-            finalDmg = Math.floor(finalDmg * BALANCE.crit.damageMultiplier);
-            this.showCritEffect(enemy.x, enemy.y);
-          }
-          const killed = enemy.takeDamage(finalDmg);
-          if (killed) {
-            this.onEnemyKilled(enemy);
-          }
-
-          let kb = this.player.burnedOut
-            ? BALANCE.punch.knockback * 0.5
-            : BALANCE.punch.knockback;
-          // Fast enemies are lighter — punch sends them flying
-          if (enemy.enemyType === "fast") kb *= 1.8;
-          enemy.body?.setVelocity(
-            Math.cos(angleToEnemy) * kb,
-            Math.sin(angleToEnemy) * kb
-          );
+        if (dist >= 20) {
+          let angleDiff = Math.abs(attackAngle - angleToEnemy);
+          if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
+          if (angleDiff > arcHalf) return;
         }
+
+        hitAny = true;
+        let finalDmg = damage;
+        if (this.rollCrit("fists", 0)) {
+          finalDmg = Math.floor(finalDmg * BALANCE.crit.damageMultiplier);
+          this.showCritEffect(enemy.x, enemy.y);
+        }
+        const killed = enemy.takeDamage(finalDmg);
+        if (killed) {
+          this.onEnemyKilled(enemy);
+        }
+
+        let kb = this.player.burnedOut
+          ? BALANCE.punch.knockback * 0.5
+          : BALANCE.punch.knockback;
+        if (enemy.enemyType === "fast") kb *= 1.8;
+        enemy.body?.setVelocity(
+          Math.cos(angleToEnemy) * kb,
+          Math.sin(angleToEnemy) * kb
+        );
       });
       if (hitAny) {
         this.playRandomPunch();
@@ -1316,13 +1365,30 @@ export class GameScene extends Phaser.Scene {
     this.lastFireTime = now;
 
     const angle = this.getFacingAngle();
-    const isGeneralist = this.characterDef.weaponSpecialty === "Generalist";
-    const isProficient = !isGeneralist && this.characterDef.weaponSpecialty === weaponDef.proficiency;
-    const dmgMult = isProficient ? BALANCE.proficiencyBonus.damageMultiplier
-      : isGeneralist ? BALANCE.proficiencyBonus.generalistMultiplier
-      : 1;
+    const dmgMult = 1;
 
-    // Spawn projectiles offset from player center so point-blank shots work
+    // Point-blank hit check: directly damage enemies closer than the projectile spawn offset
+    // so bullets don't fly past enemies that are right on top of the player
+    const pbRange = 30;
+    this.enemies.getChildren().forEach((obj) => {
+      const enemy = obj as Enemy;
+      if (!enemy.active) return;
+      const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, enemy.x, enemy.y);
+      if (dist > pbRange) return;
+      // Each pellet has a chance to hit at point blank
+      for (let p = 0; p < weaponDef.pellets; p++) {
+        let damage = Math.floor(weaponDef.damage * dmgMult);
+        const weaponKey = this.equippedWeapon ?? "pistol";
+        if (this.rollCrit(weaponKey, 0)) {
+          damage = Math.floor(damage * BALANCE.crit.damageMultiplier);
+          this.showCritEffect(enemy.x, enemy.y);
+        }
+        const killed = enemy.takeDamage(damage, "ranged");
+        if (killed) { this.onEnemyKilled(enemy); break; }
+      }
+    });
+
+    // Spawn projectiles offset from player center for normal-range hits
     const spawnOffset = 24;
     const spawnX = this.player.x + Math.cos(angle) * spawnOffset;
     const spawnY = this.player.y + Math.sin(angle) * spawnOffset;
@@ -1377,26 +1443,40 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private showWeaponMessage(msg: string, color: string) {
+  private showWeaponMessage(msg: string, _color: string) {
+    // Render at high res then scale down so the font is crisp at 5x camera zoom
     const txt = this.add.text(
-      this.player.x, this.player.y - 80, msg,
+      this.player.x, this.player.y - 40, msg,
       {
         fontFamily: "ChainsawCarnage, HorrorPixel, monospace",
-        fontSize: "18px",
-        color,
+        fontSize: "36px",
         stroke: "#000000",
-        strokeThickness: 4,
-        shadow: { offsetX: 0, offsetY: 0, color: color, blur: 12, fill: true, stroke: false },
+        strokeThickness: 6,
       }
-    ).setDepth(100).setOrigin(0.5);
+    ).setDepth(100).setOrigin(0.5).setScale(0.25).setAlpha(0);
+
+    // Vertical gradient fill: bright red top to dark red bottom
+    const gradient = txt.context.createLinearGradient(0, 0, 0, txt.height);
+    gradient.addColorStop(0, "#ff4444");
+    gradient.addColorStop(1, "#8b0000");
+    txt.setFill(gradient);
 
     this.tweens.add({
       targets: txt,
-      y: this.player.y - 130,
-      alpha: 0,
-      duration: 1000,
-      ease: "Power2",
-      onComplete: () => txt.destroy(),
+      alpha: 1,
+      duration: 150,
+      ease: "Power1",
+      onComplete: () => {
+        this.tweens.add({
+          targets: txt,
+          y: this.player.y - 60,
+          alpha: 0,
+          duration: 400,
+          delay: 300,
+          ease: "Power2",
+          onComplete: () => txt.destroy(),
+        });
+      },
     });
   }
 
@@ -1502,33 +1582,42 @@ export class GameScene extends Phaser.Scene {
   private rollCrit(weaponKey: string, distanceRatio: number): boolean {
     const charCrit = this.characterDef.stats.critChance;
     const weaponCrit = BALANCE.crit.weaponCrit[weaponKey as keyof typeof BALANCE.crit.weaponCrit] ?? 0;
-    const isGeneralist = this.characterDef.weaponSpecialty === "Generalist";
-    const isProficient = !isGeneralist && this.characterDef.weaponSpecialty ===
-      (BALANCE.weapons[weaponKey as keyof typeof BALANCE.weapons] as any)?.proficiency;
-    const profCrit = isProficient ? BALANCE.proficiencyBonus.critBonus
-      : isGeneralist ? BALANCE.proficiencyBonus.generalistCritBonus
-      : 0;
     // Closer = higher crit chance (distanceRatio 0 = point blank, 1 = max range)
     const distCrit = BALANCE.crit.closeCritBonus * (1 - distanceRatio);
 
-    const totalCrit = charCrit + weaponCrit + profCrit + distCrit;
+    const totalCrit = charCrit + weaponCrit + distCrit;
     return Math.random() < totalCrit;
   }
 
   private showCritEffect(x: number, y: number) {
     const txt = this.add.text(x, y - 20, "CRIT!", {
-      fontFamily: "Special Elite, serif",
-      fontSize: "14px",
-      color: "#ff4444",
-      fontStyle: "bold",
-    }).setDepth(100).setOrigin(0.5);
+      fontFamily: "ChainsawCarnage, HorrorPixel, monospace",
+      fontSize: "36px",
+      stroke: "#000000",
+      strokeThickness: 6,
+    }).setDepth(100).setOrigin(0.5).setScale(0.25).setAlpha(0);
+
+    const gradient = txt.context.createLinearGradient(0, 0, 0, txt.height);
+    gradient.addColorStop(0, "#ff4444");
+    gradient.addColorStop(1, "#8b0000");
+    txt.setFill(gradient);
 
     this.tweens.add({
       targets: txt,
-      y: y - 50,
-      alpha: 0,
-      duration: 600,
-      onComplete: () => txt.destroy(),
+      alpha: 1,
+      duration: 150,
+      ease: "Power1",
+      onComplete: () => {
+        this.tweens.add({
+          targets: txt,
+          y: y - 40,
+          alpha: 0,
+          duration: 400,
+          delay: 300,
+          ease: "Power2",
+          onComplete: () => txt.destroy(),
+        });
+      },
     });
   }
 
@@ -1559,7 +1648,7 @@ export class GameScene extends Phaser.Scene {
       const weaponDef = BALANCE.weapons[proj.weaponType as keyof typeof BALANCE.weapons];
       const baseKnockback = (weaponDef as any)?.knockback ?? 50;
       // Fast enemies get pushed harder by shotgun (lighter = easier to knock around)
-      const typeMult = enemy.enemyType === "fast" ? 1.5 : enemy.enemyType === "tank" ? 0.5 : 1.0;
+      const typeMult = enemy.enemyType === "fast" ? 1.5 : enemy.enemyType === "boss" ? 0.2 : 1.0;
       const knockForce = baseKnockback * typeMult;
 
       // Shotgun blasts need longer stun so the knockback actually plays out
@@ -1602,7 +1691,7 @@ export class GameScene extends Phaser.Scene {
         enemy.x,
         enemy.y
       );
-      const pushForce = enemy.enemyType === "fast" ? 200 : 120;
+      const pushForce = enemy.enemyType === "fast" ? 200 : enemy.enemyType === "boss" ? 40 : 120;
       enemy.body?.setVelocity(
         Math.cos(pushAngle) * pushForce,
         Math.sin(pushAngle) * pushForce
@@ -1707,6 +1796,69 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private async fetchLeaderboard() {
+    let leaderboard: { id: number; name: string; kills: number; wave: number; character_id: string }[] = [];
+    try {
+      const response = await fetch("/api/leaderboard");
+      if (response.ok) {
+        leaderboard = await response.json();
+      }
+    } catch (e) {
+      console.error("Failed to fetch leaderboard:", e);
+    }
+    hudState.update({
+      gameOverPhase: "leaderboard",
+      leaderboard,
+      leaderboardHighlightId: null,
+    });
+  }
+
+  private spawnFenceBorder() {
+    const mapW = ENDICOTT_MAP_W;
+    const mapH = ENDICOTT_MAP_H;
+    const hTex = "trap-barricade";   // horizontal (64x32)
+    const vTex = "trap-barricade-v"; // vertical (32x64)
+    const margin = 2;
+    const depth = 3;
+    const hStep = 48; // tighter horizontal spacing
+    const vStep = 48; // tighter vertical spacing
+
+    // Road gap definitions (pixel ranges to skip fence placement)
+    const southRoadX = { min: 864, max: 1024 };  // centered on player spawn (x=960)
+    const northRoadX = { min: 800, max: 928 };    // based on decoration tiles
+    const westRoadY  = { min: 704, max: 896 };    // based on decoration tiles
+
+    const addFence = (x: number, y: number, tex: string) => {
+      const fence = this.add.image(x, y, tex);
+      fence.setDepth(depth);
+      this.physics.add.existing(fence, true); // true = static body
+      this.obstacles.add(fence);
+    };
+
+    // North edge (horizontal barricades) — skip north road gap
+    for (let x = 0; x < mapW; x += hStep) {
+      const cx = x + 32;
+      if (cx > northRoadX.min && cx < northRoadX.max) continue;
+      addFence(cx, margin + 16, hTex);
+    }
+    // South edge — skip south road gap
+    for (let x = 0; x < mapW; x += hStep) {
+      const cx = x + 32;
+      if (cx > southRoadX.min && cx < southRoadX.max) continue;
+      addFence(cx, mapH - margin - 16, hTex);
+    }
+    // West edge (vertical barricades) — skip west road gap
+    for (let y = 0; y < mapH; y += vStep) {
+      const cy = y + 32;
+      if (cy > westRoadY.min && cy < westRoadY.max) continue;
+      addFence(margin + 16, cy, vTex);
+    }
+    // East edge — no road gap (forest side)
+    for (let y = 0; y < mapH; y += vStep) {
+      addFence(mapW - margin - 16, y + 32, vTex);
+    }
+  }
+
   private spawnTreeWall() {
     const mapW = ENDICOTT_MAP_W;
     const mapH = ENDICOTT_MAP_H;
@@ -1714,26 +1866,23 @@ export class GameScene extends Phaser.Scene {
     const spacingX = 40;
     const spacingY = 44;
 
-    // Build path exclusion grid — no trees within 10 tiles (320px) of any path
-    const pathBuffer = 320;
-    const map = this.make.tilemap({ key: "endicott-map" });
-    const pathsLayer = map.getLayer("paths");
-    const pathCenters: { x: number; y: number }[] = [];
-    if (pathsLayer) {
-      for (let ty = 0; ty < pathsLayer.height; ty++) {
-        for (let tx = 0; tx < pathsLayer.width; tx++) {
-          const tile = pathsLayer.data[ty][tx];
-          if (tile && tile.index > 0) {
-            pathCenters.push({ x: tx * 32 + 16, y: ty * 32 + 16 });
-          }
-        }
-      }
-    }
+    // Road exclusion zones — no trees near road exits or main paths
+    // Each zone is a rectangle { x, y, w, h } in world coordinates
+    const roadZones = [
+      // South road exit (centered on spawn x=960)
+      { x: 864, y: 1700, w: 160, h: 300 },
+      // North road exit
+      { x: 800, y: 0, w: 128, h: 300 },
+      // West road exit
+      { x: 0, y: 704, w: 300, h: 192 },
+    ];
+    const roadBuffer = 80; // extra clearance around road zones
     const isNearPath = (x: number, y: number) => {
-      for (const p of pathCenters) {
-        const dx = x - p.x;
-        const dy = y - p.y;
-        if (dx * dx + dy * dy < pathBuffer * pathBuffer) return true;
+      for (const z of roadZones) {
+        if (
+          x > z.x - roadBuffer && x < z.x + z.w + roadBuffer &&
+          y > z.y - roadBuffer && y < z.y + z.h + roadBuffer
+        ) return true;
       }
       return false;
     };
@@ -1836,6 +1985,7 @@ export class GameScene extends Phaser.Scene {
           const val = payload as number;
           this.sfxVolume = val;
           this.sfxMuted = val === 0;
+          hudState.update({ sfxVolume: val });
           for (const s of this.ambientSounds) {
             if ("setVolume" in s) (s as Phaser.Sound.WebAudioSound).setVolume(val * 0.15);
           }
@@ -1843,6 +1993,7 @@ export class GameScene extends Phaser.Scene {
         }
         case "toggleZoom": {
           this.zoomEnabled = !this.zoomEnabled;
+          hudState.update({ zoomEnabled: this.zoomEnabled });
           if (this.zoomEnabled) {
             hudState.update({ zoomVisible: true, zoomPercent: Math.round(this.cameras.main.zoom * 100) });
             this.wheelHandler = (e: WheelEvent) => {
@@ -1878,6 +2029,9 @@ export class GameScene extends Phaser.Scene {
     hudState.registerGameOverAction((action: string, payload?: any) => {
       if (action === "submitName") {
         this.submitLeaderboardScore(payload as string, this.kills, this.waveManager.wave, this.characterDef.id);
+      } else if (action === "skipScore") {
+        // Skip leaderboard, go straight to showing it without saving
+        this.fetchLeaderboard();
       } else if (action === "returnToMenu") {
         this.scene.start("MainMenu");
       }
@@ -2081,13 +2235,7 @@ export class GameScene extends Phaser.Scene {
           break;
         }
         const weaponDef = BALANCE.weapons[itemId as keyof typeof BALANCE.weapons];
-        const isGeneralist = this.characterDef.weaponSpecialty === "Generalist";
-        const isProficient = !isGeneralist && this.characterDef.weaponSpecialty === weaponDef.proficiency;
-        const ammoAmount = isProficient
-          ? Math.floor(weaponDef.ammo * BALANCE.proficiencyBonus.ammoBonus)
-          : isGeneralist
-          ? Math.floor(weaponDef.ammo * 1.1) // Dan gets 10% extra ammo with everything
-          : weaponDef.ammo;
+        const ammoAmount = weaponDef.ammo;
         this.currency -= price;
         this.equippedWeapon = itemId;
         this.ammo = ammoAmount;

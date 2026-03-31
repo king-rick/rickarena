@@ -45,6 +45,7 @@ export class WaveManager {
   // State timers
   private stateTimer = 0;
   private frozen = false; // pause intermission timer (shop/level-up open)
+  spawningDisabled = false; // dev: prevent enemy spawning
   private preGameDuration = 3000; // 3s before wave 1
   private countdownDuration = 3000; // 3s countdown before each wave after intermission
   private intermissionDuration = 30000; // 30s max intermission before auto-start
@@ -76,6 +77,7 @@ export class WaveManager {
         this.spawnTimer += delta;
         if (
           this.enemiesToSpawn > 0 &&
+          !this.spawningDisabled &&
           this.spawnTimer >= BALANCE.waves.spawnStaggerMs
         ) {
           this.spawnTimer = 0;
@@ -139,6 +141,22 @@ export class WaveManager {
     this.startWave();
   }
 
+  /** Dev: jump directly to a specific wave number */
+  devJumpToWave(targetWave: number) {
+    // Kill all current enemies
+    this.enemies.getChildren().forEach((e) => {
+      if (e.active) {
+        (e as Enemy).takeDamage(999999);
+        if (e.active) e.destroy();
+      }
+    });
+    // Set wave to target - 1 so startWave() increments to target
+    this.wave = Math.max(0, targetWave - 1);
+    this.enemiesToSpawn = 0;
+    this.enemiesAlive = 0;
+    this.startWave();
+  }
+
   /** Whether the player has readied up */
   isReadyUp(): boolean {
     return this.readyUp;
@@ -164,14 +182,39 @@ export class WaveManager {
     return Math.max(0, Math.ceil(remaining / 1000));
   }
 
-  /** Wave multiplier for enemy HP scaling */
+  /** WaW-style HP scaling: linear waves 1-9, exponential wave 10+ */
   getWaveHpMultiplier(): number {
-    return 1 + (this.wave - 1) * BALANCE.waves.hpScalePerWave;
+    if (this.wave <= 9) {
+      return 1 + (this.wave - 1) * BALANCE.waves.hpLinearPerWave;
+    }
+    // Wave 10+: linear portion up to wave 9, then exponential growth
+    const linearPart = 1 + 8 * BALANCE.waves.hpLinearPerWave;
+    return linearPart * Math.pow(BALANCE.waves.hpExponentialBase, this.wave - 9);
   }
 
-  /** Wave multiplier for enemy damage scaling */
+  /** Damage stays flat — WaW model (pressure from speed + volume, not per-hit damage) */
   getWaveDamageMultiplier(): number {
     return 1 + (this.wave - 1) * BALANCE.waves.damageScalePerWave;
+  }
+
+  /** Get speed tier for a basic zombie this wave (shamble/jog/run) */
+  getZombieSpeedTier(): "shamble" | "jog" | "run" {
+    const w = this.wave;
+    const tiers = BALANCE.waves.speedTierWaves;
+    let mix: { shamble: number; jog: number; run: number };
+    if (w < tiers.jogStart) {
+      mix = BALANCE.waves.speedMix.early;
+    } else if (w < tiers.runStart) {
+      mix = BALANCE.waves.speedMix.mid;
+    } else if (w <= 9) {
+      mix = BALANCE.waves.speedMix.late;
+    } else {
+      mix = BALANCE.waves.speedMix.swarm;
+    }
+    const roll = Math.random();
+    if (roll < mix.shamble) return "shamble";
+    if (roll < mix.shamble + mix.jog) return "jog";
+    return "run";
   }
 
   /** Legacy — used by Enemy constructor, returns HP multiplier */
@@ -204,11 +247,43 @@ export class WaveManager {
     this.totalWaveEnemies = Math.floor(
       (base + Math.floor(this.wave * perWave)) * playerMod
     );
-    this.enemiesToSpawn = this.totalWaveEnemies;
+    this.enemiesToSpawn = this.spawningDisabled ? 0 : this.totalWaveEnemies;
     this.enemiesAlive = 0;
     this.spawnTimer = 0;
 
+    // Spawn SCARYBOI mini-boss on wave 6+ (unless spawning disabled)
+    if (this.shouldSpawnBoss() && !this.spawningDisabled) {
+      this.spawnBoss();
+    }
+
     this.onWaveStart?.(this.wave);
+  }
+
+  /** Spawn the SCARYBOI mini-boss at a random edge position */
+  private spawnBoss() {
+    const pos = this.getPlayerPos();
+    const cam = this.scene.cameras.main;
+    const halfW = (cam.width / cam.zoom) / 2;
+    const halfH = (cam.height / cam.zoom) / 2;
+    const margin = 40 + Math.random() * 40;
+    const side = Math.floor(Math.random() * 4);
+
+    let sx: number, sy: number;
+    switch (side) {
+      case 0: sx = pos.x + (Math.random() - 0.5) * halfW; sy = pos.y - halfH - margin; break;
+      case 1: sx = pos.x + (Math.random() - 0.5) * halfW; sy = pos.y + halfH + margin; break;
+      case 2: sx = pos.x - halfW - margin; sy = pos.y + (Math.random() - 0.5) * halfH; break;
+      default: sx = pos.x + halfW + margin; sy = pos.y + (Math.random() - 0.5) * halfH; break;
+    }
+    sx = Phaser.Math.Clamp(sx, 60, MAP_WIDTH - 60);
+    sy = Phaser.Math.Clamp(sy, 60, MAP_HEIGHT - 60);
+
+    const hpMult = this.getWaveHpMultiplier();
+    const dmgMult = this.getWaveDamageMultiplier();
+    const boss = new Enemy(this.scene, sx, sy, "boss", hpMult, dmgMult);
+    boss.body.setCollideWorldBounds(true);
+    this.enemies.add(boss);
+    this.enemiesAlive++;
   }
 
   private beginIntermission() {
@@ -269,8 +344,9 @@ export class WaveManager {
     const type = this.pickEnemyType();
     const hpMultiplier = this.getWaveHpMultiplier();
     const dmgMultiplier = this.getWaveDamageMultiplier();
+    const speedTier = type === "basic" ? this.getZombieSpeedTier() : undefined;
 
-    const enemy = new Enemy(this.scene, sx, sy, type, hpMultiplier, dmgMultiplier);
+    const enemy = new Enemy(this.scene, sx, sy, type, hpMultiplier, dmgMultiplier, speedTier);
     enemy.body.setCollideWorldBounds(true);
     this.enemies.add(enemy);
 
@@ -282,22 +358,51 @@ export class WaveManager {
     const w = this.wave;
     const roll = Math.random();
 
-    // Wave 6+: 35% basic, 45% dogs, 20% tanks
-    if (w >= BALANCE.waves.tankVariantWave) {
-      const comp = BALANCE.waves.composition.full;
-      if (roll < comp.basic) return "basic";
-      if (roll < comp.basic + comp.fast) return "fast";
-      return "tank";
-    }
-
-    // Wave 4-5: 60% basic, 40% dogs
+    // Wave 4+: basic + dogs
     if (w >= BALANCE.waves.dogVariantWave) {
-      const comp = BALANCE.waves.composition.dogsEarly;
+      const comp = w >= BALANCE.waves.bossVariantWave
+        ? BALANCE.waves.composition.full
+        : BALANCE.waves.composition.dogsEarly;
       if (roll < comp.basic) return "basic";
       return "fast";
     }
 
     // Wave 1-3: all basic
     return "basic";
+  }
+
+  /** Whether this wave should spawn a boss (wave 6+) */
+  private shouldSpawnBoss(): boolean {
+    return this.wave >= BALANCE.waves.bossVariantWave;
+  }
+
+  /** Dev: spawn a specific enemy type at a random edge position */
+  devSpawnEnemy(type: EnemyType, count: number = 1) {
+    for (let i = 0; i < count; i++) {
+      const pos = this.getPlayerPos();
+      const cam = this.scene.cameras.main;
+      const halfW = (cam.width / cam.zoom) / 2;
+      const halfH = (cam.height / cam.zoom) / 2;
+      const margin = 40 + Math.random() * 40;
+      const side = Math.floor(Math.random() * 4);
+
+      let sx: number, sy: number;
+      switch (side) {
+        case 0: sx = pos.x + (Math.random() - 0.5) * halfW * 2; sy = pos.y - halfH - margin; break;
+        case 1: sx = pos.x + (Math.random() - 0.5) * halfW * 2; sy = pos.y + halfH + margin; break;
+        case 2: sx = pos.x - halfW - margin; sy = pos.y + (Math.random() - 0.5) * halfH * 2; break;
+        default: sx = pos.x + halfW + margin; sy = pos.y + (Math.random() - 0.5) * halfH * 2; break;
+      }
+      sx = Phaser.Math.Clamp(sx, 60, MAP_WIDTH - 60);
+      sy = Phaser.Math.Clamp(sy, 60, MAP_HEIGHT - 60);
+
+      const hpMult = this.getWaveHpMultiplier();
+      const dmgMult = this.getWaveDamageMultiplier();
+      const speedTier = type === "basic" ? this.getZombieSpeedTier() : undefined;
+      const enemy = new Enemy(this.scene, sx, sy, type, hpMult, dmgMult, speedTier);
+      enemy.body.setCollideWorldBounds(true);
+      this.enemies.add(enemy);
+      this.enemiesAlive++;
+    }
   }
 }

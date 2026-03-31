@@ -4,7 +4,7 @@ import { BALANCE } from "../data/balance";
 import { hasAnimation, getAnimKey } from "../data/animations";
 
 export type Facing = "down" | "up" | "left" | "right";
-type PlayerAnim = "walk" | "breathing-idle" | "idle" | "cross-punch" | "taking-punch" | "falling-back-death" | "shooting-pistol" | "shooting-shotgun" | "shooting-smg" | "high-kick" | "swinging-katana" | "throw-grenade";
+type PlayerAnim = "walk" | "running-6-frames" | "breathing-idle" | "idle" | "cross-punch" | "taking-punch" | "falling-back-death" | "shooting-pistol" | "shooting-shotgun" | "shooting-smg" | "high-kick" | "swinging-katana" | "throw-grenade";
 
 export interface PlayerStats {
   speed: number;
@@ -47,6 +47,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private lastStaminaUse = 0;
   private burnoutTimer = 0;
   private hasWalkAnim: boolean;
+  private hasRunAnim: boolean;
   private hasIdleAnim: boolean;
   private hasPunchAnim: boolean;
   private hasHurtAnim: boolean;
@@ -55,6 +56,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private shooting = false; // true during shoot animation — doesn't block movement
   private holdingShoot = false; // true for auto weapons holding last frame
   private locked = false; // true during hurt/death — blocks all input
+  private sprinting = false;
+  private shiftKey!: Phaser.Input.Keyboard.Key;
 
   /** True while punch animation is active — grants i-frames */
   get isPunching(): boolean { return this.punching; }
@@ -79,6 +82,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.characterId = characterId;
     this.stats = { ...stats };
     this.hasWalkAnim = hasAnimation(characterId, "walk");
+    this.hasRunAnim = hasAnimation(characterId, "running-6-frames");
     this.hasIdleAnim = hasAnimation(characterId, "breathing-idle");
     this.hasPunchAnim = hasAnimation(characterId, "cross-punch");
     this.hasHurtAnim = hasAnimation(characterId, "taking-punch");
@@ -106,6 +110,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
         S: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
         D: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
       };
+      this.shiftKey = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
     }
   }
 
@@ -142,16 +147,13 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     if (this.locked) return;
 
     // Movement
-    const speedMult = this.burnedOut ? BALANCE.burnout.speedMultiplier : 1;
-    const speed = this.stats.speed * speedMult;
-    let vx = 0;
-    let vy = 0;
-
     const left = this.cursors?.left.isDown || this.wasd?.A.isDown;
     const right = this.cursors?.right.isDown || this.wasd?.D.isDown;
     const up = this.cursors?.up.isDown || this.wasd?.W.isDown;
     const down = this.cursors?.down.isDown || this.wasd?.S.isDown;
 
+    let vx = 0;
+    let vy = 0;
     if (left) vx -= 1;
     if (right) vx += 1;
     if (up) vy -= 1;
@@ -164,9 +166,27 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       vy *= norm;
     }
 
-    this.body.setVelocity(vx * speed, vy * speed);
-
     const isMoving = vx !== 0 || vy !== 0;
+
+    // Sprint: hold shift while moving, drains stamina
+    const wantsSprint = this.shiftKey?.isDown && isMoving && !this.burnedOut;
+    this.sprinting = wantsSprint && this.stats.stamina > 0;
+
+    if (this.sprinting) {
+      this.stats.stamina = Math.max(0, this.stats.stamina - BALANCE.stamina.sprintCostPerSecond * (delta / 1000));
+      this.lastStaminaUse = this.scene.time.now;
+      if (this.stats.stamina <= 0) {
+        this.burnedOut = true;
+        this.burnoutTimer = BALANCE.burnout.duration;
+        this.setTint(0x888888);
+        this.sprinting = false;
+      }
+    }
+
+    const speedMult = this.burnedOut ? BALANCE.burnout.speedMultiplier : this.sprinting ? 1.6 : 1;
+    const speed = this.stats.speed * speedMult;
+
+    this.body.setVelocity(vx * speed, vy * speed);
 
     if (isMoving) {
       const dir = getDirectionFromVelocity(
@@ -180,16 +200,19 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       else if (dir === "east") this.facing = "right";
       else if (dir === "west") this.facing = "left";
 
-      // Don't interrupt punch or shooting animation with walk/idle
+      // Don't interrupt punch or shooting animation with walk/idle/run
       if (!this.punching && !this.shooting) {
         const dirChanged = dir !== this.currentDir;
-        const animChanged = this.currentAnim !== "walk";
+        const wantedAnim = this.sprinting && this.hasRunAnim ? "running-6-frames" : "walk";
+        const animChanged = this.currentAnim !== wantedAnim;
 
         if (dirChanged || animChanged) {
           this.currentDir = dir;
-          this.currentAnim = "walk";
+          this.currentAnim = wantedAnim;
 
-          if (this.hasWalkAnim) {
+          if (wantedAnim === "running-6-frames" && this.hasRunAnim) {
+            this.play(getAnimKey(this.characterId, "running-6-frames", dir), true);
+          } else if (this.hasWalkAnim) {
             this.play(getAnimKey(this.characterId, "walk", dir), true);
           } else {
             this.setTexture(`${this.characterId}-${dir}`);
@@ -201,7 +224,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       }
 
       this.currentDir = dir;
-    } else if (this.currentAnim === "walk" && !this.punching && !this.shooting) {
+    } else if ((this.currentAnim === "walk" || this.currentAnim === "running-6-frames") && !this.punching && !this.shooting) {
       // Stopped moving — switch to idle
       this.currentAnim = "idle";
 
@@ -293,7 +316,16 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     if (!this.playOneShot(hurtKey)) {
       this.locked = false;
       this.currentAnim = "idle";
+      return;
     }
+
+    // Safety timeout: always unlock after 600ms even if animation doesn't complete
+    this.scene.time.delayedCall(600, () => {
+      if (this.active && this.locked && this.currentAnim === "taking-punch") {
+        this.locked = false;
+        this.currentAnim = "idle";
+      }
+    });
   }
 
   /** Play death animation. Permanently locks the player. */

@@ -42,8 +42,8 @@ export class BootScene extends Phaser.Scene {
         `/assets/sprites/creepyzombie/rotations/${dir}.png`
       );
       this.load.image(
-        `bigzombie-${dir}`,
-        `/assets/sprites/bigzombie/rotations/${dir}.png`
+        `scaryboi-${dir}`,
+        `/assets/sprites/scaryboi/rotations/${dir}.png`
       );
       this.load.image(
         `zombiedog-${dir}`,
@@ -205,6 +205,7 @@ export class BootScene extends Phaser.Scene {
     this.load.audio("sfx-buy", "/assets/audio/ui/shop-buy.wav");
     this.load.audio("sfx-click", "/assets/audio/ui/ui-click.wav");
     this.load.audio("sfx-confirm", "/assets/audio/ui/confirmation_002.ogg");
+    this.load.audio("sfx-church-bell", "/assets/audio/ui/church-bell.wav");
     this.load.audio("sfx-error", "/assets/audio/ui/error_004.ogg");
     // Footsteps
     for (let i = 1; i <= 6; i++) {
@@ -279,28 +280,45 @@ export class BootScene extends Phaser.Scene {
       }
     });
 
-    // Register animations
+    // Register animations (skip directions with missing frame textures)
     for (const [charId, anims] of Object.entries(CHARACTER_ANIMATIONS)) {
       for (const anim of anims) {
         for (const dir of DIRECTIONS) {
           const animKey = getAnimKey(charId, anim.type, dir);
           const frames: Phaser.Types.Animations.AnimationFrame[] = [];
 
+          let allFramesExist = true;
           for (let f = 0; f < anim.frames; f++) {
-            frames.push({ key: getFrameKey(charId, anim.type, dir, f) });
+            const fk = getFrameKey(charId, anim.type, dir, f);
+            if (!this.textures.exists(fk)) {
+              allFramesExist = false;
+              break;
+            }
+            frames.push({ key: fk });
           }
+          if (!allFramesExist) continue; // skip — prevents freeze on missing sprites
 
           const isLooping =
-            anim.type === "walk" || anim.type === "breathing-idle";
+            anim.type === "walk" || anim.type === "breathing-idle"
+            || anim.type === "running-6-frames" || anim.type === "running-8-frames"
+            || anim.type === "fight-stance-idle-8-frames";
 
           let frameRate = 8;
           if (anim.type === "walk") frameRate = 10;
+          else if (anim.type === "running-6-frames") frameRate = 14;
+          else if (anim.type === "running-8-frames") frameRate = 12;
+          else if (anim.type === "fight-stance-idle-8-frames") frameRate = 8;
           else if (anim.type === "cross-punch") frameRate = 18;
+          else if (anim.type === "lead-jab") frameRate = 16;
           else if (anim.type === "taking-punch") frameRate = 14;
           else if (anim.type === "falling-back-death") frameRate = 10;
           else if (anim.type === "shooting-pistol") frameRate = 12;
           else if (anim.type === "shooting-shotgun") frameRate = 10;
           else if (anim.type === "shooting-smg") frameRate = 16;
+          else if (anim.type === "fireball") frameRate = 12;
+          else if (anim.type === "throw-object") frameRate = 10;
+          else if (anim.type === "running-jump") frameRate = 14;
+          else if (anim.type === "backflip") frameRate = 14;
           else if (anim.type === "high-kick") frameRate = 16;
           else if (anim.type === "swinging-katana") frameRate = 14;
           else if (anim.type === "throw-grenade") frameRate = 10;

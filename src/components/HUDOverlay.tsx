@@ -10,12 +10,14 @@ import { WaveInfo } from "./hud/WaveInfo";
 import { AbilityIndicator } from "./hud/AbilityIndicator";
 import { WaveAnnouncement } from "./hud/WaveAnnouncement";
 import { Countdown } from "./hud/Countdown";
+import { IntermissionOverlay } from "./hud/IntermissionOverlay";
 import { PauseMenu } from "./hud/PauseMenu";
 import { LevelUpOverlay } from "./hud/LevelUpOverlay";
 import { GameOverOverlay } from "./hud/GameOverOverlay";
 import { Hotbar } from "./hud/Hotbar";
 import { HealthBar } from "./hud/HealthBar";
 import { StaminaBar } from "./hud/StaminaBar";
+import { DevPanel } from "./hud/DevPanel";
 
 interface Props {
   canvasRect: CanvasRect;
@@ -118,7 +120,7 @@ export function HUDOverlay({ canvasRect }: Props) {
         </div>
       )}
 
-      {/* Wave announcement + countdown — always visible unless game over */}
+      {/* Wave announcement + countdown + intermission — always visible unless game over */}
       {!gameOver && (
         <div
           className="absolute pointer-events-none"
@@ -126,6 +128,7 @@ export function HUDOverlay({ canvasRect }: Props) {
         >
           <WaveAnnouncement />
           <Countdown />
+          <IntermissionOverlay />
         </div>
       )}
 
@@ -147,6 +150,13 @@ export function HUDOverlay({ canvasRect }: Props) {
       {paused && !gameOver && (
         <div className="absolute" style={{ ...baseStyle, zIndex: 30 }}>
           <PauseMenu />
+        </div>
+      )}
+
+      {/* Dev panel — always available when dev mode is on */}
+      {!gameOver && (
+        <div className="absolute pointer-events-none" style={{ ...baseStyle, zIndex: 35 }}>
+          <DevPanel />
         </div>
       )}
     </>

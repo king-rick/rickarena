@@ -81,7 +81,11 @@ function NameEntry() {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (submitted) return;
-      if (e.key === "Enter") {
+      if (e.key === "Escape") {
+        // Skip leaderboard entry
+        hudState.dispatchGameOverAction("skipScore");
+        return;
+      } else if (e.key === "Enter") {
         if (name.length === 0) return;
         setSubmitted(true);
         hudState.dispatchGameOverAction("submitName", name);
@@ -117,7 +121,7 @@ function NameEntry() {
         {submitted ? name : name + (cursorVisible ? "_" : "")}
       </span>
       <span style={{ fontFamily: BODY, fontSize: 18, color: submitted ? "#cc3333" : "#666666", marginTop: 16 }}>
-        {submitted ? "SUBMITTING..." : "TYPE YOUR NAME    ENTER TO SUBMIT"}
+        {submitted ? "SUBMITTING..." : "TYPE YOUR NAME    ENTER TO SUBMIT    ESC TO SKIP"}
       </span>
     </div>
   );

@@ -3,7 +3,7 @@ import { BALANCE } from "../data/balance";
 import { hasAnimation, getAnimKey } from "../data/animations";
 import { Direction } from "../data/characters";
 
-export type EnemyType = "basic" | "fast" | "tank";
+export type EnemyType = "basic" | "fast" | "boss";
 
 function angleToDirection(angle: number): string {
   const deg = Phaser.Math.RadToDeg(angle);
@@ -21,14 +21,14 @@ function angleToDirection(angle: number): string {
 
 const VARIANT_TINTS: Record<EnemyType, number> = {
   basic: 0xffffff,
-  fast: 0xffffff, // zombiedog sprite, no tint needed
-  tank: 0xffffff, // bigzombie sprite, no tint needed
+  fast: 0xffffff,
+  boss: 0xffffff,
 };
 
 const VARIANT_SCALES: Record<EnemyType, number> = {
   basic: 0.28,
   fast: 0.4,
-  tank: 0.25,
+  boss: 0.35,
 };
 
 export class Enemy extends Phaser.Physics.Arcade.Sprite {
@@ -62,7 +62,16 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private stuckTimer = 0; // ms since last significant movement
   private lastX = 0;
   private lastY = 0;
-  private spriteId: string; // "creepyzombie", "zombiedog", or "bigzombie"
+  private spriteId: string; // "creepyzombie", "zombiedog", or "scaryboi"
+  private walkAnimType: string;
+  private idleAnimType: string;
+
+  // Boss-specific state
+  private bossPhase: "stalk" | "chase" | "retreat" = "stalk";
+  private bossAttackCooldowns: Record<string, number> = {};
+  private backflipping = false;
+  private castingFireball = false;
+  private bossRunning = false; // true when in chase speed
 
   constructor(
     scene: Phaser.Scene,
@@ -70,11 +79,12 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     y: number,
     type: EnemyType,
     waveMultiplier: number = 1,
-    waveDamageMultiplier: number = 1
+    waveDamageMultiplier: number = 1,
+    speedTier?: "shamble" | "jog" | "run"
   ) {
-    const isTank = type === "tank";
+    const isBoss = type === "boss";
     const isFast = type === "fast";
-    const spriteId = isTank ? "bigzombie" : isFast ? "zombiedog" : "creepyzombie";
+    const spriteId = isBoss ? "scaryboi" : isFast ? "zombiedog" : "creepyzombie";
     super(scene, x, y, `${spriteId}-south`);
 
     this.spriteId = spriteId;
@@ -82,8 +92,19 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.enemyType = type;
     this.maxHealth = Math.floor(baseStats.hp * waveMultiplier);
     this.health = this.maxHealth;
-    this.speed = baseStats.speed * (1 + (waveMultiplier - 1) * 0.5);
-    this.damage = Math.floor(baseStats.damage * waveDamageMultiplier);
+    if (isBoss) {
+      this.speed = (baseStats as any).speed;
+      this.damage = Math.floor((baseStats as any).attacks.crossPunch.damage * waveDamageMultiplier);
+    } else if (type === "basic") {
+      // WaW-style speed tiers for walkers
+      const bs = baseStats as typeof BALANCE.enemies.basic;
+      const tier = speedTier ?? "shamble";
+      this.speed = tier === "run" ? bs.runSpeed : tier === "jog" ? bs.jogSpeed : bs.speed;
+      this.damage = Math.floor(bs.damage * waveDamageMultiplier);
+    } else {
+      this.speed = baseStats.speed;
+      this.damage = Math.floor((baseStats as any).damage * waveDamageMultiplier);
+    }
     this.baseTint = VARIANT_TINTS[type];
 
     scene.add.existing(this);
@@ -93,9 +114,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.setDepth(5);
 
     // Collision body covering torso + feet for reliable hit detection
-    if (isTank) {
+    if (isBoss) {
       this.body.setSize(50, 60);
-      this.body.setOffset(55, 65);
+      this.body.setOffset(55, 60);
     } else if (isFast) {
       // Dog — lower, wider hitbox
       this.body.setSize(50, 40);
@@ -109,11 +130,17 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.setTint(this.baseTint);
     }
 
-    this.hasWalkAnim = hasAnimation(spriteId, "walk");
-    this.hasBiteAnim = hasAnimation(spriteId, "bite");
-    this.hasLungeBiteAnim = hasAnimation(spriteId, "lunge-bite");
+    // Boss uses different anim names
+    const walkAnim = isBoss ? "running-8-frames" : "walk";
+    const idleAnim = isBoss ? "fight-stance-idle-8-frames" : "walk";
+    this.walkAnimType = walkAnim;
+    this.idleAnimType = idleAnim;
+
+    this.hasWalkAnim = hasAnimation(spriteId, walkAnim);
+    this.hasBiteAnim = hasAnimation(spriteId, "bite") || hasAnimation(spriteId, "cross-punch");
+    this.hasLungeBiteAnim = hasAnimation(spriteId, "lunge-bite") || hasAnimation(spriteId, "lead-jab");
     this.hasDeathAnim = hasAnimation(spriteId, "death");
-    this.hasLeapAnim = hasAnimation(spriteId, "leap");
+    this.hasLeapAnim = hasAnimation(spriteId, "leap") || hasAnimation(spriteId, "running-jump");
     this.hasTakingPunchAnim = hasAnimation(spriteId, "taking-punch");
     this.hasFallingBackDeath = hasAnimation(spriteId, "falling-back-death");
     this.hasGunshotDeath = hasAnimation(spriteId, "gunshot-death");
@@ -123,7 +150,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     // Start walk animation if available
     if (this.hasWalkAnim) {
-      this.play(getAnimKey(spriteId, "walk", "south"));
+      this.play(getAnimKey(spriteId, walkAnim, "south"));
     }
 
     this.healthBarGfx = scene.add.graphics();
@@ -144,8 +171,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.hitFlashTimer = 100;
     this.setTint(0xffffff);
 
-    // Stun on hit — fast enemies stun longer (they're fragile)
-    this.stunTimer = this.enemyType === "fast" ? 400 : 200;
+    // Stun on hit — fast enemies stun longer (fragile), boss resists stun
+    this.stunTimer = this.enemyType === "fast" ? 400 : this.enemyType === "boss" ? 80 : 200;
 
     if (this.health <= 0) {
       this.die(source);
@@ -169,7 +196,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.once("animationcomplete", () => {
         this.takingPunch = false;
         if (this.hasWalkAnim && !this.biting && !this.dying) {
-          this.play(getAnimKey(this.spriteId, "walk", this.currentDir), true);
+          this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
         }
       });
     } else {
@@ -275,9 +302,12 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     this.biting = true;
 
-    // Randomly pick between bite and lunge-bite if both available
+    // Boss uses cross-punch/lead-jab, others use bite/lunge-bite
+    const isBossEnemy = this.enemyType === "boss";
     const useLunge = this.hasLungeBiteAnim && Math.random() < 0.5;
-    const animType = useLunge ? "lunge-bite" : "bite";
+    const animType = isBossEnemy
+      ? (useLunge ? "lead-jab" : "cross-punch")
+      : (useLunge ? "lunge-bite" : "bite");
     const biteKey = getAnimKey(this.spriteId, animType, this.currentDir);
 
     if (this.scene.anims.exists(biteKey)) {
@@ -285,8 +315,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.play(biteKey);
       this.once("animationcomplete", this.handleBiteComplete, this);
     } else {
-      // Fallback to regular bite
-      const fallbackKey = getAnimKey(this.spriteId, "bite", this.currentDir);
+      // Fallback to regular bite/cross-punch
+      const fallbackType = isBossEnemy ? "cross-punch" : "bite";
+      const fallbackKey = getAnimKey(this.spriteId, fallbackType, this.currentDir);
       if (this.scene.anims.exists(fallbackKey)) {
         this.off("animationcomplete", this.handleBiteComplete, this);
         this.play(fallbackKey);
@@ -303,7 +334,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.leapBiteCombo = false;
     // Resume walk animation
     if (this.hasWalkAnim) {
-      this.play(getAnimKey(this.spriteId, "walk", this.currentDir), true);
+      this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
     }
   };
 
@@ -319,8 +350,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     const comboChance = dist < 80 ? 0.6 : 0.3;
     const willCombo = Math.random() < comboChance;
 
-    // Play leap animation
-    const leapKey = getAnimKey(this.spriteId, "leap", this.currentDir);
+    // Play leap animation (boss uses running-jump)
+    const leapAnimType = this.enemyType === "boss" ? "running-jump" : "leap";
+    const leapKey = getAnimKey(this.spriteId, leapAnimType, this.currentDir);
     if (this.scene.anims.exists(leapKey)) {
       this.play(leapKey);
     }
@@ -342,10 +374,329 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         this.leapBiteCombo = true;
         this.playBite();
       } else if (this.hasWalkAnim && !this.biting && !this.dying) {
-        this.play(getAnimKey(this.spriteId, "walk", this.currentDir), true);
+        this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
       }
     });
   }
+
+  // ---- Boss-specific AI ----
+
+  /** Boss phase-based combat AI */
+  private updateBoss(delta: number, player: Phaser.Physics.Arcade.Sprite) {
+    const angle = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
+    const dist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
+    const hpPct = this.health / this.maxHealth;
+    const bossStats = BALANCE.enemies.boss;
+
+    // Tick all attack cooldowns
+    for (const key of Object.keys(this.bossAttackCooldowns)) {
+      if (this.bossAttackCooldowns[key] > 0) {
+        this.bossAttackCooldowns[key] -= delta;
+      }
+    }
+
+    // Don't act while mid-animation
+    if (this.backflipping || this.castingFireball || this.biting || this.leaping) return;
+
+    // Phase selection based on HP
+    if (hpPct <= bossStats.backflipThreshold) {
+      this.bossPhase = "retreat";
+    } else if (dist > 200) {
+      this.bossPhase = "stalk";
+    } else {
+      this.bossPhase = "chase";
+    }
+
+    switch (this.bossPhase) {
+      case "retreat":
+        // Low HP: backflip away, then spam fireballs
+        if (dist < 150 && this.canBossAttack("backflip")) {
+          this.bossBackflip(angle);
+          return;
+        }
+        // Keep distance — move away from player
+        if (dist < 200) {
+          const retreatAngle = angle + Math.PI; // opposite direction
+          const retreatSpeed = bossStats.runSpeed;
+          this.body.setVelocity(
+            Math.cos(retreatAngle) * retreatSpeed,
+            Math.sin(retreatAngle) * retreatSpeed
+          );
+          this.bossRunning = true;
+        } else {
+          // At distance, stop and throw fireballs
+          this.body.setVelocity(0, 0);
+          this.bossRunning = false;
+        }
+        // Fireball spam at any range in retreat phase
+        if (this.canBossAttack("fireball")) {
+          this.bossFireball(angle, player);
+          return;
+        }
+        break;
+
+      case "stalk":
+        // Far away: walk toward player slowly, throw fireballs
+        this.bossRunning = false;
+        this.body.setVelocity(
+          Math.cos(angle) * bossStats.speed,
+          Math.sin(angle) * bossStats.speed
+        );
+        // Fireball at range
+        if (dist > 150 && dist < bossStats.attacks.fireball.range && this.canBossAttack("fireball")) {
+          this.bossFireball(angle, player);
+          return;
+        }
+        // Leap to close distance
+        if (dist > 120 && dist < bossStats.attacks.leapAttack.range && this.canBossAttack("leapAttack")) {
+          this.bossLeapAttack(angle);
+          return;
+        }
+        break;
+
+      case "chase":
+        // Close: run at player, use melee attacks
+        this.bossRunning = true;
+        this.body.setVelocity(
+          Math.cos(angle) * bossStats.runSpeed,
+          Math.sin(angle) * bossStats.runSpeed
+        );
+        // Close range melee
+        if (dist < bossStats.attacks.crossPunch.range) {
+          // Alternate between jab and cross punch
+          if (this.canBossAttack("leadJab")) {
+            this.bossMeleeAttack("leadJab", "lead-jab", bossStats.attacks.leadJab.damage);
+            return;
+          }
+          if (this.canBossAttack("crossPunch")) {
+            this.bossMeleeAttack("crossPunch", "cross-punch", bossStats.attacks.crossPunch.damage);
+            return;
+          }
+        }
+        // Leap if slightly out of melee range
+        if (dist > 100 && dist < bossStats.attacks.leapAttack.range && this.canBossAttack("leapAttack")) {
+          this.bossLeapAttack(angle);
+          return;
+        }
+        break;
+    }
+  }
+
+  private canBossAttack(attackId: string): boolean {
+    return (this.bossAttackCooldowns[attackId] ?? 0) <= 0;
+  }
+
+  /** Boss melee: play anim, deal damage on hit frame, set cooldown */
+  private bossMeleeAttack(attackId: string, animType: string, dmg: number) {
+    this.biting = true;
+    const bossStats = BALANCE.enemies.boss;
+    const cd = (bossStats.attacks as any)[attackId]?.cooldown ?? 2000;
+    this.bossAttackCooldowns[attackId] = cd;
+
+    // Set damage for this specific attack (GameScene reads getEffectiveDamage on contact)
+    this.damage = dmg;
+
+    this.body.setVelocity(0, 0);
+    const key = getAnimKey(this.spriteId, animType, this.currentDir);
+    if (this.scene.anims.exists(key)) {
+      this.play(key);
+      this.once("animationcomplete", () => {
+        this.biting = false;
+        if (this.hasWalkAnim && !this.dying) {
+          this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
+        }
+      });
+    } else {
+      this.biting = false;
+    }
+  }
+
+  /** Boss leap attack: lunge forward at burst speed */
+  private bossLeapAttack(angle: number) {
+    if (this.leaping || this.dying) return;
+    this.leaping = true;
+    const bossStats = BALANCE.enemies.boss;
+    this.bossAttackCooldowns["leapAttack"] = bossStats.attacks.leapAttack.cooldown;
+    this.damage = bossStats.attacks.leapAttack.damage;
+
+    const leapKey = getAnimKey(this.spriteId, "running-jump", this.currentDir);
+    if (this.scene.anims.exists(leapKey)) {
+      this.play(leapKey);
+    }
+
+    this.body.setVelocity(
+      Math.cos(angle) * bossStats.leapSpeed,
+      Math.sin(angle) * bossStats.leapSpeed
+    );
+
+    this.scene.time.delayedCall(400, () => {
+      if (!this.active) return;
+      this.leaping = false;
+      // Chain into cross punch if close enough
+      const player = (this.scene as any).player;
+      if (player?.active) {
+        const d = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
+        if (d < 100 && !this.dying) {
+          this.bossMeleeAttack("crossPunch", "cross-punch", bossStats.attacks.crossPunch.damage);
+          return;
+        }
+      }
+      if (this.hasWalkAnim && !this.dying) {
+        this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
+      }
+    });
+  }
+
+  /** Boss backflip: leap backward, invulnerable during flip */
+  private bossBackflip(angle: number) {
+    this.backflipping = true;
+    this.bossAttackCooldowns["backflip"] = 5000;
+
+    const retreatAngle = angle + Math.PI;
+    // Backflip has limited directions — pick closest available
+    const flipDir = this.pickBackflipDir();
+    const flipKey = getAnimKey(this.spriteId, "backflip", flipDir);
+
+    if (this.scene.anims.exists(flipKey)) {
+      this.play(flipKey);
+    }
+
+    // Launch backward
+    this.body.setVelocity(
+      Math.cos(retreatAngle) * 200,
+      Math.sin(retreatAngle) * 200
+    );
+
+    this.scene.time.delayedCall(500, () => {
+      if (!this.active) return;
+      this.backflipping = false;
+      this.body.setVelocity(0, 0);
+      if (this.hasWalkAnim && !this.dying) {
+        this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
+      }
+    });
+  }
+
+  /** Backflip only has east, SE, SW sprites. Pick the closest. */
+  private pickBackflipDir(): Direction {
+    const dirMap: Record<string, Direction> = {
+      "east": "east",
+      "south-east": "south-east",
+      "south": "south-east",
+      "south-west": "south-west",
+      "west": "south-west",
+      "north-west": "south-west",
+      "north": "east",
+      "north-east": "east",
+    };
+    return dirMap[this.currentDir] || "east";
+  }
+
+  /** Boss fireball: play cast anim, spawn projectile toward player */
+  private bossFireball(angle: number, player: Phaser.Physics.Arcade.Sprite) {
+    this.castingFireball = true;
+    const bossStats = BALANCE.enemies.boss;
+    this.bossAttackCooldowns["fireball"] = bossStats.attacks.fireball.cooldown;
+
+    this.body.setVelocity(0, 0);
+    const castKey = getAnimKey(this.spriteId, "fireball", this.currentDir);
+    if (this.scene.anims.exists(castKey)) {
+      this.play(castKey);
+    }
+
+    // Spawn projectile mid-animation
+    this.scene.time.delayedCall(250, () => {
+      if (!this.active || this.dying) return;
+      this.spawnFireball(angle, bossStats.attacks.fireball);
+    });
+
+    this.once("animationcomplete", () => {
+      this.castingFireball = false;
+      if (this.hasWalkAnim && !this.dying) {
+        this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
+      }
+    });
+  }
+
+  /** Create a fireball projectile that damages the player on overlap */
+  private spawnFireball(
+    angle: number,
+    stats: { damage: number; projectileSpeed: number; range: number }
+  ) {
+    const scene = this.scene;
+    // Simple circle graphic as fireball
+    const fb = scene.add.graphics();
+    fb.fillStyle(0xff4400, 1);
+    fb.fillCircle(0, 0, 8);
+    fb.fillStyle(0xffaa00, 0.7);
+    fb.fillCircle(0, 0, 5);
+    fb.setPosition(this.x, this.y);
+    fb.setDepth(10);
+
+    // Enable physics on the graphics via a zone
+    const zone = scene.add.zone(this.x, this.y, 16, 16);
+    scene.physics.add.existing(zone, false);
+    const zBody = zone.body as Phaser.Physics.Arcade.Body;
+    zBody.setVelocity(
+      Math.cos(angle) * stats.projectileSpeed,
+      Math.sin(angle) * stats.projectileSpeed
+    );
+
+    const startX = this.x;
+    const startY = this.y;
+    const dmg = stats.damage;
+
+    // Check for player overlap every frame
+    const updateHandler = () => {
+      if (!zone.active) return;
+      fb.setPosition(zone.x, zone.y);
+
+      // Range limit
+      const traveled = Phaser.Math.Distance.Between(startX, startY, zone.x, zone.y);
+      if (traveled > stats.range) {
+        destroyFireball();
+        return;
+      }
+
+      // Out of world bounds
+      if (zone.x < 0 || zone.x > 1920 || zone.y < 0 || zone.y > 1920) {
+        destroyFireball();
+        return;
+      }
+
+      // Player overlap check
+      const player = (scene as any).player;
+      if (player?.active && !player.invincible) {
+        const d = Phaser.Math.Distance.Between(zone.x, zone.y, player.x, player.y);
+        if (d < 30) {
+          player.stats.health -= dmg;
+          scene.cameras.main.flash(100, 255, 100, 0, false);
+          scene.cameras.main.shake(80, 0.004);
+          (scene as any).playPlayerHurt?.();
+          if (player.stats.health <= 0) {
+            player.stats.health = 0;
+            (scene as any).gameOver = true;
+            player.body.setVelocity(0, 0);
+            player.playDeath?.(() => (scene as any).triggerGameOver?.());
+          }
+          destroyFireball();
+        }
+      }
+    };
+
+    const destroyFireball = () => {
+      scene.events.off("update", updateHandler);
+      fb.destroy();
+      zone.destroy();
+    };
+
+    scene.events.on("update", updateHandler);
+
+    // Safety: destroy after 5 seconds regardless
+    scene.time.delayedCall(5000, destroyFireball);
+  }
+
+  // ---- End boss AI ----
 
   update(_time: number, delta: number) {
     if (!this.active || !this.body || this.dying) return;
@@ -361,7 +712,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.stunTimer -= delta;
     }
 
-    // Leap cooldown
+    // Leap cooldown (non-boss enemies)
     if (this.leapCooldown > 0) {
       this.leapCooldown -= delta;
     }
@@ -383,6 +734,14 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.lastX = this.x;
       this.lastY = this.y;
       this.stuckTimer = 0;
+    }
+
+    // Boss uses its own AI system
+    if (this.enemyType === "boss" && this.stunTimer <= 0) {
+      this.updateBoss(delta, player);
+      this.updateDirection(player);
+      this.updateVisuals(delta);
+      return;
     }
 
     const angle = Phaser.Math.Angle.Between(
@@ -407,13 +766,19 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       );
     }
 
-    // Update sprite direction (don't interrupt bite or leap)
+    this.updateDirection(player);
+    this.updateVisuals(delta);
+  }
+
+  /** Update sprite facing direction */
+  private updateDirection(player: Phaser.Physics.Arcade.Sprite) {
+    const angle = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
     const newDir = angleToDirection(angle) as Direction;
     if (newDir !== this.currentDir) {
       this.currentDir = newDir;
-      if (!this.biting && !this.leaping && !this.takingPunch) {
+      if (!this.biting && !this.leaping && !this.takingPunch && !this.backflipping && !this.castingFireball) {
         if (this.hasWalkAnim) {
-          this.play(getAnimKey(this.spriteId, "walk", newDir), true);
+          this.play(getAnimKey(this.spriteId, this.walkAnimType, newDir), true);
         } else {
           this.setTexture(`${this.spriteId}-${newDir}`);
         }
@@ -422,7 +787,10 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         this.setTint(this.baseTint);
       }
     }
+  }
 
+  /** Update hit flash and health bar */
+  private updateVisuals(delta: number) {
     // Hit flash recovery
     if (this.hitFlashTimer > 0) {
       this.hitFlashTimer -= delta;
@@ -438,17 +806,19 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     // Health bar (only when damaged)
     this.healthBarGfx.clear();
     if (this.health < this.maxHealth) {
-      const barW = 40;
-      const barH = 4;
+      const isBoss = this.enemyType === "boss";
+      const barW = isBoss ? 40 : 24;
+      const barH = isBoss ? 4 : 2;
       const barX = this.x - barW / 2;
-      const barY = this.y - 35;
+      const barY = this.y - (isBoss ? 45 : 30);
 
       this.healthBarGfx.fillStyle(0x000000, 0.6);
       this.healthBarGfx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
 
       const pct = this.health / this.maxHealth;
-      const color =
-        pct > 0.5 ? 0x33cc33 : pct > 0.25 ? 0xcccc33 : 0xcc3333;
+      const color = isBoss
+        ? (pct > 0.5 ? 0xcc3333 : pct > 0.25 ? 0xff6600 : 0xff0000)
+        : (pct > 0.5 ? 0x33cc33 : pct > 0.25 ? 0xcccc33 : 0xcc3333);
       this.healthBarGfx.fillStyle(color, 1);
       this.healthBarGfx.fillRect(barX, barY, barW * pct, barH);
     }

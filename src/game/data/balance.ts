@@ -9,7 +9,7 @@ export const BALANCE = {
   },
   stamina: {
     regenDelay: 1000, // ms before stamina starts regenerating
-    punchCost: 15,
+    punchCost: 8,
     sprintCostPerSecond: 20,
   },
 
@@ -29,26 +29,41 @@ export const BALANCE = {
     baseEnemyCount: 4,
     enemiesPerWave: 1.2,
     playerCountModifiers: [1.0, 1.5, 2.0, 2.5],
-    // Slower stat scaling — fewer enemies but tougher
-    hpScalePerWave: 0.08,
-    damageScalePerWave: 0.05,
+    // WaW-style scaling — exponential HP, flat damage, speed tiers
+    // Waves 1-9: linear HP growth. Wave 10+: exponential (1.1x per wave)
+    hpLinearPerWave: 0.25,       // +25% HP per wave (waves 1-9)
+    hpExponentialBase: 1.1,      // 1.1^(wave-9) multiplier (wave 10+)
+    damageScalePerWave: 0.0,     // flat damage — pressure comes from speed + volume
+    // Speed tiers: waves 1-3 all shamblers, 4-6 mixed, 7+ mostly runners
+    speedTierWaves: { jogStart: 4, runStart: 7 },
+    // % of zombies at each speed tier per wave phase
+    speedMix: {
+      early:  { shamble: 1.0, jog: 0.0, run: 0.0 },   // waves 1-3
+      mid:    { shamble: 0.4, jog: 0.5, run: 0.1 },    // waves 4-6
+      late:   { shamble: 0.1, jog: 0.3, run: 0.6 },    // waves 7-9
+      swarm:  { shamble: 0.0, jog: 0.15, run: 0.85 },  // waves 10+
+    },
     dogVariantWave: 4,
-    tankVariantWave: 6,
+    bossVariantWave: 6,
     spawnStaggerMs: 1000,
     // Wave composition (ratios by phase)
     composition: {
       // Waves 1-3: all basic
       // Waves 4-5: basic + dogs
-      dogsEarly: { basic: 0.60, fast: 0.40, tank: 0 },
-      // Waves 6+: basic + dogs + tanks
-      full: { basic: 0.35, fast: 0.45, tank: 0.20 },
+      dogsEarly: { basic: 0.60, fast: 0.40 },
+      // Waves 6+: basic + dogs (boss spawns separately)
+      full: { basic: 0.45, fast: 0.55 },
+    },
+    // SCARYBOI spawns as a single mini-boss alongside regular enemies
+    bossSpawn: {
+      count: 1, // 1 per wave from wave 6+
     },
   },
 
   // Economy — tight early, loosens slightly mid-game
   economy: {
-    killReward: { basic: 10, fast: 8, tank: 50 },
-    xpPerKill: { basic: 10, fast: 8, tank: 50 },
+    killReward: { basic: 10, fast: 8, boss: 100 },
+    xpPerKill: { basic: 10, fast: 8, boss: 100 },
     waveCompletionBonus: { base: 30, perWave: 10 }, // $30 + wave * $10
     priceInflationPerWave: 0.10, // 10% per wave
     interestRate: 0.05, // 5% interest on banked cash per intermission
@@ -65,7 +80,7 @@ export const BALANCE = {
       { id: "shotgun", name: "Shotgun", desc: "8 shells, spread", basePrice: 350, unlockWave: 4 },
       { id: "smg", name: "SMG", desc: "50 rounds, rapid fire", basePrice: 500, unlockWave: 7 },
       { id: "ammo", name: "Ammo Refill", desc: "Refill current weapon", basePrice: 100 },
-      { id: "barricade", name: "Barricade", desc: "Blocks enemies, 120 HP", basePrice: 60 },
+      { id: "barricade", name: "Barricade", desc: "Blocks enemies, 300 HP", basePrice: 60 },
       { id: "landmine", name: "Landmine", desc: "AoE explosion on contact", basePrice: 80 },
     ],
   },
@@ -88,18 +103,18 @@ export const BALANCE = {
     },
     shotgun: {
       name: "Shotgun",
-      damage: 12,
+      damage: 22,
       fireRate: 700,
       speed: 400,
       range: 180,
       spread: 18,
-      pellets: 5,
+      pellets: 6,
       ammo: 8,
       price: 350,
       proficiency: "Shotguns",
       dropoff: 0,
       auto: false,
-      knockback: 80,
+      knockback: 120,
     },
     smg: {
       name: "SMG",
@@ -148,7 +163,7 @@ export const BALANCE = {
     },
     barricade: {
       name: "Barricade",
-      hp: 120,
+      hp: 300,
       price: 60,
     },
     landmine: {
@@ -203,10 +218,23 @@ export const BALANCE = {
     categoryWeights: { strength: 22, health: 22, stamina: 18, speed: 14, luck: 12, scavenger: 12 } as Record<string, number>,
   },
 
-  // Enemy base stats — fewer but stronger
+  // Enemy base stats — WaW-style scaling (exponential HP, speed tiers, flat damage)
   enemies: {
-    basic: { hp: 45, damage: 20, speed: 50 },
-    fast:  { hp: 12, damage: 4,  speed: 120, attackCooldown: 400 },  // dog: glass cannon, fast bites
-    tank:  { hp: 200, damage: 25, speed: 30, knockbackResist: 0.7 }, // brute: slow, tanky, hits hard
+    basic: { hp: 75, damage: 20, speed: 35, jogSpeed: 65, runSpeed: 95 },
+    fast:  { hp: 15, damage: 5,  speed: 130, attackCooldown: 400 },  // dog: glass cannon, fast bites
+    boss:  {
+      hp: 450,
+      speed: 40,           // stalking walk
+      runSpeed: 90,        // chasing
+      leapSpeed: 150,      // burst leap
+      knockbackResist: 0.8,
+      attacks: {
+        leadJab:    { damage: 15, range: 80,  cooldown: 800  },  // quick hit
+        crossPunch: { damage: 35, range: 90,  cooldown: 2000, knockback: 120 }, // heavy hit
+        fireball:   { damage: 25, range: 400, cooldown: 3000, projectileSpeed: 300 }, // ranged
+        leapAttack: { damage: 30, range: 250, cooldown: 4000 }, // gap closer
+      },
+      backflipThreshold: 0.25, // backflips away below 25% HP
+    },
   },
 } as const;

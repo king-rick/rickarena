@@ -7,10 +7,10 @@ import type { BuffOption } from "@/game/HUDState";
 const BODY = "var(--font-special-elite), 'Special Elite', serif";
 const DISPLAY = "ChainsawCarnage, HorrorPixel, monospace";
 
-const TIER_COLORS: Record<string, { border: string; glow: string; label: string }> = {
-  basic: { border: "#44aa44", glow: "rgba(68, 170, 68, 0.3)", label: "#44aa44" },
-  advanced: { border: "#4488dd", glow: "rgba(68, 136, 221, 0.3)", label: "#4488dd" },
-  elite: { border: "#ddaa22", glow: "rgba(221, 170, 34, 0.4)", label: "#ddaa22" },
+const TIER_COLORS: Record<string, { border: string; glow: string; label: string; lvl: string }> = {
+  basic: { border: "#44aa44", glow: "rgba(68, 170, 68, 0.3)", label: "#44aa44", lvl: "LVL 1" },
+  advanced: { border: "#cc3333", glow: "rgba(204, 51, 51, 0.3)", label: "#cc3333", lvl: "LVL 2" },
+  elite: { border: "#ddaa22", glow: "rgba(221, 170, 34, 0.4)", label: "#ddaa22", lvl: "LVL 3" },
 };
 
 export const LevelUpOverlay = memo(function LevelUpOverlay() {
@@ -104,17 +104,16 @@ function BuffCard({
     <div
       className="relative flex flex-col items-center justify-center"
       style={{
-        width: 240,
-        height: 200,
+        width: 260,
+        height: 210,
         cursor: "pointer",
-        backgroundImage: "url(/assets/sprites/ui/horror/card-dark.png)",
-        backgroundSize: "100% 100%",
-        imageRendering: "pixelated",
+        background: "linear-gradient(180deg, rgba(10, 8, 16, 0.95) 0%, rgba(16, 12, 20, 0.98) 100%)",
         border: `2px solid ${focused ? tier.border : "#333344"}`,
-        boxShadow: focused ? `0 0 20px ${tier.glow}, inset 0 0 12px ${tier.glow}` : "none",
+        borderRadius: 6,
+        boxShadow: focused ? `0 0 20px ${tier.glow}, inset 0 0 12px ${tier.glow}` : "0 2px 8px rgba(0,0,0,0.5)",
         transition: "border-color 120ms ease, box-shadow 120ms ease",
-        padding: "18px 16px",
-        gap: 6,
+        padding: "20px 18px",
+        gap: 8,
       }}
       onMouseEnter={onHover}
       onClick={onClick}
@@ -122,9 +121,9 @@ function BuffCard({
       <span
         style={{
           fontFamily: BODY,
-          fontSize: 13,
-          color: "#777788",
-          letterSpacing: "0.1em",
+          fontSize: 15,
+          color: "#999aab",
+          letterSpacing: "0.12em",
         }}
       >
         {option.category.toUpperCase()}
@@ -132,28 +131,29 @@ function BuffCard({
       <span
         style={{
           fontFamily: DISPLAY,
-          fontSize: 22,
+          fontSize: 26,
           color: "#ffffff",
           textAlign: "center",
-          textShadow: "0 0 6px rgba(255, 255, 255, 0.1)",
+          textShadow: "0 0 8px rgba(255, 255, 255, 0.2)",
         }}
       >
         {option.name}
       </span>
-      <span style={{ fontFamily: BODY, fontSize: 16, color: "#bbbbbb", textAlign: "center" }}>
+      <span style={{ fontFamily: BODY, fontSize: 18, color: "#dddddd", textAlign: "center" }}>
         {option.desc}
       </span>
       <span
         style={{
-          fontFamily: DISPLAY,
-          fontSize: 14,
+          fontFamily: BODY,
+          fontSize: 18,
+          fontWeight: "bold",
           color: tier.label,
-          letterSpacing: "0.12em",
-          marginTop: 4,
-          textShadow: `0 0 6px ${tier.glow}`,
+          letterSpacing: "0.14em",
+          marginTop: 6,
+          textShadow: `0 0 8px ${tier.glow}`,
         }}
       >
-        {option.tier.toUpperCase()}
+        {tier.lvl}
       </span>
     </div>
   );

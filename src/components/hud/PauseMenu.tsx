@@ -208,6 +208,7 @@ function SettingsPanel({ sfxVolume, zoomEnabled }: { sfxVolume: number; zoomEnab
 function ControlsPanel() {
   const controls = [
     ["WASD", "Move"],
+    ["SHIFT", "Sprint"],
     ["CLICK / SPACE", "Punch"],
     ["RIGHT-CLICK / F", "Use Item"],
     ["Q / E", "Cycle Slots"],

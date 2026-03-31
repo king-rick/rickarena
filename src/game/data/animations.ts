@@ -7,6 +7,7 @@ export const CHARACTER_ANIMATIONS: Record<
 > = {
   rick: [
     { type: "walk", frames: 8 },
+    { type: "running-6-frames", frames: 6 },
     { type: "breathing-idle", frames: 4 },
     { type: "cross-punch", frames: 6 },
     { type: "taking-punch", frames: 6 },
@@ -18,6 +19,7 @@ export const CHARACTER_ANIMATIONS: Record<
   ],
   dan: [
     { type: "walk", frames: 6 },
+    { type: "running-6-frames", frames: 6 },
     { type: "breathing-idle", frames: 4 },
     { type: "cross-punch", frames: 6 },
     { type: "taking-punch", frames: 6 },
@@ -30,6 +32,7 @@ export const CHARACTER_ANIMATIONS: Record<
   // mason: temporarily removed from roster (sprite rework)
   pj: [
     { type: "walk", frames: 6 },
+    { type: "running-6-frames", frames: 6 },
     { type: "breathing-idle", frames: 4 },
     { type: "cross-punch", frames: 6 },
     { type: "taking-punch", frames: 6 },
@@ -41,6 +44,7 @@ export const CHARACTER_ANIMATIONS: Record<
   ],
   jason: [
     { type: "walk", frames: 6 },
+    { type: "running-6-frames", frames: 6 },
     { type: "breathing-idle", frames: 4 },
     { type: "cross-punch", frames: 6 },
     { type: "taking-punch", frames: 6 },
@@ -65,9 +69,15 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "death", frames: 4 },
     { type: "leap", frames: 4 },
   ],
-  bigzombie: [
-    { type: "walk", frames: 4 },
-    { type: "breathing-idle", frames: 4 },
+  scaryboi: [
+    { type: "fight-stance-idle-8-frames", frames: 8 },
+    { type: "running-8-frames", frames: 8 },
+    { type: "running-jump", frames: 8 },
+    { type: "cross-punch", frames: 6 },
+    { type: "lead-jab", frames: 3 },
+    { type: "fireball", frames: 6 },
+    { type: "throw-object", frames: 7 },
+    { type: "backflip", frames: 10 },
   ],
 };
 

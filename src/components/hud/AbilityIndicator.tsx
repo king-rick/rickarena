@@ -3,7 +3,8 @@
 import { memo, useSyncExternalStore } from "react";
 import { hudState } from "@/game/HUDState";
 
-const SIZE = 32;
+const SIZE = 36;
+const FRAMES = 8;
 
 export const AbilityIndicator = memo(function AbilityIndicator() {
   const cooldown = useSyncExternalStore(hudState.subscribe, () => hudState.getField("abilityCooldown"));
@@ -12,97 +13,37 @@ export const AbilityIndicator = memo(function AbilityIndicator() {
   const ready = cooldown <= 0;
   const pct = maxCooldown > 0 ? Math.max(0, Math.min(1, 1 - cooldown / maxCooldown)) : 1;
 
+  // Map cooldown progress to frame index (0 = empty, 7 = full)
+  const frameIdx = ready ? FRAMES - 1 : Math.min(FRAMES - 2, Math.floor(pct * (FRAMES - 1)));
+
   return (
     <div
       style={{
         position: "relative",
         width: SIZE,
         height: SIZE,
-        marginBottom: 22,
+        marginBottom: 20,
       }}
     >
-      {/* Dark hourglass (background — always visible, dimmed) */}
       <img
-        src="/assets/sprites/ui/hourglass.png"
+        src={`/assets/sprites/ui/lightning/frame_${frameIdx}.png`}
         alt=""
         draggable={false}
         style={{
-          position: "absolute",
           width: SIZE,
           height: SIZE,
           imageRendering: "pixelated",
-          opacity: ready ? 0 : 0.15,
-          filter: "brightness(0.4)",
+          filter: ready
+            ? "brightness(1.3) drop-shadow(0 0 6px rgba(255, 255, 255, 0.8)) drop-shadow(0 0 12px rgba(255, 68, 102, 0.5))"
+            : "brightness(0.9)",
+          animation: ready ? "lightning-pulse 1.5s ease-in-out infinite" : "none",
         }}
       />
 
-      {/* Filling hourglass — clipped from bottom up during cooldown */}
-      {!ready && (
-        <div
-          style={{
-            position: "absolute",
-            width: SIZE,
-            height: SIZE,
-            clipPath: `inset(${(1 - pct) * 100}% 0 0 0)`,
-            transition: "clip-path 200ms linear",
-          }}
-        >
-          <img
-            src="/assets/sprites/ui/hourglass.png"
-            alt=""
-            draggable={false}
-            style={{
-              width: SIZE,
-              height: SIZE,
-              imageRendering: "pixelated",
-              opacity: 0.6,
-              filter: "brightness(0.7)",
-            }}
-          />
-        </div>
-      )}
-
-      {/* Ready state — fully lit hourglass with glow */}
-      {ready && (
-        <img
-          src="/assets/sprites/ui/hourglass.png"
-          alt=""
-          draggable={false}
-          style={{
-            position: "absolute",
-            width: SIZE,
-            height: SIZE,
-            imageRendering: "pixelated",
-            filter: "brightness(1.4) drop-shadow(0 0 8px rgba(255, 68, 102, 0.9)) drop-shadow(0 0 16px rgba(255, 68, 102, 0.5))",
-            animation: "hourglass-glow 1.5s ease-in-out infinite",
-          }}
-        />
-      )}
-
-      {/* Cooldown seconds */}
-      {!ready && (
-        <span
-          style={{
-            position: "absolute",
-            inset: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontFamily: "ChainsawCarnage, HorrorPixel, monospace",
-            fontSize: 14,
-            color: "#aa3355",
-            textShadow: "0 0 4px rgba(0, 0, 0, 0.9)",
-            pointerEvents: "none",
-          }}
-        >
-          {Math.ceil(cooldown)}
-        </span>
-      )}
-
       <style>{`
-        @keyframes hourglass-glow {
-          0%, 100% { filter: brightness(1.4) drop-shadow(0 0 8px rgba(255, 68, 102, 0.9)) drop-shadow(0 0 16px rgba(255, 68, 102, 0.5)); }
-          50% { filter: brightness(1.8) drop-shadow(0 0 14px rgba(255, 68, 102, 1)) drop-shadow(0 0 24px rgba(255, 68, 102, 0.7)); }
+        @keyframes lightning-pulse {
+          0%, 100% { filter: brightness(1.3) drop-shadow(0 0 6px rgba(255, 255, 255, 0.8)) drop-shadow(0 0 12px rgba(255, 68, 102, 0.5)); }
+          50% { filter: brightness(1.6) drop-shadow(0 0 10px rgba(255, 255, 255, 1)) drop-shadow(0 0 20px rgba(255, 68, 102, 0.8)); }
         }
       `}</style>
     </div>
