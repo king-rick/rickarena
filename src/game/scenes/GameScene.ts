@@ -34,7 +34,6 @@ export class GameScene extends Phaser.Scene {
   private paused = false;
   private damageBoostActive = false;
   private baseDamage = 0;
-  private groundFill: Phaser.GameObjects.Rectangle | null = null;
 
   // Wave system
   private waveManager!: WaveManager;
@@ -80,7 +79,7 @@ export class GameScene extends Phaser.Scene {
   private smokeX = 0;
   private smokeY = 0;
   private smokeTimer = 0; // ms remaining
-  private smokeDrainAccum = 0; // accumulates fractional drain damage
+  private smokeDrainAccum = 0; // unused, kept for destroySmokescreen reset
   private readonly smokeDuration = 5000;
   private readonly smokeRadius = 128; // 8x8 tiles = 256px diameter = 128px radius
   // Smokescreen buff (Jason) — lingers after smoke dissipates
@@ -127,6 +126,11 @@ export class GameScene extends Phaser.Scene {
   create() {
     hudState.reset();
     this.gameOver = false;
+    this.paused = false;
+    this.settingsOpen = false;
+    this.statsOpen = false;
+    this.physics.resume();
+    this.game.canvas.style.pointerEvents = "auto";
     this.currency = 0;
     this.kills = 0;
     this.lastDamageTime = 0;
@@ -155,14 +159,10 @@ export class GameScene extends Phaser.Scene {
     const structTs = map.addTilesetImage("basic-struct", "ts-basic-struct");
     const wallTs = map.addTilesetImage("basic-wall", "ts-basic-wall");
     const bpGroundTs = map.addTilesetImage("bp-ground-32", "ts-bp-ground-32");
-    const allTilesets = [grassTs!, structTs!, wallTs!, bpGroundTs!];
-    // Solid fill behind tilemap to mask seam artifacts at non-integer zoom
-    const groundFill = this.add.rectangle(
-      ENDICOTT_MAP_W / 2, ENDICOTT_MAP_H / 2,
-      ENDICOTT_MAP_W, ENDICOTT_MAP_H,
-      0x5a7a2a // approximate grass color
-    ).setDepth(-3);
-    this.groundFill = groundFill;
+    const tdGrassTs = map.addTilesetImage("td-basic-grass", "ts-td-basic-grass");
+    const allTilesets = [grassTs!, structTs!, wallTs!, bpGroundTs!, tdGrassTs!];
+    // Main camera background matches grass so tile seams don't show black gaps
+    this.cameras.main.setBackgroundColor(0x5a7a2a);
     map.createLayer("ground", allTilesets, 0, 0)?.setDepth(-2);
     map.createLayer("paths", allTilesets, 0, 0)?.setDepth(-1);
     map.createLayer("buildings", allTilesets, 0, 0)?.setDepth(0);
@@ -264,10 +264,6 @@ export class GameScene extends Phaser.Scene {
 
     // Push minimap position to React for border rendering
     hudState.update({ minimapX: mmX, minimapY: mmY, minimapSize: mmSize });
-
-    // Hide ground fill rectangle from minimap (must happen after minimap is created)
-    if (this.groundFill) this.minimap.ignore(this.groundFill);
-
 
     // Player indicator dot for minimap (large enough to see at minimap zoom)
     this.minimapDot = this.add.graphics();
@@ -1331,14 +1327,17 @@ export class GameScene extends Phaser.Scene {
 
   /** Jason — Smokescreen: smoke cloud that heals player and confuses enemies */
   private abilitySmokescreen() {
-    // Play cigarette animation
+    // Play cigarette animation — hold final frame (cigarette in mouth) for 1s
     if (hasAnimation(this.characterDef.id, "light-cigarette")) {
       const smokeKey = getAnimKey(this.characterDef.id, "light-cigarette", this.player["currentDir"]);
       if (this.anims.exists(smokeKey)) {
         this.player.play(smokeKey);
         this.player.once("animationcomplete", () => {
-          const idleKey = getAnimKey(this.characterDef.id, "breathing-idle", this.player["currentDir"]);
-          if (this.anims.exists(idleKey)) this.player.play(idleKey, true);
+          // Hold on last frame for 1 second before returning to idle
+          this.time.delayedCall(1000, () => {
+            const idleKey = getAnimKey(this.characterDef.id, "breathing-idle", this.player["currentDir"]);
+            if (this.anims.exists(idleKey)) this.player.play(idleKey, true);
+          });
         });
       }
     }
@@ -1378,58 +1377,9 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private updateSmokescreen(delta: number) {
+  private updateSmokescreen(_delta: number) {
     this.drawSmokeCloud();
-
-    // Heal player if inside smoke (8 HP/s)
-    const distToSmoke = Phaser.Math.Distance.Between(
-      this.player.x, this.player.y, this.smokeX, this.smokeY
-    );
-    if (distToSmoke <= this.smokeRadius) {
-      const healRate = 8; // HP per second
-      const healAmount = healRate * (delta / 1000);
-      this.player.stats.health = Math.min(
-        this.player.stats.maxHealth,
-        this.player.stats.health + healAmount
-      );
-    }
-
-    // Enemies in smoke: slowed + damage over time
-    this.enemies.getChildren().forEach((obj) => {
-      const enemy = obj as Enemy;
-      if (!enemy.active) return;
-
-      const dist = Phaser.Math.Distance.Between(enemy.x, enemy.y, this.smokeX, this.smokeY);
-      if (dist <= this.smokeRadius) {
-        // Slow enemies to 50% speed while in smoke
-        const angle = Phaser.Math.Angle.Between(enemy.x, enemy.y, this.player.x, this.player.y);
-        const slowSpeed = enemy.speed * 0.5;
-        enemy.body.setVelocity(
-          Math.cos(angle) * slowSpeed,
-          Math.sin(angle) * slowSpeed
-        );
-        // Damage over time: 6 HP/s to enemies in smoke
-        const dotDamage = 6 * (delta / 1000);
-        const killed = enemy.takeDamage(Math.ceil(dotDamage));
-        if (killed) this.onEnemyKilled(enemy);
-      }
-    });
-
-    // Accumulate smoke drain damage and apply in whole ticks (3 HP/s)
-    this.smokeDrainAccum += 3 * (delta / 1000);
-    if (this.smokeDrainAccum >= 1) {
-      const dmg = Math.floor(this.smokeDrainAccum);
-      this.smokeDrainAccum -= dmg;
-      this.enemies.getChildren().forEach((obj) => {
-        const enemy = obj as Enemy;
-        if (!enemy.active) return;
-        const dist = Phaser.Math.Distance.Between(enemy.x, enemy.y, this.smokeX, this.smokeY);
-        if (dist <= this.smokeRadius) {
-          const killed = enemy.takeDamage(dmg);
-          if (killed) this.onEnemyKilled(enemy);
-        }
-      });
-    }
+    // Smoke is purely visual now — buff (damage + stamina) is applied in the main update loop
   }
 
   private destroySmokescreen() {

@@ -10,7 +10,7 @@ export const BALANCE = {
   stamina: {
     regenDelay: 1200, // ms before stamina starts regenerating
     punchCost: 10,
-    sprintCostPerSecond: 20,
+    sprintCostPerSecond: 10,
     baseRegen: 8, // per second (overrides character regen when used)
   },
 
@@ -68,10 +68,10 @@ export const BALANCE = {
 
   // Economy — tight early, loosens slightly mid-game
   economy: {
-    killReward: { basic: 10, fast: 8, boss: 100 },
+    killReward: { basic: 12, fast: 10, boss: 100 },
     xpPerKill: { basic: 10, fast: 8, boss: 100 },
     waveCompletionBonus: { base: 30, perWave: 10 }, // $30 + wave * $10
-    priceInflationPerWave: 0.10, // 10% per wave
+    priceInflationPerWave: 0.05, // 5% per wave
     interestRate: 0.05, // 5% interest on banked cash per intermission
     interestCap: 50, // max $50 interest per wave
   },
@@ -245,7 +245,7 @@ export const BALANCE = {
       attacks: {
         leadJab:    { damage: 15, range: 60,  cooldown: 800  },  // quick hit
         crossPunch: { damage: 35, range: 70,  cooldown: 2000, knockback: 120 }, // heavy hit
-        fireball:   { damage: 25, range: 400, cooldown: 3000, projectileSpeed: 300 }, // ranged
+        fireball:   { damage: 15, range: 400, cooldown: 3000, projectileSpeed: 300 }, // ranged
         leapAttack: { damage: 30, range: 250, cooldown: 4000 }, // gap closer
       },
       backflipThreshold: 0.25, // backflips away below 25% HP

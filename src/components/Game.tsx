@@ -79,7 +79,7 @@ export default function Game() {
     const handler = (e: MouseEvent) => {
       // Don't steal focus from interactive HUD elements (sliders, buttons, etc.)
       const target = e.target as HTMLElement;
-      if (target.closest("[data-hud-interactive]")) return;
+      if (target.closest("[data-hud-interactive]") || target.closest("button") || target.closest("input")) return;
       refocusCanvas();
     };
     const container = document.getElementById("game-container");

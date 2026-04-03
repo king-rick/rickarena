@@ -34,10 +34,10 @@ export const PauseMenu = memo(function PauseMenu() {
 
   return (
     <div
-      className="absolute inset-0 flex items-center justify-center pointer-events-auto"
-      style={{ zIndex: 30 }}
+      className="fixed inset-0 flex items-center justify-center"
+      style={{ zIndex: 9999, pointerEvents: "auto" }}
     >
-      <div className="absolute inset-0" style={{ background: "rgba(0, 0, 0, 0.82)" }} />
+      <div className="absolute inset-0" style={{ background: "rgba(0, 0, 0, 0.82)", pointerEvents: "none" }} />
 
       {settingsOpen ? (
         <SettingsPanel sfxVolume={sfxVolume} zoomEnabled={zoomEnabled} />

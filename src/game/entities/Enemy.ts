@@ -173,6 +173,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
    * @param source "melee" for punches, "ranged" for bullets/projectiles
    */
   takeDamage(amount: number, source: "melee" | "ranged" = "melee"): boolean {
+    if (this.dying) return false; // already dead — don't award duplicate kills
     this.health -= amount;
     this.hitFlashTimer = 100;
     this.setTint(0xffffff);
@@ -598,8 +599,21 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     return dirMap[this.currentDir] || "east";
   }
 
+  /** Check if this enemy is fully visible on the main camera */
+  private isFullyOnScreen(): boolean {
+    const cam = this.scene.cameras.main;
+    const margin = 32; // half a tile buffer
+    const left = cam.scrollX + margin;
+    const right = cam.scrollX + cam.width / cam.zoom - margin;
+    const top = cam.scrollY + margin;
+    const bottom = cam.scrollY + cam.height / cam.zoom - margin;
+    return this.x > left && this.x < right && this.y > top && this.y < bottom;
+  }
+
   /** Boss fireball: play cast anim, spawn projectile toward player */
   private bossFireball(angle: number, player: Phaser.Physics.Arcade.Sprite) {
+    // Only fire if boss is fully on screen — no off-screen sniping
+    if (!this.isFullyOnScreen()) return;
     this.castingFireball = true;
     const bossStats = BALANCE.enemies.boss;
     this.bossAttackCooldowns["fireball"] = bossStats.attacks.fireball.cooldown;

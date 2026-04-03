@@ -86,6 +86,7 @@ export class PreloadScene extends Phaser.Scene {
     this.load.image("ts-basic-struct", "/assets/tilesets/basic-struct.png");
     this.load.image("ts-basic-wall", "/assets/tilesets/basic-wall.png");
     this.load.image("ts-bp-ground-32", "/assets/tilesets/bloompixel/bp-ground-32.png");
+    this.load.image("ts-td-basic-grass", "/assets/tilesets/td-basic-grass.png");
     // Tree spritesheets (64x64 per frame, used as individual sprites for overlap)
     this.load.spritesheet("trees-64", "/assets/tilesets/bloompixel/bp-trees-64.png", { frameWidth: 64, frameHeight: 64 });
     this.load.spritesheet("dark-trees-64", "/assets/tilesets/bloompixel/bp-dark-trees-64.png", { frameWidth: 64, frameHeight: 64 });
