@@ -86,7 +86,7 @@ export class GameScene extends Phaser.Scene {
   private smokeBuffTimer = 0; // ms remaining on damage+stamina buff
   private smokeBuffDamageBonus = 40; // flat damage bonus while buff active (one-shots walkers)
   private smokeBuffRegenBonus = 5; // extra stamina regen/sec while buff active
-  private readonly smokeBuffDuration = 6000; // 6 seconds
+  private readonly smokeBuffDuration = 9000; // 9 seconds
 
   // Shop
   private shopOpen = false;
@@ -168,6 +168,10 @@ export class GameScene extends Phaser.Scene {
     map.createLayer("buildings", allTilesets, 0, 0)?.setDepth(0);
     map.createLayer("decorations", allTilesets, 0, 0)?.setDepth(1);
     this.cameras.main.setRoundPixels(true);
+
+    // Expose map dimensions for enemy AI bounds clamping
+    (this as any).mapWidth = map.widthInPixels;
+    (this as any).mapHeight = map.heightInPixels;
 
     // Spawn sprites from Tiled object layer
     const spritesLayer = map.getObjectLayer("sprites");
@@ -2023,18 +2027,18 @@ export class GameScene extends Phaser.Scene {
 
     // --- EAST PERIMETER ---
     // Dense at the far edge, gradually thins toward center
-    const eastEdgeX = 55 * 32; // dense wall starts here
+    const eastEdgeX = 57 * 32; // dense wall starts here (pushed right to clear paths)
     for (let baseY = -32; baseY < mapH + 32; baseY += spacingY) {
       const wobble = edgeWobble(baseY, 42);
       // Dense zone: eastEdgeX to map edge
       for (let baseX = eastEdgeX + wobble; baseX < mapW + 32; baseX += spacingX) {
         placeTree(baseX, baseY);
       }
-      // Gradient zone: gets sparser the further from the edge
-      const gradientStart = eastEdgeX + wobble - 160; // ~5 tiles of gradient
+      // Gradient zone: gets sparser the further from the edge (narrower to avoid paths)
+      const gradientStart = eastEdgeX + wobble - 64; // ~2 tiles of gradient
       for (let baseX = gradientStart; baseX < eastEdgeX + wobble; baseX += spacingX * 1.3) {
         const distFromEdge = (eastEdgeX + wobble) - baseX;
-        const skipChance = distFromEdge / 200; // further from edge = more likely to skip
+        const skipChance = distFromEdge / 100; // thins out faster
         if (Math.random() < skipChance) continue;
         placeSparseTree(baseX, baseY);
       }
@@ -2042,7 +2046,7 @@ export class GameScene extends Phaser.Scene {
 
     // --- SOUTHEAST PERIMETER ---
     // Tighter band, ~2-3 tiles deep with gradient
-    const southEdgeY = 55 * 32; // dense wall starts here
+    const southEdgeY = 57 * 32; // dense wall starts here (pushed down to clear paths)
     for (let baseX = 30 * 32; baseX < eastEdgeX - 64; baseX += spacingX) {
       const wobble = edgeWobble(baseX, 97);
       // Dense zone: southEdgeY to map edge (narrow band)
@@ -2050,10 +2054,10 @@ export class GameScene extends Phaser.Scene {
         placeTree(baseX, baseY);
       }
       // Thin gradient above the dense line
-      const gradientStart = southEdgeY + wobble - 80; // ~2-3 tiles of gradient
+      const gradientStart = southEdgeY + wobble - 48; // ~1.5 tiles of gradient
       for (let baseY = gradientStart; baseY < southEdgeY + wobble; baseY += spacingY * 1.5) {
         const distFromEdge = (southEdgeY + wobble) - baseY;
-        const skipChance = distFromEdge / 100;
+        const skipChance = distFromEdge / 60;
         if (Math.random() < skipChance) continue;
         placeSparseTree(baseX, baseY);
       }
@@ -2077,7 +2081,7 @@ export class GameScene extends Phaser.Scene {
         case "resume": this.resumeGame(); break;
         case "openStats":
           this.statsOpen = true;
-          hudState.update({ statsOpen: true });
+          this.updateHUD(); // push stats data immediately (game loop is paused)
           break;
         case "closeStats":
           this.statsOpen = false;
@@ -2493,6 +2497,7 @@ export class GameScene extends Phaser.Scene {
       settingsOpen: this.settingsOpen,
       sfxVolume: this.sfxVolume,
       zoomEnabled: this.zoomEnabled,
+      statsOpen: this.statsOpen,
       // Stats screen data (only computed when open)
       ...(this.statsOpen ? {
         statsEffective: this.levelingSystem.getEffectiveStats({

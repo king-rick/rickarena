@@ -405,39 +405,69 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     // Don't act while mid-animation
     if (this.backflipping || this.castingFireball || this.biting || this.leaping) return;
 
-    // Phase selection based on HP
+    // Phase selection based on HP — low HP = cautious, not fleeing
     if (hpPct <= bossStats.backflipThreshold) {
-      this.bossPhase = "retreat";
+      this.bossPhase = "retreat"; // cautious / kiting
     } else if (dist > 200) {
       this.bossPhase = "stalk";
     } else {
       this.bossPhase = "chase";
     }
 
+    // Clamp boss to map bounds so he can't run off the map
+    const mapW = (this.scene as any).mapWidth ?? 1920;
+    const mapH = (this.scene as any).mapHeight ?? 1920;
+    const pad = 48;
+    if (this.x < pad || this.x > mapW - pad || this.y < pad || this.y > mapH - pad) {
+      // Push back toward center of map
+      const cx = mapW / 2;
+      const cy = mapH / 2;
+      const toCenter = Phaser.Math.Angle.Between(this.x, this.y, cx, cy);
+      this.body.setVelocity(
+        Math.cos(toCenter) * bossStats.runSpeed,
+        Math.sin(toCenter) * bossStats.runSpeed
+      );
+      this.bossRunning = true;
+      return;
+    }
+
     switch (this.bossPhase) {
       case "retreat":
-        // Low HP: backflip away, then spam fireballs
-        if (dist < 150 && this.canBossAttack("backflip")) {
+        // Low HP: play cautiously — kite at medium range, mix fireballs + melee
+        // Only backflip if player is very close and cooldown is up (not every time)
+        if (dist < 100 && this.canBossAttack("backflip")) {
           this.bossBackflip(angle);
           return;
         }
-        // Keep distance — move away from player
-        if (dist < 200) {
-          const retreatAngle = angle + Math.PI; // opposite direction
-          const retreatSpeed = bossStats.runSpeed;
+        // Maintain medium distance — circle/kite, don't just run away
+        if (dist < 120) {
+          // Strafe sideways instead of running straight back
+          const strafeAngle = angle + Math.PI * 0.7; // angled retreat, not straight back
           this.body.setVelocity(
-            Math.cos(retreatAngle) * retreatSpeed,
-            Math.sin(retreatAngle) * retreatSpeed
+            Math.cos(strafeAngle) * bossStats.speed,
+            Math.sin(strafeAngle) * bossStats.speed
           );
-          this.bossRunning = true;
+          this.bossRunning = false;
+        } else if (dist > 250) {
+          // Too far — cautiously approach
+          this.body.setVelocity(
+            Math.cos(angle) * bossStats.speed * 0.7,
+            Math.sin(angle) * bossStats.speed * 0.7
+          );
+          this.bossRunning = false;
         } else {
-          // At distance, stop and throw fireballs
+          // Sweet spot — stop and use ranged attacks
           this.body.setVelocity(0, 0);
           this.bossRunning = false;
         }
-        // Fireball spam at any range in retreat phase
-        if (this.canBossAttack("fireball")) {
+        // Fireball when at range
+        if (dist > 100 && this.canBossAttack("fireball")) {
           this.bossFireball(angle, player);
+          return;
+        }
+        // Still melee if player closes in
+        if (dist < bossStats.attacks.leadJab.range && this.canBossAttack("leadJab")) {
+          this.bossMeleeAttack("leadJab", "lead-jab", bossStats.attacks.leadJab.damage);
           return;
         }
         break;
@@ -612,8 +642,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
   /** Boss fireball: play cast anim, spawn projectile toward player */
   private bossFireball(angle: number, player: Phaser.Physics.Arcade.Sprite) {
-    // Only fire if boss is fully on screen — no off-screen sniping
-    if (!this.isFullyOnScreen()) return;
+    // Allow fireball slightly off-screen but not from across the map
+    const distToPlayer = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
+    if (distToPlayer > 500) return;
     this.castingFireball = true;
     const bossStats = BALANCE.enemies.boss;
     this.bossAttackCooldowns["fireball"] = bossStats.attacks.fireball.cooldown;

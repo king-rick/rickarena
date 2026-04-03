@@ -237,7 +237,7 @@ export const BALANCE = {
     basic: { hp: 50, damage: 20, speed: 35, jogSpeed: 65, runSpeed: 95 },
     fast:  { hp: 15, damage: 5,  speed: 130, attackCooldown: 400 },  // dog: glass cannon, fast bites
     boss:  {
-      hp: 450,
+      hp: 500,
       speed: 40,           // stalking walk
       runSpeed: 90,        // chasing
       leapSpeed: 150,      // burst leap

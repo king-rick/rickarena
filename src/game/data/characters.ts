@@ -81,7 +81,7 @@ export const CHARACTERS: CharacterDef[] = [
     weaponSpecialty: "None",
     specialtyDesc: "",
     stats: { ...BASE_STATS },
-    ability: { name: "Smokescreen", desc: "Smoke cloud that boosts damage and stamina regen for 6s", cooldown: 20 },
+    ability: { name: "Smokescreen", desc: "Smoke cloud that boosts damage and stamina regen for 9s", cooldown: 20 },
     pixelLabId: "5cc951c4-ef30-49a1-8136-8b2fdb3baec0",
   },
 ];
