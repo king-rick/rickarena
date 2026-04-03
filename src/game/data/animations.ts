@@ -16,6 +16,7 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "shooting-shotgun", frames: 4 },
     { type: "shooting-smg", frames: 9 },
     { type: "high-kick", frames: 7 },
+    { type: "walking-shooting-pistol", frames: 9 },
   ],
   dan: [
     { type: "walk", frames: 6 },

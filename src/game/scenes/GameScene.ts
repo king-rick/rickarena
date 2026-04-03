@@ -34,6 +34,7 @@ export class GameScene extends Phaser.Scene {
   private paused = false;
   private damageBoostActive = false;
   private baseDamage = 0;
+  private groundFill: Phaser.GameObjects.Rectangle | null = null;
 
   // Wave system
   private waveManager!: WaveManager;
@@ -82,6 +83,11 @@ export class GameScene extends Phaser.Scene {
   private smokeDrainAccum = 0; // accumulates fractional drain damage
   private readonly smokeDuration = 5000;
   private readonly smokeRadius = 128; // 8x8 tiles = 256px diameter = 128px radius
+  // Smokescreen buff (Jason) — lingers after smoke dissipates
+  private smokeBuffTimer = 0; // ms remaining on damage+stamina buff
+  private smokeBuffDamageBonus = 5; // flat damage bonus while buff active
+  private smokeBuffRegenBonus = 5; // extra stamina regen/sec while buff active
+  private readonly smokeBuffDuration = 10000; // 10 seconds
 
   // Shop
   private shopOpen = false;
@@ -156,7 +162,7 @@ export class GameScene extends Phaser.Scene {
       ENDICOTT_MAP_W, ENDICOTT_MAP_H,
       0x5a7a2a // approximate grass color
     ).setDepth(-3);
-    this.minimap?.ignore(groundFill);
+    this.groundFill = groundFill;
     map.createLayer("ground", allTilesets, 0, 0)?.setDepth(-2);
     map.createLayer("paths", allTilesets, 0, 0)?.setDepth(-1);
     map.createLayer("buildings", allTilesets, 0, 0)?.setDepth(0);
@@ -258,6 +264,9 @@ export class GameScene extends Phaser.Scene {
 
     // Push minimap position to React for border rendering
     hudState.update({ minimapX: mmX, minimapY: mmY, minimapSize: mmSize });
+
+    // Hide ground fill rectangle from minimap (must happen after minimap is created)
+    if (this.groundFill) this.minimap.ignore(this.groundFill);
 
 
     // Player indicator dot for minimap (large enough to see at minimap zoom)
@@ -780,6 +789,19 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    // Smokescreen buff tick (Jason) — damage + stamina regen bonus
+    if (this.smokeBuffTimer > 0) {
+      this.smokeBuffTimer -= delta;
+      // Extra stamina regen
+      this.player.stats.stamina = Math.min(
+        this.player.stats.maxStamina,
+        this.player.stats.stamina + this.smokeBuffRegenBonus * (delta / 1000)
+      );
+      if (this.smokeBuffTimer <= 0) {
+        this.smokeBuffTimer = 0;
+      }
+    }
+
     // Panting — play once on burnout start
     if (this.player.burnedOut && !this.wasBurnedOut) {
       this.playSound("sfx-player-panting", 0.3);
@@ -929,9 +951,10 @@ export class GameScene extends Phaser.Scene {
       const range = this.characterDef.stats.punchRange;
       const arcHalf = Phaser.Math.DegToRad(this.characterDef.stats.punchArc / 2);
       const attackAngle = this.getFacingAngle();
+      const baseDmg = this.player.stats.damage + (this.smokeBuffTimer > 0 ? this.smokeBuffDamageBonus : 0);
       const damage = this.player.burnedOut
-        ? Math.floor(this.player.stats.damage * BALANCE.burnout.damageMultiplier)
-        : this.player.stats.damage;
+        ? Math.floor(baseDmg * BALANCE.burnout.damageMultiplier)
+        : baseDmg;
 
       let hitAny = false;
       this.enemies.getChildren().forEach((obj) => {
@@ -1334,7 +1357,10 @@ export class GameScene extends Phaser.Scene {
     this.smokeCloud.setAlpha(0.5);
     this.drawSmokeCloud();
 
+    // Activate damage + stamina buff (lasts longer than smoke)
+    this.smokeBuffTimer = this.smokeBuffDuration;
     this.showWeaponMessage("SMOKESCREEN!", "#88aa88");
+    this.showWeaponMessage("+DMG +STAMINA (10s)", "#66ccaa");
   }
 
   private drawSmokeCloud() {
@@ -1439,6 +1465,7 @@ export class GameScene extends Phaser.Scene {
 
     const angle = this.getFacingAngle();
     const dmgMult = 1;
+    const smokeBonus = this.smokeBuffTimer > 0 ? this.smokeBuffDamageBonus : 0;
 
     // Point-blank hit check: directly damage enemies closer than the projectile spawn offset
     // so bullets don't fly past enemies that are right on top of the player
@@ -1449,7 +1476,7 @@ export class GameScene extends Phaser.Scene {
       const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, enemy.x, enemy.y);
       if (dist > pbRange) return;
       for (let p = 0; p < weaponDef.pellets; p++) {
-        let damage = Math.floor(weaponDef.damage * dmgMult);
+        let damage = Math.floor((weaponDef.damage + smokeBonus) * dmgMult);
         // SMG close-range bonus
         if ("closeRangeBonus" in weaponDef) {
           damage = Math.floor(damage * (weaponDef as any).closeRangeBonus);
@@ -1479,7 +1506,7 @@ export class GameScene extends Phaser.Scene {
         spawnY,
         pelletAngle,
         weaponDef.speed,
-        Math.floor(weaponDef.damage * dmgMult),
+        Math.floor((weaponDef.damage + smokeBonus) * dmgMult),
         weaponDef.range,
         weaponDef.dropoff,
         this.equippedWeapon!
@@ -1845,6 +1872,7 @@ export class GameScene extends Phaser.Scene {
     const waveReached = this.waveManager.wave;
 
     // Push death screen to React — include health=0 so the bar visually empties
+    this.game.canvas.style.pointerEvents = "none"; // Let React handle clicks during game over
     hudState.update({
       health: 0,
       gameOver: true,
@@ -2173,6 +2201,8 @@ export class GameScene extends Phaser.Scene {
   private pauseGame() {
     this.paused = true;
     this.physics.pause();
+    // Make canvas non-interactive so React pause menu buttons receive clicks
+    this.game.canvas.style.pointerEvents = "none";
     hudState.update({ paused: true });
   }
 
@@ -2181,6 +2211,9 @@ export class GameScene extends Phaser.Scene {
     this.settingsOpen = false;
     this.statsOpen = false;
     this.physics.resume();
+    this.game.canvas.style.pointerEvents = "auto";
+    // Brief grace period to prevent accidental punch on resume
+    this.lastPunchTime = this.time.now;
     hudState.update({ paused: false, settingsOpen: false, statsOpen: false });
   }
 

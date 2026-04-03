@@ -255,7 +255,8 @@ export class PreloadScene extends Phaser.Scene {
           const isLooping =
             anim.type === "walk" || anim.type === "breathing-idle"
             || anim.type === "running-6-frames" || anim.type === "running-8-frames"
-            || anim.type === "fight-stance-idle-8-frames";
+            || anim.type === "fight-stance-idle-8-frames"
+            || anim.type === "walking-shooting-pistol";
 
           let frameRate = 8;
           if (anim.type === "walk") frameRate = 10;
@@ -276,6 +277,7 @@ export class PreloadScene extends Phaser.Scene {
           else if (anim.type === "high-kick") frameRate = 16;
           else if (anim.type === "swinging-katana") frameRate = 14;
           else if (anim.type === "throw-grenade") frameRate = 10;
+          else if (anim.type === "walking-shooting-pistol") frameRate = 10;
           else if (anim.type === "light-cigarette") frameRate = 6;
           else if (anim.type === "bite") frameRate = 12;
           else if (anim.type === "lunge-bite") frameRate = 12;

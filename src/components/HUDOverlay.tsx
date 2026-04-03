@@ -162,7 +162,7 @@ export function HUDOverlay({ canvasRect }: Props) {
 
       {/* Stats screen */}
       {paused && !gameOver && (
-        <div className="absolute" style={{ ...baseStyle, zIndex: 31 }}>
+        <div className="absolute pointer-events-none" style={{ ...baseStyle, zIndex: 31 }}>
           <StatsScreen />
         </div>
       )}
