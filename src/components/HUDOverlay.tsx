@@ -18,6 +18,7 @@ import { Hotbar } from "./hud/Hotbar";
 import { HealthBar } from "./hud/HealthBar";
 import { StaminaBar } from "./hud/StaminaBar";
 import { DevPanel } from "./hud/DevPanel";
+import { StatsScreen } from "./hud/StatsScreen";
 
 interface Props {
   canvasRect: CanvasRect;
@@ -59,6 +60,20 @@ export function HUDOverlay({ canvasRect }: Props) {
         </div>
       )}
 
+      {/* Health + Stamina bars — always visible (even in shop and game over) */}
+      <div
+        className="absolute pointer-events-none"
+        style={{ ...baseStyle, zIndex: 21 }}
+      >
+        <div style={{
+          position: "absolute", top: 12, left: 12,
+          display: "flex", flexDirection: "column", gap: 4,
+        }}>
+          <HealthBar />
+          {!gameOver && <StaminaBar />}
+        </div>
+      </div>
+
       {/* HUD elements — hidden on game over */}
       {!gameOver && (
         <div
@@ -71,14 +86,6 @@ export function HUDOverlay({ canvasRect }: Props) {
             transition: "opacity 150ms ease-out",
           }}
         >
-          {/* Health + Stamina bars — top left */}
-          <div style={{
-            position: "absolute", top: 12, left: 12,
-            display: "flex", flexDirection: "column", gap: 4,
-          }}>
-            <HealthBar />
-            <StaminaBar />
-          </div>
           {/* Kill counter + stats — top right */}
           <div style={{
             position: "absolute", top: 8, right: 8,
@@ -150,6 +157,13 @@ export function HUDOverlay({ canvasRect }: Props) {
       {paused && !gameOver && (
         <div className="absolute" style={{ ...baseStyle, zIndex: 30 }}>
           <PauseMenu />
+        </div>
+      )}
+
+      {/* Stats screen */}
+      {paused && !gameOver && (
+        <div className="absolute" style={{ ...baseStyle, zIndex: 31 }}>
+          <StatsScreen />
         </div>
       )}
 

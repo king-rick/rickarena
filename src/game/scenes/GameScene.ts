@@ -3,7 +3,7 @@ import { Player } from "../entities/Player";
 import { Enemy } from "../entities/Enemy";
 import { Projectile, ensureBulletTexture } from "../entities/Projectile";
 import { Trap, TrapType, ensureTrapTextures } from "../entities/Trap";
-import { CHARACTERS, CharacterDef } from "../data/characters";
+import { CHARACTERS, CharacterDef, BASE_STATS } from "../data/characters";
 import { BALANCE } from "../data/balance";
 import { WaveManager, WaveState } from "../systems/WaveManager";
 import { LevelingSystem, BuffOption } from "../systems/LevelingSystem";
@@ -45,13 +45,18 @@ export class GameScene extends Phaser.Scene {
 
   // Weapon state
   private equippedWeapon: string | null = null; // null = fists
-  private ammo = 0;
-  private maxAmmo = 0;
+  private magazineAmmo = 0; // rounds in current magazine
+  private magazineSize = 0; // max rounds per magazine
+  private reserveAmmo = 0; // rounds in reserve (remaining clips)
   private lastFireTime = 0;
   private fireHeld = false;
   private dryFired = false; // true after empty click, reset on trigger release
-  private hasExtraClip = false; // doubled ammo capacity for current weapon
+  private reloading = false;
+  private reloadTimer: Phaser.Time.TimerEvent | null = null;
   private projectiles!: Phaser.Physics.Arcade.Group;
+
+  // Melee cooldown
+  private lastPunchTime = 0;
 
   // Trap state
   private trapInventory: Map<TrapType, number> = new Map();
@@ -94,6 +99,7 @@ export class GameScene extends Phaser.Scene {
   private zoomEnabled = false;
   private ambientSounds: Phaser.Sound.BaseSound[] = [];
   private devMode = false;
+  private statsOpen = false;
   private shopSelectedIndex = 0;
   private shopNavCol = 0;
   private shopNavRow = 0;
@@ -118,8 +124,16 @@ export class GameScene extends Phaser.Scene {
     this.currency = 0;
     this.kills = 0;
     this.lastDamageTime = 0;
-    this.equippedWeapon = null;
-    this.ammo = 0;
+    // Start with pistol — 3 clips worth (can buy up to totalClips max)
+    const pistolDef = BALANCE.weapons.pistol;
+    this.equippedWeapon = "pistol";
+    this.magazineSize = pistolDef.magazineSize;
+    this.magazineAmmo = pistolDef.magazineSize; // 1 mag loaded
+    this.reserveAmmo = pistolDef.magazineSize * 2; // 2 reserve clips (24 total)
+    this.activeSlot = 1;
+    this.reloading = false;
+    this.reloadTimer = null;
+    this.lastPunchTime = 0;
     this.fireHeld = false;
     this.bloodSplats = [];
     this.pendingLevelUps = [];
@@ -132,22 +146,10 @@ export class GameScene extends Phaser.Scene {
     // Draw tilemap — Endicott Estate
     const map = this.make.tilemap({ key: "endicott-map" });
     const grassTs = map.addTilesetImage("cainos-grass", "ts-cainos-grass");
-    const stoneTs = map.addTilesetImage("cainos-stone", "ts-cainos-stone");
-    const plantTs = map.addTilesetImage("basic-plant", "ts-basic-plant");
-    const propsTs = map.addTilesetImage("basic-props", "ts-basic-props");
     const structTs = map.addTilesetImage("basic-struct", "ts-basic-struct");
     const wallTs = map.addTilesetImage("basic-wall", "ts-basic-wall");
-    const portTs = map.addTilesetImage("port-town", "ts-port-town");
-    const estateTs = map.addTilesetImage("pixellab-estate", "ts-pixellab-estate");
-    const bpBushTs = map.addTilesetImage("bp-bushes", "ts-bp-bushes");
-    const bpStoneTs = map.addTilesetImage("bp-stone-path", "ts-bp-stone-path");
     const bpGroundTs = map.addTilesetImage("bp-ground-32", "ts-bp-ground-32");
-    const bpTreesTs = map.addTilesetImage("bp-trees-64", "ts-bp-trees-64");
-    const bpRocksTs = map.addTilesetImage("bp-rocks-64", "ts-bp-rocks-64");
-    const bpDirtTs = map.addTilesetImage("bp-dirt-path", "ts-bp-dirt-path");
-    const nyknckRoadsTs = map.addTilesetImage("nyknck-roads", "ts-nyknck-roads");
-    const kenneyUrbanTs = map.addTilesetImage("kenney-urban", "ts-kenney-urban");
-    const allTilesets = [grassTs!, stoneTs!, plantTs!, propsTs!, structTs!, wallTs!, portTs!, estateTs!, bpBushTs!, bpStoneTs!, bpGroundTs!, bpTreesTs!, bpRocksTs!, bpDirtTs!, nyknckRoadsTs!, kenneyUrbanTs!];
+    const allTilesets = [grassTs!, structTs!, wallTs!, bpGroundTs!];
     // Solid fill behind tilemap to mask seam artifacts at non-integer zoom
     const groundFill = this.add.rectangle(
       ENDICOTT_MAP_W / 2, ENDICOTT_MAP_H / 2,
@@ -416,6 +418,14 @@ export class GameScene extends Phaser.Scene {
       rKey.on("down", () => {
         if (!this.gameOver && !this.paused && !this.shopOpen) this.useAbility();
       });
+
+      // G: manual reload
+      const gKey = this.input.keyboard.addKey(
+        Phaser.Input.Keyboard.KeyCodes.G
+      );
+      gKey.on("down", () => {
+        if (!this.gameOver && !this.paused && !this.shopOpen) this.startReload();
+      });
     }
     // Left click = melee punch, Right click = use active item slot
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
@@ -445,6 +455,7 @@ export class GameScene extends Phaser.Scene {
       pKey.on("down", () => {
         if (this.gameOver) return;
         if (this.shopOpen) { this.closeShop(); return; }
+        if (this.statsOpen) { this.statsOpen = false; hudState.update({ statsOpen: false }); return; }
         if (this.settingsOpen) { this.settingsOpen = false; hudState.update({ settingsOpen: false }); return; }
         if (this.paused) this.resumeGame();
         else this.pauseGame();
@@ -476,6 +487,18 @@ export class GameScene extends Phaser.Scene {
         this.barricadeVertical = !this.barricadeVertical;
         const orient = this.barricadeVertical ? "VERTICAL" : "HORIZONTAL";
         this.showWeaponMessage(`BARRICADE: ${orient}`, "#dddd44");
+      });
+
+      // TAB key to toggle stats screen
+      const tabKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.TAB);
+      tabKey.on("down", (event: KeyboardEvent) => {
+        event?.preventDefault?.();
+        if (this.gameOver) return;
+        this.statsOpen = !this.statsOpen;
+        hudState.update({ statsOpen: this.statsOpen });
+        if (this.statsOpen && !this.paused) {
+          this.pauseGame();
+        }
       });
 
       // Dev mode — backtick key, localhost only
@@ -892,8 +915,14 @@ export class GameScene extends Phaser.Scene {
   // ------- Combat -------
 
   private meleeAttack() {
+    // Punch cooldown — prevents mashing faster than intended
+    const now = this.time.now;
+    const cd = this.player.burnedOut ? BALANCE.punch.burnoutCooldownMs : BALANCE.punch.cooldownMs;
+    if (now - this.lastPunchTime < cd) return;
+
     const cost = BALANCE.stamina.punchCost;
     if (!this.player.useStamina(cost)) return;
+    this.lastPunchTime = now;
 
     this.player.playPunch(() => {
       // Damage applied when punch animation lands, not on button press
@@ -1025,11 +1054,11 @@ export class GameScene extends Phaser.Scene {
     const range = 140; // big reach
     const arc = Phaser.Math.DegToRad(130); // wide sweep
     const damage = this.characterDef.stats.damage * 8; // 200 dmg — devastating
-    const knockback = 700;
+    const knockback = 350;
     let hits = 0;
 
     // Screen shake for impact feel
-    this.cameras.main.shake(200, 0.008);
+    this.cameras.main.shake(120, 0.004);
 
     this.enemies.getChildren().forEach((obj) => {
       const enemy = obj as Enemy;
@@ -1083,10 +1112,37 @@ export class GameScene extends Phaser.Scene {
     const gx = this.player.x + Math.cos(angle) * throwDist;
     const gy = this.player.y + Math.sin(angle) * throwDist;
 
+    // Draw projected landing line + target circle
+    const landingGfx = this.add.graphics().setDepth(5);
+    const drawLanding = () => {
+      landingGfx.clear();
+      // Dashed line from player to landing point
+      landingGfx.lineStyle(1, 0x44aaff, 0.4);
+      const steps = 12;
+      for (let i = 0; i < steps; i += 2) {
+        const t0 = i / steps;
+        const t1 = (i + 1) / steps;
+        landingGfx.lineBetween(
+          this.player.x + (gx - this.player.x) * t0,
+          this.player.y + (gy - this.player.y) * t0,
+          this.player.x + (gx - this.player.x) * t1,
+          this.player.y + (gy - this.player.y) * t1,
+        );
+      }
+      // Target circle at landing point
+      landingGfx.lineStyle(1, 0x44aaff, 0.5);
+      landingGfx.strokeCircle(gx, gy, 16);
+      landingGfx.lineStyle(1, 0x44aaff, 0.25);
+      landingGfx.strokeCircle(gx, gy, 160); // blast radius preview
+    };
+    drawLanding();
+
     const launchGrenade = () => {
-      // Create visible grenade projectile
+      landingGfx.destroy();
+
+      // Create visible grenade projectile (small)
       const grenade = this.add.image(this.player.x, this.player.y, "item-grenade")
-        .setScale(0.8)
+        .setScale(0.4)
         .setDepth(6);
 
       // Grenade flies in an arc to landing point
@@ -1097,11 +1153,11 @@ export class GameScene extends Phaser.Scene {
         duration: 450,
         ease: "Sine.easeOut",
       });
-      // Vertical arc (scale Y to simulate arc height)
+      // Vertical arc (scale to simulate arc height)
       this.tweens.add({
         targets: grenade,
-        scaleX: 1.1,
-        scaleY: 1.1,
+        scaleX: 0.6,
+        scaleY: 0.6,
         duration: 225,
         yoyo: true,
         ease: "Sine.easeOut",
@@ -1161,8 +1217,17 @@ export class GameScene extends Phaser.Scene {
 
       const dist = Phaser.Math.Distance.Between(gx, gy, enemy.x, enemy.y);
       if (dist <= blastRadius) {
-        enemy.applyKnockbackStun(stunDuration);
-        enemy.body.setVelocity(0, 0);
+        // EMP does moderate damage in addition to stun
+        const empDamage = Math.floor(this.characterDef.stats.damage * 3);
+        const killed = enemy.takeDamage(empDamage);
+        if (killed) {
+          this.onEnemyKilled(enemy);
+        } else {
+          enemy.applyKnockbackStun(stunDuration);
+          enemy.body.setVelocity(0, 0);
+          // Play idle texture so stunned enemies stop walking
+          enemy.stopAndIdle();
+        }
         stunCount++;
       }
     });
@@ -1189,10 +1254,10 @@ export class GameScene extends Phaser.Scene {
     const range = 110; // katana reach
     const arc = Phaser.Math.DegToRad(140); // wide slash arc
     const damage = this.characterDef.stats.damage * 14; // 196 dmg — devastating
-    const knockback = 350;
+    const knockback = 180;
     let hits = 0;
 
-    this.cameras.main.shake(120, 0.005);
+    this.cameras.main.shake(80, 0.003);
 
     this.enemies.getChildren().forEach((obj) => {
       const enemy = obj as Enemy;
@@ -1290,12 +1355,12 @@ export class GameScene extends Phaser.Scene {
   private updateSmokescreen(delta: number) {
     this.drawSmokeCloud();
 
-    // Heal player if inside smoke (slow heal — 4 HP/s)
+    // Heal player if inside smoke (8 HP/s)
     const distToSmoke = Phaser.Math.Distance.Between(
       this.player.x, this.player.y, this.smokeX, this.smokeY
     );
     if (distToSmoke <= this.smokeRadius) {
-      const healRate = 4; // HP per second — nerfed from 15
+      const healRate = 8; // HP per second
       const healAmount = healRate * (delta / 1000);
       this.player.stats.health = Math.min(
         this.player.stats.maxHealth,
@@ -1303,7 +1368,7 @@ export class GameScene extends Phaser.Scene {
       );
     }
 
-    // Enemies in smoke: slowed + health drain
+    // Enemies in smoke: slowed + damage over time
     this.enemies.getChildren().forEach((obj) => {
       const enemy = obj as Enemy;
       if (!enemy.active) return;
@@ -1317,6 +1382,10 @@ export class GameScene extends Phaser.Scene {
           Math.cos(angle) * slowSpeed,
           Math.sin(angle) * slowSpeed
         );
+        // Damage over time: 6 HP/s to enemies in smoke
+        const dotDamage = 6 * (delta / 1000);
+        const killed = enemy.takeDamage(Math.ceil(dotDamage));
+        if (killed) this.onEnemyKilled(enemy);
       }
     });
 
@@ -1348,11 +1417,15 @@ export class GameScene extends Phaser.Scene {
 
   private fireWeapon() {
     if (!this.equippedWeapon) return;
-    if (this.ammo <= 0) {
-      if (!this.dryFired) {
+    if (this.reloading) return; // can't fire while reloading
+
+    if (this.magazineAmmo <= 0) {
+      // Magazine empty — auto-reload if we have reserve ammo
+      if (this.reserveAmmo > 0) {
+        this.startReload();
+      } else {
         this.playSound("sfx-dryfire", 0.4);
         this.showWeaponMessage("OUT OF AMMO", "#cc3333");
-        this.dryFired = true;
       }
       return;
     }
@@ -1375,13 +1448,16 @@ export class GameScene extends Phaser.Scene {
       if (!enemy.active) return;
       const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, enemy.x, enemy.y);
       if (dist > pbRange) return;
-      // Each pellet has a chance to hit at point blank
       for (let p = 0; p < weaponDef.pellets; p++) {
         let damage = Math.floor(weaponDef.damage * dmgMult);
+        // SMG close-range bonus
+        if ("closeRangeBonus" in weaponDef) {
+          damage = Math.floor(damage * (weaponDef as any).closeRangeBonus);
+        }
         const weaponKey = this.equippedWeapon ?? "pistol";
         if (this.rollCrit(weaponKey, 0)) {
           damage = Math.floor(damage * BALANCE.crit.damageMultiplier);
-          this.showCritEffect(enemy.x, enemy.y);
+          this.showCritEffect(enemy.x, enemy.y, "ranged");
         }
         const killed = enemy.takeDamage(damage, "ranged");
         if (killed) { this.onEnemyKilled(enemy); break; }
@@ -1408,11 +1484,11 @@ export class GameScene extends Phaser.Scene {
         weaponDef.dropoff,
         this.equippedWeapon!
       );
-      this.projectiles.add(proj, true); // add to scene + group
-      proj.launch(); // set velocity after body exists
+      this.projectiles.add(proj, true);
+      proj.launch();
     }
 
-    this.ammo--;
+    this.magazineAmmo--;
 
     // Play shooting animation on the player sprite
     this.player.playShoot(this.equippedWeapon!);
@@ -1438,9 +1514,46 @@ export class GameScene extends Phaser.Scene {
     flash.setAlpha(0.9);
     this.time.delayedCall(60, () => flash.destroy());
 
-    if (this.ammo <= 0) {
-      // Don't auto-play dry fire here; let the next click trigger it once
+    // Auto-reload when magazine empties, or dry-click if totally out
+    if (this.magazineAmmo <= 0) {
+      if (this.reserveAmmo > 0) {
+        this.startReload();
+      } else {
+        this.time.delayedCall(250, () => {
+          this.playSound("sfx-dryfire", 1.0);
+          this.showWeaponMessage("OUT OF AMMO", "#cc3333");
+        });
+      }
     }
+  }
+
+  private startReload() {
+    if (!this.equippedWeapon || this.reloading) return;
+    if (this.magazineAmmo >= this.magazineSize) return; // already full
+    if (this.reserveAmmo <= 0 && this.magazineAmmo <= 0) return; // nothing to reload
+
+    const weaponDef = BALANCE.weapons[this.equippedWeapon as keyof typeof BALANCE.weapons];
+    if (!weaponDef) return;
+
+    this.reloading = true;
+    this.showWeaponMessage("RELOADING...", "#ffaa33");
+
+    this.reloadTimer = this.time.delayedCall(weaponDef.reloadMs, () => {
+      if (!this.equippedWeapon) { this.reloading = false; return; }
+      const needed = this.magazineSize - this.magazineAmmo;
+      const loaded = Math.min(needed, this.reserveAmmo);
+      this.magazineAmmo += loaded;
+      this.reserveAmmo -= loaded;
+      this.reloading = false;
+      this.reloadTimer = null;
+      // Reload complete sound per weapon
+      if (this.equippedWeapon === "shotgun") {
+        this.playSound("sfx-reload-shotgun", 0.5);
+      } else {
+        this.playSound("sfx-reload-rifle", 0.5);
+      }
+      this.showWeaponMessage("RELOADED", "#44dd44");
+    });
   }
 
   private showWeaponMessage(msg: string, _color: string) {
@@ -1548,8 +1661,9 @@ export class GameScene extends Phaser.Scene {
     (enemyObj, trapObj) => {
       const enemy = enemyObj as Enemy;
       const trap = trapObj as Trap;
-      if (!enemy.active || !trap.active) return;
+      if (!enemy.active || !trap.active || enemy.dying) return;
 
+      const wasDying = enemy.dying;
       const shouldRemove = trap.trigger(enemy, this);
       if (trap.trapType === "landmine" && shouldRemove) {
         this.playSound("sfx-explosion", 0.4);
@@ -1558,8 +1672,8 @@ export class GameScene extends Phaser.Scene {
         trap.destroy();
       }
 
-      // Track kills from traps
-      if (!enemy.active) {
+      // Track kills from traps (dying flag, not active — active stays true during death animation)
+      if (!wasDying && enemy.dying) {
         this.onEnemyKilled(enemy);
       }
     };
@@ -1580,17 +1694,22 @@ export class GameScene extends Phaser.Scene {
     };
 
   private rollCrit(weaponKey: string, distanceRatio: number): boolean {
-    const charCrit = this.characterDef.stats.critChance;
+    const effective = this.levelingSystem.getEffectiveStats(this.characterDef.stats);
+    const charCrit = effective.critChance;
     const weaponCrit = BALANCE.crit.weaponCrit[weaponKey as keyof typeof BALANCE.crit.weaponCrit] ?? 0;
-    // Closer = higher crit chance (distanceRatio 0 = point blank, 1 = max range)
     const distCrit = BALANCE.crit.closeCritBonus * (1 - distanceRatio);
+    const levelCrit = (this.levelingSystem.level - 1) * BALANCE.crit.critPerLevel;
 
-    const totalCrit = charCrit + weaponCrit + distCrit;
+    const totalCrit = charCrit + weaponCrit + distCrit + levelCrit;
     return Math.random() < totalCrit;
   }
 
-  private showCritEffect(x: number, y: number) {
-    const txt = this.add.text(x, y - 20, "CRIT!", {
+  private showCritEffect(x: number, y: number, source: "melee" | "ranged" = "melee") {
+    const label = source === "ranged" ? "HEADSHOT" : "CRIT!";
+    const color1 = source === "ranged" ? "#ffdd44" : "#ff4444";
+    const color2 = source === "ranged" ? "#cc8800" : "#8b0000";
+
+    const txt = this.add.text(x, y - 20, label, {
       fontFamily: "ChainsawCarnage, HorrorPixel, monospace",
       fontSize: "36px",
       stroke: "#000000",
@@ -1598,9 +1717,13 @@ export class GameScene extends Phaser.Scene {
     }).setDepth(100).setOrigin(0.5).setScale(0.25).setAlpha(0);
 
     const gradient = txt.context.createLinearGradient(0, 0, 0, txt.height);
-    gradient.addColorStop(0, "#ff4444");
-    gradient.addColorStop(1, "#8b0000");
+    gradient.addColorStop(0, color1);
+    gradient.addColorStop(1, color2);
     txt.setFill(gradient);
+
+    if (source === "ranged") {
+      this.playSound("sfx-click", 0.6); // ping on headshot
+    }
 
     this.tweens.add({
       targets: txt,
@@ -1630,7 +1753,7 @@ export class GameScene extends Phaser.Scene {
       const weaponKey = this.equippedWeapon ?? "pistol";
       if (this.rollCrit(weaponKey, proj.distanceRatio)) {
         damage = Math.floor(damage * BALANCE.crit.damageMultiplier);
-        this.showCritEffect(enemy.x, enemy.y);
+        this.showCritEffect(enemy.x, enemy.y, "ranged");
       }
 
       const killed = enemy.takeDamage(damage, "ranged");
@@ -1721,8 +1844,9 @@ export class GameScene extends Phaser.Scene {
 
     const waveReached = this.waveManager.wave;
 
-    // Push death screen to React
+    // Push death screen to React — include health=0 so the bar visually empties
     hudState.update({
+      health: 0,
       gameOver: true,
       gameOverPhase: "death",
       gameOverWave: waveReached,
@@ -1973,6 +2097,14 @@ export class GameScene extends Phaser.Scene {
           this.scene.restart({ characterId: this.characterDef.id });
           break;
         case "resume": this.resumeGame(); break;
+        case "openStats":
+          this.statsOpen = true;
+          hudState.update({ statsOpen: true });
+          break;
+        case "closeStats":
+          this.statsOpen = false;
+          hudState.update({ statsOpen: false });
+          break;
         case "openSettings":
           this.settingsOpen = true;
           hudState.update({ settingsOpen: true });
@@ -2047,8 +2179,9 @@ export class GameScene extends Phaser.Scene {
   private resumeGame() {
     this.paused = false;
     this.settingsOpen = false;
+    this.statsOpen = false;
     this.physics.resume();
-    hudState.update({ paused: false, settingsOpen: false });
+    hudState.update({ paused: false, settingsOpen: false, statsOpen: false });
   }
 
   // ------- Shop (React overlay — data push only) -------
@@ -2223,33 +2356,40 @@ export class GameScene extends Phaser.Scene {
         this.showWeaponMessage("+5 DAMAGE", "#ff8844");
         break;
       }
-      case "pistol":
       case "shotgun":
       case "smg": {
-        // Already holding this weapon with ammo — buy ammo refill instead
-        if (this.equippedWeapon === itemId && this.ammo > 0) {
-          if (this.ammo >= this.maxAmmo) return;
+        const weaponDef = BALANCE.weapons[itemId as keyof typeof BALANCE.weapons];
+        // Already holding this weapon — buy ammo refill instead
+        if (this.equippedWeapon === itemId) {
+          const totalMax = weaponDef.magazineSize * weaponDef.totalClips;
+          const totalCurrent = this.magazineAmmo + this.reserveAmmo;
+          if (totalCurrent >= totalMax) return;
           this.currency -= price;
-          this.ammo = this.maxAmmo;
+          this.reserveAmmo = totalMax - this.magazineAmmo;
           this.showWeaponMessage("AMMO REFILLED", "#44dd44");
           break;
         }
-        const weaponDef = BALANCE.weapons[itemId as keyof typeof BALANCE.weapons];
-        const ammoAmount = weaponDef.ammo;
         this.currency -= price;
         this.equippedWeapon = itemId;
-        this.ammo = ammoAmount;
-        this.maxAmmo = ammoAmount;
-        this.hasExtraClip = false; // reset on new weapon
-        this.activeSlot = 1; // Auto-switch to weapon slot
+        this.magazineSize = weaponDef.magazineSize;
+        this.magazineAmmo = weaponDef.magazineSize; // full first mag
+        this.reserveAmmo = weaponDef.magazineSize * (weaponDef.totalClips - 1); // remaining clips
+        this.reloading = false;
+        if (this.reloadTimer) { this.reloadTimer.destroy(); this.reloadTimer = null; }
+        this.activeSlot = 1;
         this.showWeaponMessage(weaponDef.name.toUpperCase() + " EQUIPPED", "#dddd44");
         break;
       }
       case "ammo": {
-        if (!this.equippedWeapon) return; // no weapon to refill
-        if (this.ammo >= this.maxAmmo) return; // already full
+        if (!this.equippedWeapon) return;
+        const wDef = BALANCE.weapons[this.equippedWeapon as keyof typeof BALANCE.weapons];
+        const totalMax = wDef.magazineSize * wDef.totalClips;
+        const totalCurrent = this.magazineAmmo + this.reserveAmmo;
+        if (totalCurrent >= totalMax) return;
         this.currency -= price;
-        this.ammo = this.maxAmmo;
+        const addAmmo = wDef.magazineSize * 2; // 2 clips per purchase
+        this.reserveAmmo = Math.min(this.reserveAmmo + addAmmo, totalMax - this.magazineAmmo);
+        this.showWeaponMessage(`+${Math.min(addAmmo, totalMax - totalCurrent)} AMMO`, "#44dd44");
         break;
       }
       case "barricade":
@@ -2344,8 +2484,10 @@ export class GameScene extends Phaser.Scene {
       level: this.levelingSystem.level,
       activeSlot: this.activeSlot,
       equippedWeapon: this.equippedWeapon,
-      ammo: this.ammo,
-      maxAmmo: this.maxAmmo,
+      ammo: this.magazineAmmo,
+      maxAmmo: this.magazineSize,
+      reserveAmmo: this.reserveAmmo,
+      reloading: this.reloading,
       barricadeCount: this.trapInventory.get("barricade" as TrapType) ?? 0,
       mineCount: this.trapInventory.get("landmine" as TrapType) ?? 0,
       abilityName: this.characterDef.ability.name,
@@ -2368,6 +2510,33 @@ export class GameScene extends Phaser.Scene {
       settingsOpen: this.settingsOpen,
       sfxVolume: this.sfxVolume,
       zoomEnabled: this.zoomEnabled,
+      // Stats screen data (only computed when open)
+      ...(this.statsOpen ? {
+        statsEffective: this.levelingSystem.getEffectiveStats({
+          damage: BASE_STATS.damage,
+          hp: BASE_STATS.hp,
+          stamina: BASE_STATS.stamina,
+          speed: BASE_STATS.speed,
+          regen: BASE_STATS.regen,
+          critChance: BASE_STATS.critChance,
+        }),
+        statsBase: {
+          damage: BASE_STATS.damage,
+          hp: BASE_STATS.hp,
+          stamina: BASE_STATS.stamina,
+          speed: BASE_STATS.speed,
+          regen: BASE_STATS.regen,
+          critChance: BASE_STATS.critChance,
+        },
+        statsBuffs: this.levelingSystem.appliedBuffs.map(b => ({
+          category: b.category,
+          tier: b.tier,
+          name: b.name,
+        })),
+        statsXp: this.levelingSystem.xp,
+        statsXpNeeded: this.levelingSystem.xpToNextLevel(),
+        statsClassName: this.characterDef.className,
+      } : {}),
     });
   }
 

@@ -28,7 +28,7 @@ const VARIANT_TINTS: Record<EnemyType, number> = {
 const VARIANT_SCALES: Record<EnemyType, number> = {
   basic: 0.28,
   fast: 0.4,
-  boss: 0.35,
+  boss: 0.45,
 };
 
 export class Enemy extends Phaser.Physics.Arcade.Sprite {
@@ -53,7 +53,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private hasGunshotDeath: boolean;
   private biting = false;
   private leaping = false;
-  private dying = false;
+  dying = false;
   private takingPunch = false;
   private leapBiteCombo = false; // true when leap chains into bite for 1.5x damage
   private leapCooldown = 0; // ms until next leap allowed
@@ -115,8 +115,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     // Collision body covering torso + feet for reliable hit detection
     if (isBoss) {
-      this.body.setSize(50, 60);
-      this.body.setOffset(55, 60);
+      this.body.setSize(60, 70);
+      this.body.setOffset(50, 50);
     } else if (isFast) {
       // Dog — lower, wider hitbox
       this.body.setSize(50, 40);
@@ -160,6 +160,12 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   /** Apply extra stun time for heavy knockback (e.g. shotgun blasts) */
   applyKnockbackStun(ms: number) {
     this.stunTimer = Math.max(this.stunTimer, ms);
+  }
+
+  /** Stop walk animation and show static idle texture (used for EMP stun) */
+  stopAndIdle() {
+    this.stop();
+    this.setTexture(`${this.spriteId}-${this.currentDir}`);
   }
 
   /**
@@ -666,6 +672,10 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
       // Player overlap check
       const player = (scene as any).player;
+      if ((scene as any).gameOver) {
+        destroyFireball();
+        return;
+      }
       if (player?.active && !player.invincible) {
         const d = Phaser.Math.Distance.Between(zone.x, zone.y, player.x, player.y);
         if (d < 30) {
@@ -754,7 +764,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     // Leap attack — dogs lunge when within range and off cooldown
     if (this.hasLeapAnim && !this.leaping && !this.biting && this.stunTimer <= 0
-        && this.leapCooldown <= 0 && dist > 40 && dist < 120) {
+        && this.leapCooldown <= 0 && dist > 30 && dist < 80) {
       this.startLeap(angle, dist);
     }
 

@@ -117,26 +117,35 @@ export class LevelingSystem {
     let critChance = base.critChance;
     let killBonusPct = 0;
 
+    // Track buff count per category for soft cap diminishing returns
+    const catCount: Record<string, number> = {};
+    const softCap = BALANCE.buffSoftCap;
+
     for (const buff of this.appliedBuffs) {
+      const count = (catCount[buff.category] ?? 0) + 1;
+      catCount[buff.category] = count;
+      // Buffs beyond the soft cap give 50% value
+      const mult = count > softCap ? 0.5 : 1.0;
+
       switch (buff.category) {
         case "strength":
-          damage += buff.flat;
+          damage += buff.flat * mult;
           break;
         case "health":
-          maxHealth += buff.flat;
+          maxHealth += buff.flat * mult;
           break;
         case "stamina":
-          maxStamina += buff.flat;
-          if (buff.regenFlat) regen += buff.regenFlat;
+          maxStamina += buff.flat * mult;
+          if (buff.regenFlat) regen += buff.regenFlat * mult;
           break;
         case "speed":
-          speed += buff.flat;
+          speed += buff.flat * mult;
           break;
         case "luck":
-          critChance += buff.flat;
+          critChance += buff.flat * mult;
           break;
         case "scavenger":
-          killBonusPct += buff.flat;
+          killBonusPct += buff.flat * mult;
           break;
       }
     }

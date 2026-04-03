@@ -44,6 +44,8 @@ export interface HUDData {
   equippedWeapon: string | null;
   ammo: number;
   maxAmmo: number;
+  reserveAmmo: number;
+  reloading: boolean;
   barricadeCount: number;
   mineCount: number;
 
@@ -117,6 +119,30 @@ export interface HUDData {
   leaderboard: LeaderboardEntry[];
   leaderboardHighlightId: number | null;
 
+  // Stats screen
+  statsOpen: boolean;
+  statsEffective: {
+    damage: number;
+    maxHealth: number;
+    maxStamina: number;
+    speed: number;
+    regen: number;
+    critChance: number;
+    killBonusPct: number;
+  };
+  statsBase: {
+    damage: number;
+    hp: number;
+    stamina: number;
+    speed: number;
+    regen: number;
+    critChance: number;
+  };
+  statsBuffs: { category: string; tier: string; name: string }[];
+  statsXp: number;
+  statsXpNeeded: number;
+  statsClassName: string;
+
   // Dev panel
   devPanelOpen: boolean;
   devMode: boolean;
@@ -134,6 +160,8 @@ const DEFAULT_STATE: HUDData = {
   equippedWeapon: null,
   ammo: 0,
   maxAmmo: 0,
+  reserveAmmo: 0,
+  reloading: false,
   barricadeCount: 0,
   mineCount: 0,
   abilityName: "",
@@ -178,6 +206,13 @@ const DEFAULT_STATE: HUDData = {
   gameOverCharName: "",
   leaderboard: [],
   leaderboardHighlightId: null,
+  statsOpen: false,
+  statsEffective: { damage: 0, maxHealth: 0, maxStamina: 0, speed: 0, regen: 0, critChance: 0, killBonusPct: 0 },
+  statsBase: { damage: 0, hp: 0, stamina: 0, speed: 0, regen: 0, critChance: 0 },
+  statsBuffs: [],
+  statsXp: 0,
+  statsXpNeeded: 0,
+  statsClassName: "",
   devPanelOpen: false,
   devMode: false,
   devSpawningDisabled: false,

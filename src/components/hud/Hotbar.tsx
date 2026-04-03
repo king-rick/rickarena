@@ -20,8 +20,11 @@ function getActiveIcon(activeSlot: number, equippedWeapon: string | null): { ico
   return { icon: null, label: "" };
 }
 
-function getActiveCount(activeSlot: number, ammo: number, maxAmmo: number, barricadeCount: number, mineCount: number): { count: string; danger: boolean } {
-  if (activeSlot === 1) return { count: `${ammo}/${maxAmmo}`, danger: ammo === 0 };
+function getActiveCount(activeSlot: number, ammo: number, maxAmmo: number, reserveAmmo: number, reloading: boolean, barricadeCount: number, mineCount: number): { count: string; danger: boolean } {
+  if (activeSlot === 1) {
+    if (reloading) return { count: "RELOADING", danger: true };
+    return { count: `${ammo}/${reserveAmmo}`, danger: ammo === 0 && reserveAmmo === 0 };
+  }
   if (activeSlot === 2) return { count: `x${barricadeCount}`, danger: false };
   if (activeSlot === 3) return { count: `x${mineCount}`, danger: false };
   return { count: "", danger: false };
@@ -32,11 +35,13 @@ export const Hotbar = memo(function Hotbar() {
   const equippedWeapon = useSyncExternalStore(hudState.subscribe, () => hudState.getField("equippedWeapon"));
   const ammo = useSyncExternalStore(hudState.subscribe, () => hudState.getField("ammo"));
   const maxAmmo = useSyncExternalStore(hudState.subscribe, () => hudState.getField("maxAmmo"));
+  const reserveAmmo = useSyncExternalStore(hudState.subscribe, () => hudState.getField("reserveAmmo"));
+  const reloading = useSyncExternalStore(hudState.subscribe, () => hudState.getField("reloading"));
   const barricadeCount = useSyncExternalStore(hudState.subscribe, () => hudState.getField("barricadeCount"));
   const mineCount = useSyncExternalStore(hudState.subscribe, () => hudState.getField("mineCount"));
 
   const { icon, label } = getActiveIcon(activeSlot, equippedWeapon);
-  const { count, danger } = getActiveCount(activeSlot, ammo, maxAmmo, barricadeCount, mineCount);
+  const { count, danger } = getActiveCount(activeSlot, ammo, maxAmmo, reserveAmmo, reloading, barricadeCount, mineCount);
 
   // Nothing equipped — don't render
   if (!icon) return null;

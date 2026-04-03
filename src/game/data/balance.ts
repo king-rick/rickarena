@@ -8,9 +8,10 @@ export const BALANCE = {
     damageMultiplier: 0.5,
   },
   stamina: {
-    regenDelay: 1000, // ms before stamina starts regenerating
-    punchCost: 8,
+    regenDelay: 1200, // ms before stamina starts regenerating
+    punchCost: 10,
     sprintCostPerSecond: 20,
+    baseRegen: 8, // per second (overrides character regen when used)
   },
 
   // Combat
@@ -18,7 +19,12 @@ export const BALANCE = {
     arc: 120, // degrees
     range: 80, // px
     knockback: 100,
+    cooldownMs: 350, // minimum ms between punches regardless of animation speed
+    burnoutCooldownMs: 600, // slower punching when burned out
   },
+
+  // Buff soft caps — buffs beyond this count per category give 50% value
+  buffSoftCap: 3,
 
   // Wave system — fewer enemies, each one matters
   waves: {
@@ -31,7 +37,7 @@ export const BALANCE = {
     playerCountModifiers: [1.0, 1.5, 2.0, 2.5],
     // WaW-style scaling — exponential HP, flat damage, speed tiers
     // Waves 1-9: linear HP growth. Wave 10+: exponential (1.1x per wave)
-    hpLinearPerWave: 0.25,       // +25% HP per wave (waves 1-9)
+    hpLinearPerWave: 0.0,        // no HP scaling — pressure comes from speed + volume, not sponges
     hpExponentialBase: 1.1,      // 1.1^(wave-9) multiplier (wave 10+)
     damageScalePerWave: 0.0,     // flat damage — pressure comes from speed + volume
     // Speed tiers: waves 1-3 all shamblers, 4-6 mixed, 7+ mostly runners
@@ -76,58 +82,65 @@ export const BALANCE = {
       { id: "heal", name: "Bandages", desc: "Heal 30 HP", basePrice: 40 },
       { id: "medkit", name: "Medkit", desc: "Heal 80 HP", basePrice: 120 },
       { id: "dmgBoost", name: "Adrenaline", desc: "+5 damage next wave", basePrice: 100 },
-      { id: "pistol", name: "Pistol", desc: "12 rounds, accurate", basePrice: 150, unlockWave: 1 },
+      // Pistol is a starting weapon — not sold in shop
       { id: "shotgun", name: "Shotgun", desc: "8 shells, spread", basePrice: 350, unlockWave: 4 },
       { id: "smg", name: "SMG", desc: "50 rounds, rapid fire", basePrice: 500, unlockWave: 7 },
-      { id: "ammo", name: "Ammo Refill", desc: "Refill current weapon", basePrice: 100 },
+      { id: "ammo", name: "Ammo Refill", desc: "+2 clips for current weapon", basePrice: 100 },
       { id: "barricade", name: "Barricade", desc: "Blocks enemies, 300 HP", basePrice: 60 },
       { id: "landmine", name: "Landmine", desc: "AoE explosion on contact", basePrice: 80 },
     ],
   },
 
-  // Weapons
+  // Weapons — magazine + reserve clip system
   weapons: {
     pistol: {
       name: "Pistol",
-      damage: 10,
+      damage: 17,
       fireRate: 350,
       speed: 600,
       range: 350,
       spread: 0,
       pellets: 1,
-      ammo: 12,
+      magazineSize: 8,
+      totalClips: 5, // 5 clips of 8 = 40 total rounds (start with 3 clips, buy more)
+      reloadMs: 1200,
       price: 150,
       proficiency: "Pistols",
-      dropoff: 0.4,
+      dropoff: 0,
       auto: false,
     },
     shotgun: {
       name: "Shotgun",
-      damage: 22,
-      fireRate: 700,
+      damage: 28,
+      fireRate: 900,
       speed: 400,
-      range: 180,
+      range: 200,
       spread: 18,
-      pellets: 6,
-      ammo: 8,
+      pellets: 7,
+      magazineSize: 6,
+      totalClips: 2, // 2 clips of 6 = 12 total shells
+      reloadMs: 1800,
       price: 350,
       proficiency: "Shotguns",
       dropoff: 0,
       auto: false,
-      knockback: 120,
+      knockback: 140,
     },
     smg: {
       name: "SMG",
-      damage: 12,
+      damage: 14,
       fireRate: 100,
       speed: 500,
       range: 280,
       spread: 5,
       pellets: 1,
-      ammo: 50,
+      magazineSize: 30,
+      totalClips: 2, // 2 clips of 30 = 60 total rounds
+      reloadMs: 1500,
       price: 500,
       proficiency: "Pistols",
-      dropoff: 0.6,
+      dropoff: 0.7, // more dropoff at range
+      closeRangeBonus: 1.4, // 40% more damage at point blank, scales down to 1.0 at mid-range
       auto: true,
     },
   },
@@ -142,14 +155,15 @@ export const BALANCE = {
 
   // Critical hits
   crit: {
-    damageMultiplier: 2.0,
+    damageMultiplier: 4.0,
+    critPerLevel: 0.005, // +0.5% crit per level
     weaponCrit: {
-      pistol: 0.05,
-      shotgun: 0.02,
-      smg: 0.03,
-      fists: 0.04,
+      pistol: 0,
+      shotgun: 0,
+      smg: 0,
+      fists: 0,
     },
-    closeCritBonus: 0.05,
+    closeCritBonus: 0,
   },
 
   // Traps
@@ -220,7 +234,7 @@ export const BALANCE = {
 
   // Enemy base stats — WaW-style scaling (exponential HP, speed tiers, flat damage)
   enemies: {
-    basic: { hp: 75, damage: 20, speed: 35, jogSpeed: 65, runSpeed: 95 },
+    basic: { hp: 50, damage: 20, speed: 35, jogSpeed: 65, runSpeed: 95 },
     fast:  { hp: 15, damage: 5,  speed: 130, attackCooldown: 400 },  // dog: glass cannon, fast bites
     boss:  {
       hp: 450,
@@ -229,8 +243,8 @@ export const BALANCE = {
       leapSpeed: 150,      // burst leap
       knockbackResist: 0.8,
       attacks: {
-        leadJab:    { damage: 15, range: 80,  cooldown: 800  },  // quick hit
-        crossPunch: { damage: 35, range: 90,  cooldown: 2000, knockback: 120 }, // heavy hit
+        leadJab:    { damage: 15, range: 60,  cooldown: 800  },  // quick hit
+        crossPunch: { damage: 35, range: 70,  cooldown: 2000, knockback: 120 }, // heavy hit
         fireball:   { damage: 25, range: 400, cooldown: 3000, projectileSpeed: 300 }, // ranged
         leapAttack: { damage: 30, range: 250, cooldown: 4000 }, // gap closer
       },

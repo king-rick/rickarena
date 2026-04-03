@@ -91,10 +91,10 @@ export class WaveManager {
         break;
 
       case "clearing":
-        // Count alive enemies in the group
+        // Count alive enemies in the group (exclude dying enemies playing death animations)
         this.enemiesAlive = this.enemies
           .getChildren()
-          .filter((e) => e.active).length;
+          .filter((e) => e.active && !(e as Enemy).dying).length;
 
         if (this.enemiesAlive <= 0) {
           this.beginIntermission();

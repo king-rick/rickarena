@@ -28,13 +28,13 @@ export interface CharacterDef {
 /** Uniform base stats — all characters start identical. Differentiation comes from abilities and weapon specialties. */
 export const BASE_STATS = {
   hp: 100,
-  damage: 18,
+  damage: 13,
   speed: 160,
   stamina: 100,
   regen: 10,
-  punchRange: 70,
+  punchRange: 50,
   punchArc: 120,
-  critChance: 0.05,
+  critChance: 0.01,
 };
 
 export const CHARACTERS: CharacterDef[] = [

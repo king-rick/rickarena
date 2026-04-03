@@ -9,12 +9,14 @@ const DISPLAY = "ChainsawCarnage, HorrorPixel, monospace";
 export const PauseMenu = memo(function PauseMenu() {
   const paused = useSyncExternalStore(hudState.subscribe, () => hudState.getField("paused"));
   const settingsOpen = useSyncExternalStore(hudState.subscribe, () => hudState.getField("settingsOpen"));
+  const statsOpen = useSyncExternalStore(hudState.subscribe, () => hudState.getField("statsOpen"));
   const sfxVolume = useSyncExternalStore(hudState.subscribe, () => hudState.getField("sfxVolume"));
   const zoomEnabled = useSyncExternalStore(hudState.subscribe, () => hudState.getField("zoomEnabled"));
 
   useEffect(() => {
     if (!paused) return;
     const handler = (e: KeyboardEvent) => {
+      if (statsOpen) return; // stats screen handles its own input
       if (settingsOpen) {
         if (e.key === "Escape") hudState.dispatchPauseAction("closeSettings");
         return;
@@ -26,9 +28,9 @@ export const PauseMenu = memo(function PauseMenu() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [paused, settingsOpen]);
+  }, [paused, settingsOpen, statsOpen]);
 
-  if (!paused) return null;
+  if (!paused || statsOpen) return null;
 
   return (
     <div
@@ -53,6 +55,7 @@ export const PauseMenu = memo(function PauseMenu() {
             PAUSED
           </span>
           <ControlsPanel />
+          <PauseButton label="Stats" action="openStats" />
           <PauseButton label="Quit to Menu" action="quit" />
           <PauseButton label="Restart" action="restart" />
           <PauseButton label="Settings" action="openSettings" />
@@ -213,8 +216,10 @@ function ControlsPanel() {
     ["RIGHT-CLICK / F", "Use Item"],
     ["Q / E", "Cycle Slots"],
     ["R", "Ability"],
+    ["G", "Reload"],
     ["B", "Shop"],
     ["V", "Rotate Barricade"],
+    ["TAB", "Stats"],
     ["ESC", "Pause"],
   ];
 

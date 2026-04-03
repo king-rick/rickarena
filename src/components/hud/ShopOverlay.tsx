@@ -7,6 +7,12 @@ import type { ShopItemData } from "@/game/HUDState";
 const BODY = "var(--font-special-elite), 'Special Elite', serif";
 const DISPLAY = "ChainsawCarnage, HorrorPixel, monospace";
 
+const WEAPON_ICONS: Record<string, string> = {
+  pistol: "/assets/sprites/items/pistol.png",
+  shotgun: "/assets/sprites/items/shotgun.png",
+  smg: "/assets/sprites/items/smg.png",
+};
+
 export const ShopOverlay = memo(function ShopOverlay() {
   const shopOpen = useSyncExternalStore(hudState.subscribe, () => hudState.getField("shopOpen"));
   const items = useSyncExternalStore(hudState.subscribe, () => hudState.getField("shopItems"));
@@ -14,6 +20,9 @@ export const ShopOverlay = memo(function ShopOverlay() {
   const selectedIndex = useSyncExternalStore(hudState.subscribe, () => hudState.getField("shopSelectedIndex"));
   const message = useSyncExternalStore(hudState.subscribe, () => hudState.getField("shopMessage"));
   const messageColor = useSyncExternalStore(hudState.subscribe, () => hudState.getField("shopMessageColor"));
+  const equippedWeapon = useSyncExternalStore(hudState.subscribe, () => hudState.getField("equippedWeapon"));
+  const ammo = useSyncExternalStore(hudState.subscribe, () => hudState.getField("ammo"));
+  const reserveAmmo = useSyncExternalStore(hudState.subscribe, () => hudState.getField("reserveAmmo"));
 
   const handleBuy = useCallback((idx: number) => {
     hudState.dispatchShopAction("buy", idx);
@@ -86,16 +95,37 @@ export const ShopOverlay = memo(function ShopOverlay() {
           >
             SHOP
           </span>
-          <span
-            style={{
-              fontFamily: BODY,
-              fontSize: 36,
-              color: "#ffffff",
-              textShadow: "0 0 8px rgba(255, 255, 255, 0.2)",
-            }}
-          >
-            ${currency}
-          </span>
+          <div className="flex items-center" style={{ gap: 20 }}>
+            {equippedWeapon && (
+              <div className="flex items-center" style={{ gap: 6 }}>
+                <img
+                  src={WEAPON_ICONS[equippedWeapon] ?? ""}
+                  alt=""
+                  style={{ width: 28, height: 28, imageRendering: "pixelated", opacity: 0.9 }}
+                />
+                <span
+                  style={{
+                    fontFamily: BODY,
+                    fontSize: 22,
+                    color: "#aaaacc",
+                    textShadow: "0 0 6px rgba(170, 170, 204, 0.2)",
+                  }}
+                >
+                  {ammo}/{reserveAmmo}
+                </span>
+              </div>
+            )}
+            <span
+              style={{
+                fontFamily: BODY,
+                fontSize: 36,
+                color: "#ffffff",
+                textShadow: "0 0 8px rgba(255, 255, 255, 0.2)",
+              }}
+            >
+              ${currency}
+            </span>
+          </div>
         </div>
 
         {/* Divider */}
