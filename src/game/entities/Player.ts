@@ -221,23 +221,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
           }
         }
       } else if (this.shooting) {
-        // Walk+shoot: if pistol and walk-shoot anim exists, play it while moving
-        const isPistolShoot = this.currentAnim === "shooting-pistol" || this.currentAnim === "walking-shooting-pistol";
-        if (this.hasWalkShootPistolAnim && isPistolShoot) {
-          const dirChanged = dir !== this.currentDir;
-          const needSwitch = this.currentAnim !== "walking-shooting-pistol";
-          if (dirChanged || needSwitch) {
-            this.currentDir = dir;
-            this.currentAnim = "walking-shooting-pistol";
-            const wsKey = getAnimKey(this.characterId, "walking-shooting-pistol", dir);
-            if (this.scene.anims.exists(wsKey)) {
-              this.play(wsKey, true);
-            }
-          }
-        } else {
-          // Still update facing direction during shooting
-          this.currentDir = dir;
-        }
+        // Still update facing direction during shooting
+        this.currentDir = dir;
       }
 
       this.currentDir = dir;
@@ -397,11 +382,6 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
     // For auto weapons, don't restart if already in shoot pose
     if (isAuto && this.anims.currentAnim?.key === shootKey) {
-      return;
-    }
-
-    // Walk-shoot is looping, don't restart if already playing the right direction
-    if (animType === "walking-shooting-pistol" && this.anims.currentAnim?.key === shootKey) {
       return;
     }
 
