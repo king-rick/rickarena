@@ -84,9 +84,9 @@ export class GameScene extends Phaser.Scene {
   private readonly smokeRadius = 128; // 8x8 tiles = 256px diameter = 128px radius
   // Smokescreen buff (Jason) — lingers after smoke dissipates
   private smokeBuffTimer = 0; // ms remaining on damage+stamina buff
-  private smokeBuffDamageBonus = 5; // flat damage bonus while buff active
+  private smokeBuffDamageBonus = 40; // flat damage bonus while buff active (one-shots walkers)
   private smokeBuffRegenBonus = 5; // extra stamina regen/sec while buff active
-  private readonly smokeBuffDuration = 10000; // 10 seconds
+  private readonly smokeBuffDuration = 6000; // 6 seconds
 
   // Shop
   private shopOpen = false;
@@ -1333,8 +1333,8 @@ export class GameScene extends Phaser.Scene {
       if (this.anims.exists(smokeKey)) {
         this.player.play(smokeKey);
         this.player.once("animationcomplete", () => {
-          // Hold on last frame for 1 second before returning to idle
-          this.time.delayedCall(1000, () => {
+          // Hold on last frame for 1.5 seconds before returning to idle
+          this.time.delayedCall(1500, () => {
             const idleKey = getAnimKey(this.characterDef.id, "breathing-idle", this.player["currentDir"]);
             if (this.anims.exists(idleKey)) this.player.play(idleKey, true);
           });
