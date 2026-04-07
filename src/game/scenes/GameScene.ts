@@ -9,6 +9,7 @@ import { WaveManager, WaveState } from "../systems/WaveManager";
 import { LevelingSystem, BuffOption } from "../systems/LevelingSystem";
 import { hasAnimation, getAnimKey } from "../data/animations";
 import { hudState } from "../HUDState";
+import { Pathfinder } from "../systems/Pathfinder";
 // Village map constants
 const VILLAGE_MAP_W = 80 * 16;  // 1280px
 const VILLAGE_MAP_H = 65 * 16;  // 1040px
@@ -91,6 +92,21 @@ export class GameScene extends Phaser.Scene {
   // Shop
   private shopOpen = false;
 
+  // Doors (CoD Zombies style purchasable barriers)
+  private doors: {
+    zone: Phaser.GameObjects.Zone;
+    cost: number;
+    label: string;
+    opened: boolean;
+    promptText?: Phaser.GameObjects.Text;
+    clearCols: number[];
+    clearRows: number[];
+  }[] = [];
+  private wallsBaseLayer?: Phaser.Tilemaps.TilemapLayer;
+  private wallsTopLayer?: Phaser.Tilemaps.TilemapLayer;
+  private roofLayer?: Phaser.Tilemaps.TilemapLayer;
+  private roofVisible = true;
+
   // HUD container — scrollFactor(0), scaled 1/zoom so it renders at screen-space
   private hudContainer!: Phaser.GameObjects.Container;
   private minimap!: Phaser.Cameras.Scene2D.Camera;
@@ -104,6 +120,7 @@ export class GameScene extends Phaser.Scene {
   private zoomEnabled = false;
   private ambientSounds: Phaser.Sound.BaseSound[] = [];
   private devMode = false;
+  pathfinder!: Pathfinder; // exposed for Enemy AI
   private statsOpen = false;
   private shopSelectedIndex = 0;
   private shopNavCol = 0;
@@ -134,12 +151,12 @@ export class GameScene extends Phaser.Scene {
     this.currency = 0;
     this.kills = 0;
     this.lastDamageTime = 0;
-    // Start with pistol — 3 clips worth (can buy up to totalClips max)
+    // Start with pistol — 4 clips worth (can buy up to totalClips max)
     const pistolDef = BALANCE.weapons.pistol;
     this.equippedWeapon = "pistol";
     this.magazineSize = pistolDef.magazineSize;
     this.magazineAmmo = pistolDef.magazineSize; // 1 mag loaded
-    this.reserveAmmo = pistolDef.magazineSize * 2; // 2 reserve clips (24 total)
+    this.reserveAmmo = pistolDef.magazineSize * 3; // 3 reserve clips (32 total)
     this.activeSlot = 1;
     this.reloading = false;
     this.reloadTimer = null;
@@ -155,18 +172,36 @@ export class GameScene extends Phaser.Scene {
 
     // Draw tilemap — Endicott Estate
     const map = this.make.tilemap({ key: "endicott-map" });
-    const grassTs = map.addTilesetImage("cainos-grass", "ts-cainos-grass");
-    const structTs = map.addTilesetImage("basic-struct", "ts-basic-struct");
-    const wallTs = map.addTilesetImage("basic-wall", "ts-basic-wall");
-    const bpGroundTs = map.addTilesetImage("bp-ground-32", "ts-bp-ground-32");
-    const tdGrassTs = map.addTilesetImage("td-basic-grass", "ts-td-basic-grass");
-    const allTilesets = [grassTs!, structTs!, wallTs!, bpGroundTs!, tdGrassTs!];
+    const allTilesets = [
+      map.addTilesetImage("cainos-grass", "ts-cainos-grass")!,
+      map.addTilesetImage("cainos-stone", "ts-cainos-stone")!,
+      map.addTilesetImage("basic-plant", "ts-basic-plant")!,
+      map.addTilesetImage("basic-props", "ts-basic-props")!,
+      map.addTilesetImage("basic-struct", "ts-basic-struct")!,
+      map.addTilesetImage("basic-wall", "ts-basic-wall")!,
+      map.addTilesetImage("bp-ground-32", "ts-bp-ground-32")!,
+      map.addTilesetImage("bp-rocks-64", "ts-bp-rocks-64")!,
+      map.addTilesetImage("td-basic-stone", "ts-td-basic-stone")!,
+      map.addTilesetImage("td-basic-wall", "ts-td-basic-wall")!,
+      map.addTilesetImage("td-basic-plant", "ts-td-basic-plant")!,
+      map.addTilesetImage("td-basic-props", "ts-td-basic-props")!,
+      map.addTilesetImage("td-basic-struct", "ts-td-basic-struct")!,
+      map.addTilesetImage("pipoya-basechip", "ts-pipoya-basechip")!,
+    ];
     // Main camera background matches grass so tile seams don't show black gaps
     this.cameras.main.setBackgroundColor(0x5a7a2a);
     map.createLayer("ground", allTilesets, 0, 0)?.setDepth(-2);
+    map.createLayer("ground_detail", allTilesets, 0, 0)?.setDepth(-1.5);
     map.createLayer("paths", allTilesets, 0, 0)?.setDepth(-1);
-    map.createLayer("buildings", allTilesets, 0, 0)?.setDepth(0);
-    map.createLayer("decorations", allTilesets, 0, 0)?.setDepth(1);
+    map.createLayer("floor_interior", allTilesets, 0, 0)?.setDepth(-0.5);
+    this.wallsBaseLayer = map.createLayer("walls_base", allTilesets, 0, 0)?.setDepth(0) ?? undefined;
+    this.wallsTopLayer = map.createLayer("walls_top", allTilesets, 0, 0)?.setDepth(1) ?? undefined;
+    map.createLayer("props_low", allTilesets, 0, 0)?.setDepth(2);
+    map.createLayer("props_mid", allTilesets, 0, 0)?.setDepth(3);
+    map.createLayer("foliage_painted", allTilesets, 0, 0)?.setDepth(4);
+    this.roofLayer = map.createLayer("roof", allTilesets, 0, 0)?.setDepth(26) ?? undefined;
+    map.createLayer("overhangs", allTilesets, 0, 0)?.setDepth(25);
+    map.createLayer("vfx_marks", allTilesets, 0, 0)?.setDepth(5);
     this.cameras.main.setRoundPixels(true);
 
     // Expose map dimensions for enemy AI bounds clamping
@@ -191,17 +226,48 @@ export class GameScene extends Phaser.Scene {
     // Obstacles group — must be created before fence so fence can register collision
     this.obstacles = this.physics.add.staticGroup();
 
-    // East tree wall — individual sprites so they overlap naturally
-    this.spawnTreeWall();
-
-    // Fence border around the map perimeter
-    this.spawnFenceBorder();
+    // Extract collision shapes from Tiled BEFORE tree spawning so trees avoid buildings
     const collisionLayer = map.getObjectLayer("collision");
+    const collisionRects: { x: number; y: number; w: number; h: number }[] = [];
+    const collisionPolygons: { x: number; y: number; points: { x: number; y: number }[] }[] = [];
     if (collisionLayer) {
       for (const obj of collisionLayer.objects) {
         const isEllipse = !!(obj as any).ellipse;
-        if (isEllipse) {
-          // Circle collision: obj.x/y is top-left of bounding box in Tiled
+        const polygon = (obj as any).polygon as { x: number; y: number }[] | undefined;
+
+        if (polygon && polygon.length >= 3) {
+          // Polygon collision — convert to world coords
+          const worldPoints = polygon.map((p: { x: number; y: number }) => ({
+            x: obj.x! + p.x,
+            y: obj.y! + p.y,
+          }));
+          collisionPolygons.push({ x: obj.x!, y: obj.y!, points: worldPoints });
+
+          // Arcade physics can't do true polygons — approximate with edge segments
+          // Break polygon into small rect bodies along each edge
+          for (let i = 0; i < worldPoints.length; i++) {
+            const a = worldPoints[i];
+            const b = worldPoints[(i + 1) % worldPoints.length];
+            const mx = (a.x + b.x) / 2;
+            const my = (a.y + b.y) / 2;
+            const edgeW = Math.max(Math.abs(b.x - a.x), 8);
+            const edgeH = Math.max(Math.abs(b.y - a.y), 8);
+            const zone = this.add.zone(mx, my, edgeW, edgeH).setOrigin(0.5);
+            this.physics.add.existing(zone, true);
+            this.obstacles.add(zone);
+          }
+
+          // Also store bounding box for tree exclusion
+          const xs = worldPoints.map((p: { x: number; y: number }) => p.x);
+          const ys = worldPoints.map((p: { x: number; y: number }) => p.y);
+          const minX = Math.min(...xs);
+          const minY = Math.min(...ys);
+          collisionRects.push({
+            x: minX, y: minY,
+            w: Math.max(...xs) - minX,
+            h: Math.max(...ys) - minY,
+          });
+        } else if (isEllipse) {
           const radius = obj.width! / 2;
           const cx = obj.x! + radius;
           const cy = obj.y! + radius;
@@ -209,13 +275,50 @@ export class GameScene extends Phaser.Scene {
           this.physics.add.existing(zone, true);
           (zone.body as Phaser.Physics.Arcade.StaticBody).setCircle(radius);
           this.obstacles.add(zone);
-        } else {
-          // Rectangle collision: obj.x/y is top-left
+          collisionRects.push({ x: obj.x!, y: obj.y!, w: obj.width!, h: obj.height! });
+        } else if (obj.width! > 0 && obj.height! > 0) {
+          // Standard rectangle — skip zero-size accidental clicks
           const zone = this.add
             .zone(obj.x! + obj.width! / 2, obj.y! + obj.height! / 2, obj.width!, obj.height!)
             .setOrigin(0.5);
           this.physics.add.existing(zone, true);
           this.obstacles.add(zone);
+          collisionRects.push({ x: obj.x!, y: obj.y!, w: obj.width!, h: obj.height! });
+        }
+      }
+    }
+
+    // East tree wall — individual sprites so they overlap naturally
+    this.spawnTreeWall(collisionRects);
+
+    // Fence border around the map perimeter
+    this.spawnFenceBorder();
+
+    // A* pathfinding grid — built from collision rects + polygons
+    this.pathfinder = new Pathfinder(ENDICOTT_MAP_W, ENDICOTT_MAP_H, collisionRects, collisionPolygons);
+
+    // Purchasable doors — read from Tiled interactables layer
+    this.doors = [];
+    const interactLayer = map.getObjectLayer("interactables");
+    if (interactLayer) {
+      for (const obj of interactLayer.objects) {
+        if (obj.type === "door" || (obj as any).type === "door") {
+          const props = (obj as any).properties as { name: string; value: any }[] | undefined;
+          const cost = props?.find((p: any) => p.name === "cost")?.value ?? 1000;
+          const label = props?.find((p: any) => p.name === "label")?.value ?? "Door";
+          const clearColsStr = props?.find((p: any) => p.name === "clearCols")?.value ?? "";
+          const clearRowsStr = props?.find((p: any) => p.name === "clearRows")?.value ?? "";
+          const clearCols = clearColsStr ? clearColsStr.split(",").map(Number) : [];
+          const clearRows = clearRowsStr ? clearRowsStr.split(",").map(Number) : [];
+
+          // Create a collision zone that blocks the doorway
+          const doorZone = this.add
+            .zone(obj.x! + obj.width! / 2, obj.y! + obj.height! / 2, obj.width!, obj.height!)
+            .setOrigin(0.5);
+          this.physics.add.existing(doorZone, true);
+          this.obstacles.add(doorZone);
+
+          this.doors.push({ zone: doorZone, cost, label, opened: false, clearCols, clearRows });
         }
       }
     }
@@ -483,6 +586,13 @@ export class GameScene extends Phaser.Scene {
         }
       });
 
+      // E key to interact (buy doors)
+      const eKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
+      eKey.on("down", () => {
+        if (this.gameOver || this.paused || this.shopOpen) return;
+        this.tryBuyNearbyDoor();
+      });
+
       // SPACE to skip/ready up during intermission (overrides melee during intermission)
       // (melee SPACE handler above already checks shopOpen but not intermission —
       //  we handle priority in the melee handler by also checking wave state)
@@ -510,12 +620,13 @@ export class GameScene extends Phaser.Scene {
         }
       });
 
-      // Dev mode — backtick key, localhost only
+      // Dev mode — Shift+Backtick, localhost only
       if (typeof window !== "undefined" && window.location.hostname === "localhost") {
         const backtick = this.input.keyboard.addKey(
           Phaser.Input.Keyboard.KeyCodes.BACKTICK
         );
         backtick.on("down", () => {
+          if (!this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT).isDown) return;
           this.devMode = !this.devMode;
           if (this.devMode) {
             this.currency = 99999;
@@ -678,6 +789,10 @@ export class GameScene extends Phaser.Scene {
         }
         return true;
       });
+      // Auto-refill stamina at wave start
+      this.player.stats.stamina = this.player.stats.maxStamina;
+      this.player.burnedOut = false;
+
       this.showWaveAnnouncement(wave);
     };
 
@@ -704,6 +819,11 @@ export class GameScene extends Phaser.Scene {
           this.showNextPendingLevelUp();
         }
       });
+    };
+
+    this.waveManager.onBossFlee = () => {
+      this.showWeaponMessage("SCARYBOI RETREATS...", "#ff6644");
+      this.playSound("sfx-church-bell", 0.3);
     };
   }
 
@@ -741,6 +861,13 @@ export class GameScene extends Phaser.Scene {
       this.player.update();
     }
     this.waveManager.update(delta);
+    this.pathfinder.calculate();
+
+    // Door proximity prompts
+    this.updateDoorPrompts();
+
+    // Roof fade — hide roof when player is under it
+    this.updateRoofVisibility();
 
     // Barricade placement ghost
     const showGhost = this.activeSlot === 2
@@ -1331,17 +1458,40 @@ export class GameScene extends Phaser.Scene {
 
   /** Jason — Smokescreen: smoke cloud that heals player and confuses enemies */
   private abilitySmokescreen() {
-    // Play cigarette animation — hold final frame (cigarette in mouth) for 1s
+    // Play cigarette animation via a safe one-shot that doesn't break Player state
     if (hasAnimation(this.characterDef.id, "light-cigarette")) {
       const smokeKey = getAnimKey(this.characterDef.id, "light-cigarette", this.player["currentDir"]);
       if (this.anims.exists(smokeKey)) {
+        // Temporarily mark player as shooting so movement doesn't override the anim
+        (this.player as any).shooting = true;
+        (this.player as any).currentAnim = "light-cigarette";
         this.player.play(smokeKey);
-        this.player.once("animationcomplete", () => {
+
+        // Use a named handler so we can safely remove it
+        const onCigComplete = () => {
           // Hold on last frame for 1.5 seconds before returning to idle
           this.time.delayedCall(1500, () => {
+            if (!this.player.active) return;
+            (this.player as any).shooting = false;
+            (this.player as any).holdingShoot = false;
+            (this.player as any).currentAnim = "idle";
             const idleKey = getAnimKey(this.characterDef.id, "breathing-idle", this.player["currentDir"]);
             if (this.anims.exists(idleKey)) this.player.play(idleKey, true);
           });
+        };
+        this.player.off("animationcomplete", onCigComplete);
+        this.player.once("animationcomplete", onCigComplete);
+
+        // Safety: force-reset player state after 4s no matter what
+        this.time.delayedCall(4000, () => {
+          if (!this.player.active) return;
+          if ((this.player as any).currentAnim === "light-cigarette") {
+            (this.player as any).shooting = false;
+            (this.player as any).holdingShoot = false;
+            (this.player as any).punching = false;
+            (this.player as any).locked = false;
+            (this.player as any).currentAnim = "idle";
+          }
         });
       }
     }
@@ -1965,7 +2115,7 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private spawnTreeWall() {
+  private spawnTreeWall(collisionRects: { x: number; y: number; w: number; h: number }[] = []) {
     const mapW = ENDICOTT_MAP_W;
     const mapH = ENDICOTT_MAP_H;
     const rng = (min: number, max: number) => min + Math.random() * (max - min);
@@ -1983,11 +2133,18 @@ export class GameScene extends Phaser.Scene {
       { x: 0, y: 704, w: 300, h: 192 },
     ];
     const roadBuffer = 80; // extra clearance around road zones
-    const isNearPath = (x: number, y: number) => {
+    const collisionBuffer = 80; // extra clearance around building walls
+    const isExcluded = (x: number, y: number) => {
       for (const z of roadZones) {
         if (
           x > z.x - roadBuffer && x < z.x + z.w + roadBuffer &&
           y > z.y - roadBuffer && y < z.y + z.h + roadBuffer
+        ) return true;
+      }
+      for (const r of collisionRects) {
+        if (
+          x > r.x - collisionBuffer && x < r.x + r.w + collisionBuffer &&
+          y > r.y - collisionBuffer && y < r.y + r.h + collisionBuffer
         ) return true;
       }
       return false;
@@ -2003,25 +2160,29 @@ export class GameScene extends Phaser.Scene {
     };
 
     const placeTree = (x: number, y: number) => {
-      if (isNearPath(x, y)) return;
+      const fx = x + rng(-12, 12);
+      const fy = y + rng(-10, 10);
+      if (isExcluded(fx, fy)) return;
       const isDark = Math.random() < 0.3;
       const sheet = isDark ? "dark-trees-64" : "trees-64";
       const frame = Math.floor(Math.random() * 16);
-      const tree = this.add.sprite(x + rng(-12, 12), y + rng(-10, 10), sheet, frame);
+      const tree = this.add.sprite(fx, fy, sheet, frame);
       tree.setOrigin(0.5, 0.8);
-      tree.setDepth(y / 10);
+      tree.setDepth(fy / 10);
       tree.setScale(rng(0.9, 1.15));
     };
 
     const placeSparseTree = (x: number, y: number) => {
-      if (isNearPath(x, y)) return;
+      const fx = x + rng(-8, 8);
+      const fy = y + rng(-8, 8);
+      if (isExcluded(fx, fy)) return;
       if (Math.random() < 0.45) return;
       const isDark = Math.random() < 0.4;
       const sheet = isDark ? "dark-trees-64" : "trees-64";
       const frame = Math.floor(Math.random() * 16);
-      const tree = this.add.sprite(x + rng(-8, 8), y + rng(-8, 8), sheet, frame);
+      const tree = this.add.sprite(fx, fy, sheet, frame);
       tree.setOrigin(0.5, 0.8);
-      tree.setDepth(y / 10);
+      tree.setDepth(fy / 10);
       tree.setScale(rng(0.85, 1.1));
     };
 
@@ -2278,6 +2439,118 @@ export class GameScene extends Phaser.Scene {
     const item = BALANCE.shop.items[index];
     const inflation = 1 + this.waveManager.wave * BALANCE.economy.priceInflationPerWave;
     return Math.floor(item.basePrice * inflation);
+  }
+
+  // ─── Roof visibility ───
+
+  private updateRoofVisibility() {
+    if (!this.roofLayer) return;
+    const tileX = Math.floor(this.player.x / 32);
+    const tileY = Math.floor(this.player.y / 32);
+    const tile = this.roofLayer.getTileAt(tileX, tileY);
+    const shouldShow = !tile; // hide roof when player is under a roof tile
+
+    if (shouldShow && !this.roofVisible) {
+      this.roofVisible = true;
+      this.tweens.add({
+        targets: this.roofLayer,
+        alpha: 1,
+        duration: 300,
+        ease: "Sine.easeInOut",
+      });
+    } else if (!shouldShow && this.roofVisible) {
+      this.roofVisible = false;
+      this.tweens.add({
+        targets: this.roofLayer,
+        alpha: 0,
+        duration: 300,
+        ease: "Sine.easeInOut",
+      });
+    }
+  }
+
+  // ─── Doors (purchasable barriers) ───
+
+  private readonly doorPromptDist = 60; // px from door center to show prompt
+
+  private updateDoorPrompts() {
+    for (const door of this.doors) {
+      if (door.opened) {
+        if (door.promptText) { door.promptText.setVisible(false); }
+        continue;
+      }
+      const dist = Phaser.Math.Distance.Between(
+        this.player.x, this.player.y,
+        door.zone.x, door.zone.y
+      );
+      if (dist < this.doorPromptDist) {
+        if (!door.promptText) {
+          const canAfford = this.currency >= door.cost;
+          door.promptText = this.add.text(door.zone.x, door.zone.y - 20, "", {
+            fontFamily: "var(--font-special-elite), 'Special Elite', serif",
+            fontSize: "4px",
+            color: canAfford ? "#ffdd44" : "#ff4444",
+            stroke: "#000000",
+            strokeThickness: 0.8,
+            align: "center",
+            resolution: 4,
+          }).setOrigin(0.5).setDepth(100);
+        }
+        const canAfford = this.currency >= door.cost;
+        door.promptText.setText(`[E] ${door.label} - $${door.cost}`);
+        door.promptText.setColor(canAfford ? "#ffdd44" : "#ff4444");
+        door.promptText.setVisible(true);
+      } else {
+        if (door.promptText) { door.promptText.setVisible(false); }
+      }
+    }
+  }
+
+  private tryBuyNearbyDoor() {
+    for (const door of this.doors) {
+      if (door.opened) continue;
+      const dist = Phaser.Math.Distance.Between(
+        this.player.x, this.player.y,
+        door.zone.x, door.zone.y
+      );
+      if (dist < this.doorPromptDist) {
+        if (this.currency < door.cost) {
+          // Can't afford — flash the prompt red
+          if (door.promptText) {
+            door.promptText.setColor("#ff0000");
+            this.time.delayedCall(300, () => {
+              if (door.promptText) door.promptText.setColor("#ff4444");
+            });
+          }
+          return;
+        }
+        // Purchase — remove collision, clear door tiles, hide prompt
+        this.currency -= door.cost;
+        door.opened = true;
+        door.zone.destroy();
+        this.obstacles.remove(door.zone);
+        if (door.promptText) {
+          door.promptText.destroy();
+          door.promptText = undefined;
+        }
+        // Remove door tiles from walls_base and walls_top layers
+        if (door.clearCols.length > 0 && door.clearRows.length > 0) {
+          for (const col of door.clearCols) {
+            for (const row of door.clearRows) {
+              this.wallsBaseLayer?.removeTileAt(col, row);
+              this.wallsTopLayer?.removeTileAt(col, row);
+            }
+          }
+        }
+        // Flash announcement
+        this.showWeaponMessage(`${door.label} OPENED`, "#44ff44");
+        // Play a sound if available
+        if (this.sound.get("sfx-purchase")) {
+          this.sound.play("sfx-purchase", { volume: this.sfxVolume * 0.5 });
+        }
+        return;
+      }
+    }
   }
 
   private openShop() {

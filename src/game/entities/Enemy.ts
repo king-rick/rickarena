@@ -2,8 +2,24 @@ import Phaser from "phaser";
 import { BALANCE } from "../data/balance";
 import { hasAnimation, getAnimKey } from "../data/animations";
 import { Direction } from "../data/characters";
+import type { Pathfinder } from "../systems/Pathfinder";
 
 export type EnemyType = "basic" | "fast" | "boss";
+
+// Exclusion zones — dogs should not roam into buildings or estate interior
+const EXCLUSION_ZONES = [
+  { x: 50, y: 50, w: 280, h: 500 },       // NW building
+  { x: 10, y: 1170, w: 520, h: 480 },     // SW building
+  { x: 920, y: 220, w: 300, h: 850 },     // Estate interior (left)
+  { x: 1200, y: 60, w: 610, h: 940 },     // Estate interior (right)
+  { x: 1920, y: 0, w: 1280, h: 1920 },     // Underground area (cols 60+)
+];
+function isExcludedZone(px: number, py: number): boolean {
+  for (const z of EXCLUSION_ZONES) {
+    if (px >= z.x && px <= z.x + z.w && py >= z.y && py <= z.y + z.h) return true;
+  }
+  return false;
+}
 
 function angleToDirection(angle: number): string {
   const deg = Phaser.Math.RadToDeg(angle);
@@ -59,12 +75,20 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private leapCooldown = 0; // ms until next leap allowed
   private baseTint: number;
   private stunTimer = 0; // ms remaining where enemy is slowed/stopped
-  private stuckTimer = 0; // ms since last significant movement
   private lastX = 0;
   private lastY = 0;
+  private pathWaypoints: { x: number; y: number }[] = []; // A* path to follow
+  private pathIndex = 0; // current waypoint index
+  private pathRefreshTimer = 0; // ms until next path recalculation
+  private pathRefreshInterval = 500; // recalc every 500ms (staggered per enemy)
   private spriteId: string; // "creepyzombie", "zombiedog", or "scaryboi"
   private walkAnimType: string;
   private idleAnimType: string;
+
+  // Dog-specific state (persistent roaming pack creatures)
+  dogState: "roaming" | "aggro" = "roaming";
+  private roamTarget: { x: number; y: number } | null = null;
+  private roamTimer = 0; // time until picking a new roam target
 
   // Boss-specific state
   private bossPhase: "stalk" | "chase" | "retreat" = "stalk";
@@ -147,6 +171,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.leapCooldown = 2000 + Math.random() * 2000; // stagger initial leap timing
     this.lastX = x;
     this.lastY = y;
+    // Dogs recalc paths faster; stagger initial timer so they don't all fire on the same frame
+    if (isFast) this.pathRefreshInterval = 300;
+    this.pathRefreshTimer = Math.random() * this.pathRefreshInterval;
 
     // Start walk animation if available
     if (this.hasWalkAnim) {
@@ -177,6 +204,12 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.health -= amount;
     this.hitFlashTimer = 100;
     this.setTint(0xffffff);
+
+    // Notify WaveManager of boss damage for flee threshold tracking
+    if (this.enemyType === "boss") {
+      const wm = (this.scene as any).waveManager;
+      wm?.onBossDamaged?.(amount);
+    }
 
     // Stun on hit — fast enemies stun longer (fragile), boss resists stun
     this.stunTimer = this.enemyType === "fast" ? 400 : this.enemyType === "boss" ? 80 : 200;
@@ -753,6 +786,189 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
   // ---- End boss AI ----
 
+  // ---- Dog pack AI ----
+
+  /** Dog AI: roam freely, aggro when player is spotted, pack with nearby dogs */
+  private updateDog(delta: number, player: Phaser.Physics.Arcade.Sprite) {
+    if (this.stunTimer > 0 || this.leaping || this.biting) {
+      this.updateDirection(player);
+      return;
+    }
+
+    // Safety: if somehow inside a building, teleport out
+    if (isExcludedZone(this.x, this.y)) {
+      this.setPosition(960, 960); // center of map
+      this.roamTarget = null;
+      this.dogState = "roaming";
+    }
+
+    const dogStats = BALANCE.enemies.fast as any;
+    const aggroRange = dogStats.aggroRange ?? 220;
+    const packRange = dogStats.packRange ?? 180;
+    const roamSpeed = dogStats.roamSpeed ?? 45;
+    const distToPlayer = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
+
+    // Dogs go passive during intermission — force roaming, no aggro
+    const waveState = (this.scene as any).waveManager?.state;
+    if (waveState === "intermission" || waveState === "pre_game") {
+      if (this.dogState === "aggro") {
+        this.dogState = "roaming";
+        this.roamTarget = null;
+        this.pathWaypoints = [];
+      }
+      // Just roam, skip aggro checks below
+    } else {
+      // Check if player is in detection range (only during active waves)
+      if (distToPlayer < aggroRange) {
+        this.dogState = "aggro";
+      }
+    }
+
+    // Pack behavior: if a nearby dog is aggro, this dog aggros too
+    if (this.dogState === "roaming") {
+      const enemies = (this.scene as any).enemies as Phaser.Physics.Arcade.Group | undefined;
+      if (enemies) {
+        for (const child of enemies.getChildren()) {
+          const other = child as Enemy;
+          if (!other.active || other.dying || other === this || other.enemyType !== "fast") continue;
+          const d = Phaser.Math.Distance.Between(this.x, this.y, other.x, other.y);
+          if (d < packRange && other.dogState === "aggro") {
+            this.dogState = "aggro";
+            break;
+          }
+        }
+      }
+    }
+
+    if (this.dogState === "aggro") {
+      // Aggressive chase — use A* pathfinding
+      const angle = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
+
+      // Leap attack when close
+      if (this.hasLeapAnim && !this.leaping && !this.biting
+          && this.leapCooldown <= 0 && distToPlayer > 30 && distToPlayer < 80) {
+        this.startLeap(angle, distToPlayer);
+        return;
+      }
+
+      // A* path toward player
+      this.pathRefreshTimer -= delta;
+      if (this.pathRefreshTimer <= 0) {
+        this.pathRefreshTimer = this.pathRefreshInterval;
+        const pathfinder = (this.scene as any).pathfinder as Pathfinder | undefined;
+        if (pathfinder) {
+          pathfinder.findPath(this.x, this.y, player.x, player.y, (path) => {
+            if (!this.active || this.dying) return;
+            if (path && path.length > 1) {
+              this.pathWaypoints = path;
+              this.pathIndex = 1;
+            } else {
+              this.pathWaypoints = [];
+              this.pathIndex = 0;
+            }
+          });
+        }
+      }
+
+      // Follow A* path only — dogs never direct-chase (they get stuck on walls)
+      if (this.pathWaypoints.length > 0 && this.pathIndex < this.pathWaypoints.length) {
+        const wp = this.pathWaypoints[this.pathIndex];
+        const wpDist = Phaser.Math.Distance.Between(this.x, this.y, wp.x, wp.y);
+        if (wpDist < 12) {
+          this.pathIndex++;
+          if (this.pathIndex >= this.pathWaypoints.length) this.pathWaypoints = [];
+        } else {
+          const wpAngle = Phaser.Math.Angle.Between(this.x, this.y, wp.x, wp.y);
+          this.body.setVelocity(Math.cos(wpAngle) * this.speed, Math.sin(wpAngle) * this.speed);
+        }
+      } else if (distToPlayer < 40) {
+        // Only direct chase when extremely close (already past any walls)
+        this.body.setVelocity(Math.cos(angle) * this.speed, Math.sin(angle) * this.speed);
+      } else {
+        // Waiting for pathfinder — slow down, don't ram into walls
+        this.body.setVelocity(0, 0);
+      }
+
+      // De-aggro if player gets very far away (2x aggro range)
+      if (distToPlayer > aggroRange * 2.5) {
+        this.dogState = "roaming";
+        this.roamTarget = null;
+        this.pathWaypoints = [];
+      }
+
+      this.updateDirection(player);
+    } else {
+      // Roaming state — wander the map, drift toward nearby dogs
+      this.roamTimer -= delta;
+
+      // Check for nearby dogs to pack with (move toward the closest roaming dog)
+      let packTarget: { x: number; y: number } | null = null;
+      const enemies = (this.scene as any).enemies as Phaser.Physics.Arcade.Group | undefined;
+      if (enemies) {
+        let closestDogDist = packRange;
+        for (const child of enemies.getChildren()) {
+          const other = child as Enemy;
+          if (!other.active || other.dying || other === this || other.enemyType !== "fast") continue;
+          const d = Phaser.Math.Distance.Between(this.x, this.y, other.x, other.y);
+          if (d < closestDogDist && d > 30) { // don't stack on top of each other
+            closestDogDist = d;
+            packTarget = { x: other.x, y: other.y };
+          }
+        }
+      }
+
+      // Pick new roam target periodically
+      if (this.roamTimer <= 0 || !this.roamTarget) {
+        this.roamTimer = 3000 + Math.random() * 4000; // 3-7s between roam targets
+
+        if (packTarget && !isExcludedZone(packTarget.x, packTarget.y)) {
+          // Drift toward nearby dog with some randomness
+          this.roamTarget = {
+            x: packTarget.x + (Math.random() - 0.5) * 80,
+            y: packTarget.y + (Math.random() - 0.5) * 80,
+          };
+        } else {
+          // Random wander point within surface play area (avoid buildings)
+          let rx: number, ry: number;
+          let attempts = 0;
+          do {
+            rx = 100 + Math.random() * 1720;
+            ry = 100 + Math.random() * 1720;
+            attempts++;
+          } while (isExcludedZone(rx, ry) && attempts < 10);
+          this.roamTarget = { x: rx, y: ry };
+        }
+      }
+
+      // Move toward roam target at slow speed
+      if (this.roamTarget) {
+        const rtDist = Phaser.Math.Distance.Between(this.x, this.y, this.roamTarget.x, this.roamTarget.y);
+        if (rtDist < 20) {
+          // Reached target — idle briefly then pick new one
+          this.body.setVelocity(0, 0);
+          this.roamTarget = null;
+        } else {
+          const rtAngle = Phaser.Math.Angle.Between(this.x, this.y, this.roamTarget.x, this.roamTarget.y);
+          this.body.setVelocity(Math.cos(rtAngle) * roamSpeed, Math.sin(rtAngle) * roamSpeed);
+        }
+      }
+
+      // Face movement direction (not player) when roaming
+      if (this.body.velocity.x !== 0 || this.body.velocity.y !== 0) {
+        const moveAngle = Math.atan2(this.body.velocity.y, this.body.velocity.x);
+        const newDir = angleToDirection(moveAngle) as Direction;
+        if (newDir !== this.currentDir) {
+          this.currentDir = newDir;
+          if (this.hasWalkAnim) {
+            this.play(getAnimKey(this.spriteId, this.walkAnimType, newDir), true);
+          }
+        }
+      }
+    }
+  }
+
+  // ---- End dog AI ----
+
   update(_time: number, delta: number) {
     if (!this.active || !this.body || this.dying) return;
 
@@ -772,25 +988,6 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.leapCooldown -= delta;
     }
 
-    // Stuck detection — if barely moved in 3 seconds, teleport near the player
-    this.stuckTimer += delta;
-    if (this.stuckTimer >= 3000) {
-      const dx = Math.abs(this.x - this.lastX);
-      const dy = Math.abs(this.y - this.lastY);
-      if (dx < 10 && dy < 10) {
-        const teleportAngle = Math.random() * Math.PI * 2;
-        const teleportDist = 200 + Math.random() * 100;
-        this.setPosition(
-          player.x + Math.cos(teleportAngle) * teleportDist,
-          player.y + Math.sin(teleportAngle) * teleportDist
-        );
-        this.body.setVelocity(0, 0);
-      }
-      this.lastX = this.x;
-      this.lastY = this.y;
-      this.stuckTimer = 0;
-    }
-
     // Boss uses its own AI system
     if (this.enemyType === "boss" && this.stunTimer <= 0) {
       this.updateBoss(delta, player);
@@ -799,26 +996,66 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       return;
     }
 
-    const angle = Phaser.Math.Angle.Between(
-      this.x,
-      this.y,
-      player.x,
-      player.y
-    );
+    // Dogs use pack roaming AI
+    if (this.enemyType === "fast") {
+      this.updateDog(delta, player);
+      this.updateVisuals(delta);
+      return;
+    }
+
+    // ---- Basic zombie AI (A* pathfinding) ----
+    const angle = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
     const dist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
 
-    // Leap attack — dogs lunge when within range and off cooldown
-    if (this.hasLeapAnim && !this.leaping && !this.biting && this.stunTimer <= 0
-        && this.leapCooldown <= 0 && dist > 30 && dist < 80) {
-      this.startLeap(angle, dist);
+    // Last 3 round-blocking enemies get aggressive — faster speed + faster path recalc
+    const wm = (this.scene as any).waveManager;
+    const remaining = wm?.getBlockingEnemies?.() ?? 99;
+    const isLastStand = remaining <= 3 && (wm?.state === "active" || wm?.state === "clearing");
+    const moveSpeed = isLastStand ? this.speed * 1.15 : this.speed;
+    const refreshRate = isLastStand ? 250 : this.pathRefreshInterval;
+
+    // A* pathfinding — request a new path periodically
+    this.pathRefreshTimer -= delta;
+    if (this.pathRefreshTimer <= 0 && this.stunTimer <= 0 && !this.leaping) {
+      this.pathRefreshTimer = refreshRate;
+      const pathfinder = (this.scene as any).pathfinder as Pathfinder | undefined;
+      if (pathfinder) {
+        pathfinder.findPath(this.x, this.y, player.x, player.y, (path) => {
+          if (!this.active || this.dying) return;
+          if (path && path.length > 1) {
+            this.pathWaypoints = path;
+            this.pathIndex = 1;
+          } else {
+            this.pathWaypoints = [];
+            this.pathIndex = 0;
+          }
+        });
+      }
     }
 
     if (this.stunTimer <= 0 && !this.leaping) {
-      // Chase player
-      this.body.setVelocity(
-        Math.cos(angle) * this.speed,
-        Math.sin(angle) * this.speed
-      );
+      if (this.pathWaypoints.length > 0 && this.pathIndex < this.pathWaypoints.length) {
+        const wp = this.pathWaypoints[this.pathIndex];
+        const wpDist = Phaser.Math.Distance.Between(this.x, this.y, wp.x, wp.y);
+
+        if (wpDist < 12) {
+          this.pathIndex++;
+          if (this.pathIndex >= this.pathWaypoints.length) {
+            this.pathWaypoints = [];
+          }
+        } else {
+          const wpAngle = Phaser.Math.Angle.Between(this.x, this.y, wp.x, wp.y);
+          this.body.setVelocity(
+            Math.cos(wpAngle) * moveSpeed,
+            Math.sin(wpAngle) * moveSpeed
+          );
+        }
+      } else {
+        this.body.setVelocity(
+          Math.cos(angle) * moveSpeed,
+          Math.sin(angle) * moveSpeed
+        );
+      }
     }
 
     this.updateDirection(player);

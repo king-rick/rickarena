@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",
+    "easystarjs": "^0.4.4",
     "next": "16.1.6",
     "phaser": "^3.90.0",
     "react": "19.2.3",

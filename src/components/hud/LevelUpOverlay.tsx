@@ -120,16 +120,6 @@ function BuffCard({
     >
       <span
         style={{
-          fontFamily: BODY,
-          fontSize: 15,
-          color: "#999aab",
-          letterSpacing: "0.12em",
-        }}
-      >
-        {option.category.toUpperCase()}
-      </span>
-      <span
-        style={{
           fontFamily: DISPLAY,
           fontSize: 26,
           color: "#ffffff",

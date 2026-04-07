@@ -61,7 +61,7 @@ export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Pro
     const handler = (e: KeyboardEvent) => {
       if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") hudState.dispatchMenuAction("prev");
       else if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") hudState.dispatchMenuAction("next");
-      else if (e.key === "Enter") hudState.dispatchMenuAction("start");
+      else if (e.key === "Enter" || e.key === " ") hudState.dispatchMenuAction("start");
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);

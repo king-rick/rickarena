@@ -32,8 +32,8 @@ export const BALANCE = {
     intermissionLateMs: 20000,
     intermissionLateWave: 5,
     // New formula: base + floor(wave * perWave)
-    baseEnemyCount: 4,
-    enemiesPerWave: 1.2,
+    baseEnemyCount: 5,
+    enemiesPerWave: 1.4,
     playerCountModifiers: [1.0, 1.5, 2.0, 2.5],
     // WaW-style scaling — exponential HP, flat damage, speed tiers
     // Waves 1-9: linear HP growth. Wave 10+: exponential (1.1x per wave)
@@ -44,25 +44,18 @@ export const BALANCE = {
     speedTierWaves: { jogStart: 4, runStart: 7 },
     // % of zombies at each speed tier per wave phase
     speedMix: {
-      early:  { shamble: 1.0, jog: 0.0, run: 0.0 },   // waves 1-3
-      mid:    { shamble: 0.4, jog: 0.5, run: 0.1 },    // waves 4-6
+      early:  { shamble: 0.5, jog: 0.4, run: 0.1 },   // waves 1-3: mixed pace, not all shamblers
+      mid:    { shamble: 0.2, jog: 0.5, run: 0.3 },    // waves 4-6
       late:   { shamble: 0.1, jog: 0.3, run: 0.6 },    // waves 7-9
       swarm:  { shamble: 0.0, jog: 0.15, run: 0.85 },  // waves 10+
     },
-    dogVariantWave: 4,
-    bossVariantWave: 6,
-    spawnStaggerMs: 1000,
-    // Wave composition (ratios by phase)
-    composition: {
-      // Waves 1-3: all basic
-      // Waves 4-5: basic + dogs
-      dogsEarly: { basic: 0.60, fast: 0.40 },
-      // Waves 6+: basic + dogs (boss spawns separately)
-      full: { basic: 0.45, fast: 0.55 },
-    },
-    // SCARYBOI spawns as a single mini-boss alongside regular enemies
+    bossVariantWave: 7,
+    spawnStaggerMs: 600,
+    // SCARYBOI — recurring villain, appears randomly after wave 5
+    // Must appear 2x in waves 5-13, 2x in waves 14-20. Cannot appear back-to-back.
     bossSpawn: {
-      count: 1, // 1 per wave from wave 6+
+      firstEligibleWave: 5,
+      fleeThreshold: 300, // damage taken this encounter before he retreats
     },
   },
 
@@ -102,7 +95,7 @@ export const BALANCE = {
       spread: 0,
       pellets: 1,
       magazineSize: 8,
-      totalClips: 5, // 5 clips of 8 = 40 total rounds (start with 3 clips, buy more)
+      totalClips: 6, // 6 clips of 8 = 48 max rounds (start with 4 clips, buy more)
       reloadMs: 1200,
       price: 150,
       proficiency: "Pistols",
@@ -199,34 +192,34 @@ export const BALANCE = {
     buffChoices: 3, // 3 options per level-up
     buffs: {
       strength: {
-        basic:    { name: "Strong Arm",        desc: "+3 damage",          flat: 3,  minLevel: 1 },
-        advanced: { name: "Heavy Hitter",      desc: "+5 damage",          flat: 5,  minLevel: 5 },
-        elite:    { name: "Devastating Force",  desc: "+8 damage",         flat: 8,  minLevel: 9 },
+        basic:    { name: "Strength",           desc: "+3 damage",          flat: 3,  minLevel: 1 },
+        advanced: { name: "Strength II",        desc: "+5 damage",          flat: 5,  minLevel: 5 },
+        elite:    { name: "Strength III",       desc: "+8 damage",         flat: 8,  minLevel: 9 },
       },
       health: {
-        basic:    { name: "Tough Skin",         desc: "+20 max HP",        flat: 20, minLevel: 1 },
-        advanced: { name: "Iron Constitution",  desc: "+35 max HP",        flat: 35, minLevel: 5 },
-        elite:    { name: "Unkillable",         desc: "+50 max HP",        flat: 50, minLevel: 9 },
+        basic:    { name: "Health",              desc: "+20 max HP",        flat: 20, minLevel: 1 },
+        advanced: { name: "Health II",           desc: "+35 max HP",        flat: 35, minLevel: 5 },
+        elite:    { name: "Health III",          desc: "+50 max HP",        flat: 50, minLevel: 9 },
       },
       stamina: {
-        basic:    { name: "Second Wind",   desc: "+15 stamina, +1 regen",  flat: 15, regenFlat: 1,  minLevel: 1 },
-        advanced: { name: "Endurance",     desc: "+25 stamina, +2 regen",  flat: 25, regenFlat: 2,  minLevel: 5 },
-        elite:    { name: "Perpetual Motion", desc: "+40 stamina, +3 regen", flat: 40, regenFlat: 3, minLevel: 9 },
+        basic:    { name: "Stamina",        desc: "+15 stamina, +1 regen",  flat: 15, regenFlat: 1,  minLevel: 1 },
+        advanced: { name: "Stamina II",    desc: "+25 stamina, +2 regen",  flat: 25, regenFlat: 2,  minLevel: 5 },
+        elite:    { name: "Stamina III",   desc: "+40 stamina, +3 regen", flat: 40, regenFlat: 3, minLevel: 9 },
       },
       speed: {
-        basic:    { name: "Quick Feet", desc: "+8 speed",   flat: 8,  minLevel: 1 },
-        advanced: { name: "Fleet",      desc: "+15 speed",  flat: 15, minLevel: 5 },
-        elite:    { name: "Blur",       desc: "+22 speed",  flat: 22, minLevel: 9 },
+        basic:    { name: "Speed",       desc: "+8 speed",   flat: 8,  minLevel: 1 },
+        advanced: { name: "Speed II",   desc: "+15 speed",  flat: 15, minLevel: 5 },
+        elite:    { name: "Speed III",  desc: "+22 speed",  flat: 22, minLevel: 9 },
       },
       luck: {
-        basic:    { name: "Lucky Strike",    desc: "+3% crit",   flatCrit: 0.03, minLevel: 1 },
-        advanced: { name: "Sharp Eye",       desc: "+6% crit",   flatCrit: 0.06, minLevel: 5 },
-        elite:    { name: "Death's Touch",   desc: "+10% crit",  flatCrit: 0.10, minLevel: 9 },
+        basic:    { name: "Luck",             desc: "+3% crit",   flatCrit: 0.03, minLevel: 1 },
+        advanced: { name: "Luck II",          desc: "+6% crit",   flatCrit: 0.06, minLevel: 5 },
+        elite:    { name: "Luck III",         desc: "+10% crit",  flatCrit: 0.10, minLevel: 9 },
       },
       scavenger: {
-        basic:    { name: "Scavenger",      desc: "+15% kill $",  killBonus: 0.15, minLevel: 1 },
-        advanced: { name: "Looter",         desc: "+25% kill $",  killBonus: 0.25, minLevel: 5 },
-        elite:    { name: "War Profiteer",  desc: "+40% kill $",  killBonus: 0.40, minLevel: 9 },
+        basic:    { name: "Scavenger",       desc: "+15% kill $",  killBonus: 0.15, minLevel: 1 },
+        advanced: { name: "Scavenger II",   desc: "+25% kill $",  killBonus: 0.25, minLevel: 5 },
+        elite:    { name: "Scavenger III",  desc: "+40% kill $",  killBonus: 0.40, minLevel: 9 },
       },
     },
     categoryWeights: { strength: 22, health: 22, stamina: 18, speed: 14, luck: 12, scavenger: 12 } as Record<string, number>,
@@ -234,10 +227,19 @@ export const BALANCE = {
 
   // Enemy base stats — WaW-style scaling (exponential HP, speed tiers, flat damage)
   enemies: {
-    basic: { hp: 50, damage: 20, speed: 35, jogSpeed: 65, runSpeed: 95 },
-    fast:  { hp: 15, damage: 5,  speed: 130, attackCooldown: 400 },  // dog: glass cannon, fast bites
+    basic: { hp: 50, damage: 20, speed: 50, jogSpeed: 75, runSpeed: 100 },
+    fast:  {
+      hp: 65, damage: 15, speed: 115, attackCooldown: 400,  // dog: beefy persistent map threat
+      roamSpeed: 45,           // slow wander when not aggro
+      aggroRange: 220,         // px — spot player and attack
+      packRange: 180,          // px — dogs within this range of each other pack up
+      maxOnMap: 7,             // never more than 7 dogs alive
+      hpScalePerWave: 0.10,    // +10% HP per wave
+      dmgScalePerWave: 0.06,   // +6% damage per wave
+    },
     boss:  {
-      hp: 500,
+      hp: 1200,
+      fleeThreshold: 300,  // SCARYBOI flees after taking this much damage in one encounter
       speed: 40,           // stalking walk
       runSpeed: 90,        // chasing
       leapSpeed: 150,      // burst leap

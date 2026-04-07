@@ -83,10 +83,19 @@ export class PreloadScene extends Phaser.Scene {
     // Tilemap — Endicott Estate (32x32 tiles, 60x60)
     this.load.tilemapTiledJSON("endicott-map", "/assets/maps/endicott.tmj");
     this.load.image("ts-cainos-grass", "/assets/tilesets/basic-grass.png");
+    this.load.image("ts-cainos-stone", "/assets/tilesets/basic-stone.png");
+    this.load.image("ts-basic-plant", "/assets/tilesets/basic-plant.png");
+    this.load.image("ts-basic-props", "/assets/tilesets/basic-props.png");
     this.load.image("ts-basic-struct", "/assets/tilesets/basic-struct.png");
     this.load.image("ts-basic-wall", "/assets/tilesets/basic-wall.png");
     this.load.image("ts-bp-ground-32", "/assets/tilesets/bloompixel/bp-ground-32.png");
-    this.load.image("ts-td-basic-grass", "/assets/tilesets/td-basic-grass.png");
+    this.load.image("ts-bp-rocks-64", "/assets/tilesets/bloompixel/bp-rocks-64.png");
+    this.load.image("ts-td-basic-stone", "/assets/tilesets/td-basic-stone.png");
+    this.load.image("ts-td-basic-wall", "/assets/tilesets/td-basic-wall.png");
+    this.load.image("ts-td-basic-plant", "/assets/tilesets/td-basic-plant.png");
+    this.load.image("ts-td-basic-props", "/assets/tilesets/td-basic-props.png");
+    this.load.image("ts-td-basic-struct", "/assets/tilesets/td-basic-struct.png");
+    this.load.image("ts-pipoya-basechip", "/assets/tilesets/pipoya/pipoya-basechip.png");
     // Tree spritesheets (64x64 per frame, used as individual sprites for overlap)
     this.load.spritesheet("trees-64", "/assets/tilesets/bloompixel/bp-trees-64.png", { frameWidth: 64, frameHeight: 64 });
     this.load.spritesheet("dark-trees-64", "/assets/tilesets/bloompixel/bp-dark-trees-64.png", { frameWidth: 64, frameHeight: 64 });
