@@ -84,8 +84,7 @@ export class WaveManager {
 
   // Persistent dog pack system
   private dogs: Enemy[] = [];
-  private dogSpawnTimer = 0;
-  private dogSpawnInterval = 3000; // check every 3s if we need more dogs
+  private dogRespawnQueue: number[] = []; // timestamps when each dead dog can respawn
 
   // Callbacks
   onWaveStart?: (wave: number) => void;
@@ -509,25 +508,40 @@ export class WaveManager {
 
   // ─── Persistent Dog Pack System ───
 
-  /** Maintain the dog population — spawn new dogs when below max, spread across map */
+  /** Maintain the dog population — respawn dead dogs after delay, up to max */
   private updateDogs(delta: number) {
     if (this.spawningDisabled) return;
-    if (this.state === "pre_game") return; // no dogs before game starts
+    if (this.state === "pre_game") return;
 
-    // Prune dead dogs from our tracking list
+    const dogStats = BALANCE.enemies.fast as any;
+    const maxDogs = dogStats.maxOnMap ?? 5;
+    const respawnMs = dogStats.respawnMs ?? 15000;
+    const now = this.scene.time.now;
+
+    // Prune dead dogs and queue respawns
+    const aliveBefore = this.dogs.length;
     this.dogs = this.dogs.filter(d => d.active && !d.dying);
+    const died = aliveBefore - this.dogs.length;
+    for (let i = 0; i < died; i++) {
+      this.dogRespawnQueue.push(now + respawnMs);
+    }
 
-    this.dogSpawnTimer += delta;
-    if (this.dogSpawnTimer < this.dogSpawnInterval) return;
-    this.dogSpawnTimer = 0;
+    // Initial population: if no dogs exist and no respawns queued, seed up to max
+    if (this.dogs.length === 0 && this.dogRespawnQueue.length === 0) {
+      for (let i = 0; i < maxDogs; i++) {
+        this.dogRespawnQueue.push(now + i * 2000); // stagger initial spawns
+      }
+    }
 
-    const dogStats = BALANCE.enemies.fast;
-    const maxDogs = (dogStats as any).maxOnMap ?? 7;
-
-    if (this.dogs.length >= maxDogs) return;
-
-    // Spawn one dog per tick (spread them out over time)
-    this.spawnDog();
+    // Process respawn queue
+    if (this.dogs.length < maxDogs && this.dogRespawnQueue.length > 0) {
+      // Sort so earliest respawns come first
+      this.dogRespawnQueue.sort((a, b) => a - b);
+      while (this.dogs.length < maxDogs && this.dogRespawnQueue.length > 0 && this.dogRespawnQueue[0] <= now) {
+        this.dogRespawnQueue.shift();
+        this.spawnDog();
+      }
+    }
   }
 
   private spawnDog() {

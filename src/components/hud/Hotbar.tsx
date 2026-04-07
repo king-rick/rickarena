@@ -14,19 +14,19 @@ const ITEM_ICONS: Record<string, string> = {
 };
 
 function getActiveIcon(activeSlot: number, equippedWeapon: string | null): { icon: string | null; label: string } {
-  if (activeSlot === 1 && equippedWeapon) return { icon: ITEM_ICONS[equippedWeapon] ?? null, label: equippedWeapon.toUpperCase() };
-  if (activeSlot === 2) return { icon: ITEM_ICONS.barricade, label: "BARRICADE" };
-  if (activeSlot === 3) return { icon: ITEM_ICONS.landmine, label: "LANDMINE" };
+  if ((activeSlot === 1 || activeSlot === 2) && equippedWeapon) return { icon: ITEM_ICONS[equippedWeapon] ?? null, label: equippedWeapon.toUpperCase() };
+  if (activeSlot === 3) return { icon: ITEM_ICONS.barricade, label: "BARRICADE" };
+  if (activeSlot === 4) return { icon: ITEM_ICONS.landmine, label: "LANDMINE" };
   return { icon: null, label: "" };
 }
 
 function getActiveCount(activeSlot: number, ammo: number, maxAmmo: number, reserveAmmo: number, reloading: boolean, barricadeCount: number, mineCount: number): { count: string; danger: boolean } {
-  if (activeSlot === 1) {
+  if (activeSlot === 1 || activeSlot === 2) {
     if (reloading) return { count: "RELOADING", danger: true };
     return { count: `${ammo}/${reserveAmmo}`, danger: ammo === 0 && reserveAmmo === 0 };
   }
-  if (activeSlot === 2) return { count: `x${barricadeCount}`, danger: false };
-  if (activeSlot === 3) return { count: `x${mineCount}`, danger: false };
+  if (activeSlot === 3) return { count: `x${barricadeCount}`, danger: false };
+  if (activeSlot === 4) return { count: `x${mineCount}`, danger: false };
   return { count: "", danger: false };
 }
 

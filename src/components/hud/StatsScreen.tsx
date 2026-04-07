@@ -76,10 +76,10 @@ export const StatsScreen = memo(function StatsScreen() {
     });
   }
   if (barricadeCount > 0) {
-    invSlots.push({ id: "barricade", name: "Barricade", icon: ITEM_ICONS.barricade, active: activeSlot === 2, slot: 2, count: `x${barricadeCount}` });
+    invSlots.push({ id: "barricade", name: "Barricade", icon: ITEM_ICONS.barricade, active: activeSlot === 3, slot: 3, count: `x${barricadeCount}` });
   }
   if (mineCount > 0) {
-    invSlots.push({ id: "landmine", name: "Landmine", icon: ITEM_ICONS.landmine, active: activeSlot === 3, slot: 3, count: `x${mineCount}` });
+    invSlots.push({ id: "landmine", name: "Landmine", icon: ITEM_ICONS.landmine, active: activeSlot === 4, slot: 4, count: `x${mineCount}` });
   }
 
   return (
@@ -433,7 +433,7 @@ function ItemDetail({ activeSlot, equippedWeapon, ammo, maxAmmo, barricadeCount,
     );
   }
 
-  if (activeSlot === 1 && equippedWeapon) {
+  if ((activeSlot === 1 || activeSlot === 2) && equippedWeapon) {
     const wDef = BALANCE.weapons[equippedWeapon as keyof typeof BALANCE.weapons];
     if (!wDef) return null;
     return (
@@ -453,7 +453,7 @@ function ItemDetail({ activeSlot, equippedWeapon, ammo, maxAmmo, barricadeCount,
     );
   }
 
-  if (activeSlot === 2 && barricadeCount > 0) {
+  if (activeSlot === 3 && barricadeCount > 0) {
     return (
       <div style={{ display: "flex", gap: 16 }}>
         <ItemIcon icon={ITEM_ICONS.barricade} />
@@ -467,7 +467,7 @@ function ItemDetail({ activeSlot, equippedWeapon, ammo, maxAmmo, barricadeCount,
     );
   }
 
-  if (activeSlot === 3 && mineCount > 0) {
+  if (activeSlot === 4 && mineCount > 0) {
     return (
       <div style={{ display: "flex", gap: 16 }}>
         <ItemIcon icon={ITEM_ICONS.landmine} />

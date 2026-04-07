@@ -44,11 +44,10 @@ export class GameScene extends Phaser.Scene {
   private levelUpActive = false;
   private pendingLevelUps: { level: number; options: BuffOption[] }[] = [];
 
-  // Weapon state
-  private equippedWeapon: string | null = null; // null = fists
-  private magazineAmmo = 0; // rounds in current magazine
-  private magazineSize = 0; // max rounds per magazine
-  private reserveAmmo = 0; // rounds in reserve (remaining clips)
+  // Weapon state — multi-gun: pistol always + optional secondary
+  private activeWeapon: string = "pistol"; // currently selected gun to fire
+  private secondaryWeapon: string | null = null; // "shotgun" | "smg" | null
+  private weaponAmmo: Record<string, { mag: number; reserve: number }> = {};
   private lastFireTime = 0;
   private fireHeld = false;
   private dryFired = false; // true after empty click, reset on trigger release
@@ -68,9 +67,9 @@ export class GameScene extends Phaser.Scene {
   private traps!: Phaser.Physics.Arcade.Group;
   private barricades!: Phaser.Physics.Arcade.StaticGroup;
 
-  // Hotbar: 0=fists, 1=weapon, 2=barricade, 3=mine
+  // Hotbar: 1=pistol, 2=secondary gun, 3=barricade, 4=mine
   private activeSlot = 0;
-  private readonly slotCount = 4;
+  private readonly slotCount = 5;
 
   // Ability state (Q)
   private abilityCooldownTimer = 0; // ms remaining
@@ -153,10 +152,11 @@ export class GameScene extends Phaser.Scene {
     this.lastDamageTime = 0;
     // Start with pistol — 4 clips worth (can buy up to totalClips max)
     const pistolDef = BALANCE.weapons.pistol;
-    this.equippedWeapon = "pistol";
-    this.magazineSize = pistolDef.magazineSize;
-    this.magazineAmmo = pistolDef.magazineSize; // 1 mag loaded
-    this.reserveAmmo = pistolDef.magazineSize * 3; // 3 reserve clips (32 total)
+    this.activeWeapon = "pistol";
+    this.secondaryWeapon = null;
+    this.weaponAmmo = {
+      pistol: { mag: pistolDef.magazineSize, reserve: pistolDef.magazineSize * 3 },
+    };
     this.activeSlot = 1;
     this.reloading = false;
     this.reloadTimer = null;
@@ -603,6 +603,7 @@ export class GameScene extends Phaser.Scene {
       );
       vKey.on("down", () => {
         if (this.gameOver || this.paused) return;
+        if (this.activeSlot !== 3) return; // only when barricade is selected
         this.barricadeVertical = !this.barricadeVertical;
         const orient = this.barricadeVertical ? "VERTICAL" : "HORIZONTAL";
         this.showWeaponMessage(`BARRICADE: ${orient}`, "#dddd44");
@@ -870,7 +871,7 @@ export class GameScene extends Phaser.Scene {
     this.updateRoofVisibility();
 
     // Barricade placement ghost
-    const showGhost = this.activeSlot === 2
+    const showGhost = this.activeSlot === 3
       && !this.shopOpen && !this.levelUpActive
       && (this.trapInventory.get("barricade" as TrapType) ?? 0) > 0;
     if (showGhost) {
@@ -897,8 +898,8 @@ export class GameScene extends Phaser.Scene {
     this.tryPlayZombieGroan();
 
     // Hold-to-fire: only for auto weapons (SMG) when weapon slot is active.
-    if (this.fireHeld && !this.shopOpen && this.activeSlot === 1 && this.equippedWeapon) {
-      const wDef = BALANCE.weapons[this.equippedWeapon as keyof typeof BALANCE.weapons];
+    if (this.fireHeld && !this.shopOpen && (this.activeSlot === 1 || this.activeSlot === 2)) {
+      const wDef = BALANCE.weapons[this.activeWeapon as keyof typeof BALANCE.weapons];
       if (wDef?.auto) this.fireWeapon();
     }
 
@@ -1012,21 +1013,26 @@ export class GameScene extends Phaser.Scene {
 
   /** Get list of slot indices that currently have items */
   private getAvailableSlots(): number[] {
-    const available: number[] = [];
-    if (this.equippedWeapon) available.push(1); // weapon
-    if ((this.trapInventory.get("barricade" as TrapType) ?? 0) > 0) available.push(2);
-    if ((this.trapInventory.get("landmine" as TrapType) ?? 0) > 0) available.push(3);
+    const available: number[] = [1]; // pistol always available
+    if (this.secondaryWeapon) available.push(2); // secondary gun
+    if ((this.trapInventory.get("barricade" as TrapType) ?? 0) > 0) available.push(3);
+    if ((this.trapInventory.get("landmine" as TrapType) ?? 0) > 0) available.push(4);
     return available;
   }
 
   private cycleSlot(dir: number) {
     const available = this.getAvailableSlots();
-    if (available.length === 0) return; // nothing to cycle to
+    if (available.length === 0) return;
+
+    // Cancel reload when switching weapons
+    if (this.reloading) {
+      this.reloading = false;
+      if (this.reloadTimer) { this.reloadTimer.destroy(); this.reloadTimer = null; }
+    }
 
     const currentIdx = available.indexOf(this.activeSlot);
     let nextIdx: number;
     if (currentIdx === -1) {
-      // Current slot no longer available, pick first available
       nextIdx = 0;
     } else {
       nextIdx = (currentIdx + dir + available.length) % available.length;
@@ -1035,26 +1041,43 @@ export class GameScene extends Phaser.Scene {
   }
 
   private selectSlot(index: number) {
-    // Only allow selecting slots that have items (1=weapon, 2=barricade, 3=mine)
     const available = this.getAvailableSlots();
-    if (index === 0 || !available.includes(index)) return; // can't select fists or empty slots
+    if (!available.includes(index)) return;
+
+    // Cancel reload when switching weapons
+    if ((index === 1 || index === 2) && index !== this.activeSlot && this.reloading) {
+      this.reloading = false;
+      if (this.reloadTimer) { this.reloadTimer.destroy(); this.reloadTimer = null; }
+    }
 
     this.activeSlot = index;
-    const names = ["FISTS", "WEAPON", "BARRICADE", "MINE"];
+    // Set active weapon when selecting a gun slot
+    if (index === 1) this.activeWeapon = "pistol";
+    if (index === 2) this.activeWeapon = this.secondaryWeapon!;
     // Set trap index when selecting a trap slot
-    if (this.activeSlot === 2) this.selectedTrapIndex = 0; // barricade
-    if (this.activeSlot === 3) this.selectedTrapIndex = 1; // mine
-    this.showWeaponMessage(`${names[this.activeSlot]} SELECTED`, "#ff4466");
+    if (index === 3) this.selectedTrapIndex = 0; // barricade
+    if (index === 4) this.selectedTrapIndex = 1; // mine
+
+    const names: Record<number, string> = {
+      1: "PISTOL",
+      2: this.secondaryWeapon?.toUpperCase() ?? "WEAPON",
+      3: "BARRICADE",
+      4: "MINE",
+    };
+    this.showWeaponMessage(`${names[index]} SELECTED`, "#ff4466");
   }
 
   private useActiveSlot() {
     switch (this.activeSlot) {
-      case 1: this.fireWeapon(); break;
+      case 1:
       case 2:
+        this.fireWeapon();
+        break;
+      case 3:
         this.selectedTrapIndex = 0; // barricade
         this.placeTrap();
         break;
-      case 3:
+      case 4:
         this.selectedTrapIndex = 1; // mine
         this.placeTrap();
         break;
@@ -1116,7 +1139,7 @@ export class GameScene extends Phaser.Scene {
         }
         const killed = enemy.takeDamage(finalDmg);
         if (killed) {
-          this.onEnemyKilled(enemy);
+          this.onEnemyKilled(enemy, "melee");
         }
 
         let kb = this.player.burnedOut
@@ -1155,12 +1178,13 @@ export class GameScene extends Phaser.Scene {
 
   // ------- Shared kill handler -------
 
-  private onEnemyKilled(enemy: Enemy) {
+  private onEnemyKilled(enemy: Enemy, source: "melee" | "ranged" | "trap" = "ranged") {
     this.kills++;
-    // Kill reward with scavenger bonus
+    // Kill reward with scavenger bonus — melee kills earn 25% more
     const effective = this.levelingSystem.getEffectiveStats(this.characterDef.stats);
     const baseReward = BALANCE.economy.killReward[enemy.enemyType];
-    const bonus = Math.floor(baseReward * effective.killBonusPct);
+    const meleeBonus = source === "melee" ? 0.25 : 0;
+    const bonus = Math.floor(baseReward * (effective.killBonusPct + meleeBonus));
     this.currency += baseReward + bonus;
     this.waveManager.onEnemyKilled();
     this.playRandomEnemyDeath();
@@ -1225,7 +1249,7 @@ export class GameScene extends Phaser.Scene {
 
       const killed = enemy.takeDamage(damage);
       if (killed) {
-        this.onEnemyKilled(enemy);
+        this.onEnemyKilled(enemy, "melee");
       } else {
         // Massive knockback
         enemy.body.setVelocity(
@@ -1424,7 +1448,7 @@ export class GameScene extends Phaser.Scene {
 
       const killed = enemy.takeDamage(damage);
       if (killed) {
-        this.onEnemyKilled(enemy);
+        this.onEnemyKilled(enemy, "melee");
       } else {
         enemy.body.setVelocity(
           Math.cos(enemyAngle) * knockback,
@@ -1545,13 +1569,17 @@ export class GameScene extends Phaser.Scene {
     this.smokeDrainAccum = 0;
   }
 
-  private fireWeapon() {
-    if (!this.equippedWeapon) return;
-    if (this.reloading) return; // can't fire while reloading
+  /** Get current weapon's ammo object */
+  private get currentAmmo() { return this.weaponAmmo[this.activeWeapon]; }
+  private get currentWeaponDef() { return BALANCE.weapons[this.activeWeapon as keyof typeof BALANCE.weapons]; }
 
-    if (this.magazineAmmo <= 0) {
-      // Magazine empty — auto-reload if we have reserve ammo
-      if (this.reserveAmmo > 0) {
+  private fireWeapon() {
+    const ammo = this.currentAmmo;
+    if (!ammo) return;
+    if (this.reloading) return;
+
+    if (ammo.mag <= 0) {
+      if (ammo.reserve > 0) {
         this.startReload();
       } else {
         this.playSound("sfx-dryfire", 0.4);
@@ -1560,7 +1588,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const weaponDef = BALANCE.weapons[this.equippedWeapon as keyof typeof BALANCE.weapons];
+    const weaponDef = this.currentWeaponDef;
     if (!weaponDef) return;
 
     const now = this.time.now;
@@ -1571,8 +1599,7 @@ export class GameScene extends Phaser.Scene {
     const dmgMult = 1;
     const smokeBonus = this.smokeBuffTimer > 0 ? this.smokeBuffDamageBonus : 0;
 
-    // Point-blank hit check: directly damage enemies closer than the projectile spawn offset
-    // so bullets don't fly past enemies that are right on top of the player
+    // Point-blank hit check
     const pbRange = 30;
     this.enemies.getChildren().forEach((obj) => {
       const enemy = obj as Enemy;
@@ -1581,12 +1608,10 @@ export class GameScene extends Phaser.Scene {
       if (dist > pbRange) return;
       for (let p = 0; p < weaponDef.pellets; p++) {
         let damage = Math.floor((weaponDef.damage + smokeBonus) * dmgMult);
-        // SMG close-range bonus
         if ("closeRangeBonus" in weaponDef) {
           damage = Math.floor(damage * (weaponDef as any).closeRangeBonus);
         }
-        const weaponKey = this.equippedWeapon ?? "pistol";
-        if (this.rollCrit(weaponKey, 0)) {
+        if (this.rollCrit(this.activeWeapon, 0)) {
           damage = Math.floor(damage * BALANCE.crit.damageMultiplier);
           this.showCritEffect(enemy.x, enemy.y, "ranged");
         }
@@ -1595,7 +1620,7 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    // Spawn projectiles offset from player center for normal-range hits
+    // Spawn projectiles
     const spawnOffset = 24;
     const spawnX = this.player.x + Math.cos(angle) * spawnOffset;
     const spawnY = this.player.y + Math.sin(angle) * spawnOffset;
@@ -1613,27 +1638,26 @@ export class GameScene extends Phaser.Scene {
         Math.floor((weaponDef.damage + smokeBonus) * dmgMult),
         weaponDef.range,
         weaponDef.dropoff,
-        this.equippedWeapon!
+        this.activeWeapon
       );
       this.projectiles.add(proj, true);
       proj.launch();
     }
 
-    this.magazineAmmo--;
+    ammo.mag--;
 
-    // Play shooting animation on the player sprite
-    this.player.playShoot(this.equippedWeapon!);
+    this.player.playShoot(this.activeWeapon);
 
     // Weapon fire sound
-    if (this.equippedWeapon === "pistol") {
+    if (this.activeWeapon === "pistol") {
       this.playSound("sfx-pistol", 0.4);
-    } else if (this.equippedWeapon === "shotgun") {
+    } else if (this.activeWeapon === "shotgun") {
       this.playSound("sfx-shotgun", 0.4);
-    } else if (this.equippedWeapon === "smg") {
+    } else if (this.activeWeapon === "smg") {
       this.playSound("sfx-smg", 0.3);
     }
 
-    // Muzzle flash sprite
+    // Muzzle flash
     const flashDist = 20;
     const flash = this.add.image(
       this.player.x + Math.cos(angle) * flashDist,
@@ -1645,9 +1669,9 @@ export class GameScene extends Phaser.Scene {
     flash.setAlpha(0.9);
     this.time.delayedCall(60, () => flash.destroy());
 
-    // Auto-reload when magazine empties, or dry-click if totally out
-    if (this.magazineAmmo <= 0) {
-      if (this.reserveAmmo > 0) {
+    // Auto-reload when magazine empties
+    if (ammo.mag <= 0) {
+      if (ammo.reserve > 0) {
         this.startReload();
       } else {
         this.time.delayedCall(250, () => {
@@ -1659,26 +1683,27 @@ export class GameScene extends Phaser.Scene {
   }
 
   private startReload() {
-    if (!this.equippedWeapon || this.reloading) return;
-    if (this.magazineAmmo >= this.magazineSize) return; // already full
-    if (this.reserveAmmo <= 0 && this.magazineAmmo <= 0) return; // nothing to reload
-
-    const weaponDef = BALANCE.weapons[this.equippedWeapon as keyof typeof BALANCE.weapons];
-    if (!weaponDef) return;
+    const ammo = this.currentAmmo;
+    const weaponDef = this.currentWeaponDef;
+    if (!ammo || !weaponDef || this.reloading) return;
+    if (ammo.mag >= weaponDef.magazineSize) return;
+    if (ammo.reserve <= 0 && ammo.mag <= 0) return;
 
     this.reloading = true;
     this.showWeaponMessage("RELOADING...", "#ffaa33");
 
+    const reloadingWeapon = this.activeWeapon; // capture in case player switches
     this.reloadTimer = this.time.delayedCall(weaponDef.reloadMs, () => {
-      if (!this.equippedWeapon) { this.reloading = false; return; }
-      const needed = this.magazineSize - this.magazineAmmo;
-      const loaded = Math.min(needed, this.reserveAmmo);
-      this.magazineAmmo += loaded;
-      this.reserveAmmo -= loaded;
+      const wAmmo = this.weaponAmmo[reloadingWeapon];
+      const wDef = BALANCE.weapons[reloadingWeapon as keyof typeof BALANCE.weapons];
+      if (!wAmmo || !wDef) { this.reloading = false; return; }
+      const needed = wDef.magazineSize - wAmmo.mag;
+      const loaded = Math.min(needed, wAmmo.reserve);
+      wAmmo.mag += loaded;
+      wAmmo.reserve -= loaded;
       this.reloading = false;
       this.reloadTimer = null;
-      // Reload complete sound per weapon
-      if (this.equippedWeapon === "shotgun") {
+      if (reloadingWeapon === "shotgun") {
         this.playSound("sfx-reload-shotgun", 0.5);
       } else {
         this.playSound("sfx-reload-rifle", 0.5);
@@ -1805,7 +1830,7 @@ export class GameScene extends Phaser.Scene {
 
       // Track kills from traps (dying flag, not active — active stays true during death animation)
       if (!wasDying && enemy.dying) {
-        this.onEnemyKilled(enemy);
+        this.onEnemyKilled(enemy, "trap");
       }
     };
 
@@ -1881,7 +1906,7 @@ export class GameScene extends Phaser.Scene {
       const enemy = enemyObj as Enemy;
 
       let damage = proj.damage;
-      const weaponKey = this.equippedWeapon ?? "pistol";
+      const weaponKey = this.activeWeapon;
       if (this.rollCrit(weaponKey, proj.distanceRatio)) {
         damage = Math.floor(damage * BALANCE.crit.damageMultiplier);
         this.showCritEffect(enemy.x, enemy.y, "ranged");
@@ -2338,8 +2363,8 @@ export class GameScene extends Phaser.Scene {
     pistol: "/assets/sprites/items/pistol.png",
     shotgun: "/assets/sprites/items/shotgun.png",
     smg: "/assets/sprites/items/smg.png",
-    ammo: "/assets/sprites/items/ammo.png",
-    extraClip: "/assets/sprites/items/ammo-box.png",
+    ammo_light: "/assets/sprites/items/ammo.png",
+    ammo_shotgun: "/assets/sprites/items/ammo.png",
     barricade: "/assets/sprites/items/trap-barricade.png",
     landmine: "/assets/sprites/items/landmine.png",
     heal: "/assets/sprites/items/bandage.png",
@@ -2353,8 +2378,8 @@ export class GameScene extends Phaser.Scene {
     const columns: { idx: number }[][] = [[], [], []];
     items.forEach((item, idx) => {
       const id = item.id;
-      if (id === "heal" || id === "dmgBoost") columns[0].push({ idx });
-      else if (["pistol", "shotgun", "smg", "ammo", "extraClip"].includes(id)) columns[1].push({ idx });
+      if (id === "heal" || id === "medkit" || id === "dmgBoost") columns[0].push({ idx });
+      else if (["shotgun", "smg", "ammo_light", "ammo_shotgun"].includes(id)) columns[1].push({ idx });
       else columns[2].push({ idx });
     });
     this.shopGrid = columns.map(col => col.map(entry => entry.idx));
@@ -2409,10 +2434,10 @@ export class GameScene extends Phaser.Scene {
       const locked = this.devMode ? false : (unlockWave ? this.waveManager.wave < unlockWave : false);
       const price = this.getItemPrice(idx);
       const canAfford = this.currency >= price;
-      const isEquipped = ["pistol", "shotgun", "smg"].includes(item.id) && this.equippedWeapon === item.id;
+      const isEquipped = ["shotgun", "smg"].includes(item.id) && this.secondaryWeapon === item.id;
       const id = item.id;
       let category: "supplies" | "weapons" | "traps" = "supplies";
-      if (["pistol", "shotgun", "smg", "ammo", "extraClip"].includes(id)) category = "weapons";
+      if (["shotgun", "smg", "ammo_light", "ammo_shotgun"].includes(id)) category = "weapons";
       else if (["barricade", "landmine"].includes(id)) category = "traps";
 
       return {
@@ -2619,37 +2644,64 @@ export class GameScene extends Phaser.Scene {
       case "shotgun":
       case "smg": {
         const weaponDef = BALANCE.weapons[itemId as keyof typeof BALANCE.weapons];
-        // Already holding this weapon — buy ammo refill instead
-        if (this.equippedWeapon === itemId) {
+        // Already own this weapon — refill ammo
+        if (this.secondaryWeapon === itemId) {
+          const wAmmo = this.weaponAmmo[itemId];
+          if (!wAmmo) return;
           const totalMax = weaponDef.magazineSize * weaponDef.totalClips;
-          const totalCurrent = this.magazineAmmo + this.reserveAmmo;
-          if (totalCurrent >= totalMax) return;
+          if (wAmmo.mag + wAmmo.reserve >= totalMax) return;
           this.currency -= price;
-          this.reserveAmmo = totalMax - this.magazineAmmo;
+          wAmmo.reserve = totalMax - wAmmo.mag;
           this.showWeaponMessage("AMMO REFILLED", "#44dd44");
           break;
         }
+        // Buy new secondary (replaces old secondary if any)
         this.currency -= price;
-        this.equippedWeapon = itemId;
-        this.magazineSize = weaponDef.magazineSize;
-        this.magazineAmmo = weaponDef.magazineSize; // full first mag
-        this.reserveAmmo = weaponDef.magazineSize * (weaponDef.totalClips - 1); // remaining clips
+        this.secondaryWeapon = itemId;
+        this.weaponAmmo[itemId] = {
+          mag: weaponDef.magazineSize,
+          reserve: weaponDef.magazineSize * (weaponDef.totalClips - 1),
+        };
+        this.activeWeapon = itemId;
+        this.activeSlot = 2;
         this.reloading = false;
         if (this.reloadTimer) { this.reloadTimer.destroy(); this.reloadTimer = null; }
-        this.activeSlot = 1;
         this.showWeaponMessage(weaponDef.name.toUpperCase() + " EQUIPPED", "#dddd44");
         break;
       }
-      case "ammo": {
-        if (!this.equippedWeapon) return;
-        const wDef = BALANCE.weapons[this.equippedWeapon as keyof typeof BALANCE.weapons];
-        const totalMax = wDef.magazineSize * wDef.totalClips;
-        const totalCurrent = this.magazineAmmo + this.reserveAmmo;
-        if (totalCurrent >= totalMax) return;
+      case "ammo_light": {
+        // Light ammo refills both pistol and SMG (if owned)
+        let anyRefilled = false;
+        for (const wk of ["pistol", "smg"]) {
+          if (wk !== "pistol" && this.secondaryWeapon !== wk) continue;
+          const wDef = BALANCE.weapons[wk as keyof typeof BALANCE.weapons];
+          const wAmmo = this.weaponAmmo[wk];
+          if (!wAmmo || !wDef) continue;
+          const totalMax = wDef.magazineSize * wDef.totalClips;
+          if (wAmmo.mag + wAmmo.reserve >= totalMax) continue;
+          const addAmmo = wDef.magazineSize * 2;
+          wAmmo.reserve = Math.min(wAmmo.reserve + addAmmo, totalMax - wAmmo.mag);
+          anyRefilled = true;
+        }
+        if (!anyRefilled) return;
         this.currency -= price;
-        const addAmmo = wDef.magazineSize * 2; // 2 clips per purchase
-        this.reserveAmmo = Math.min(this.reserveAmmo + addAmmo, totalMax - this.magazineAmmo);
-        this.showWeaponMessage(`+${Math.min(addAmmo, totalMax - totalCurrent)} AMMO`, "#44dd44");
+        this.showWeaponMessage("+LIGHT AMMO", "#44dd44");
+        break;
+      }
+      case "ammo_shotgun": {
+        if (this.secondaryWeapon !== "shotgun") {
+          this.showWeaponMessage("NO SHOTGUN", "#cc3333");
+          return;
+        }
+        const wDef = BALANCE.weapons.shotgun;
+        const wAmmo = this.weaponAmmo.shotgun;
+        if (!wAmmo) return;
+        const totalMax = wDef.magazineSize * wDef.totalClips;
+        if (wAmmo.mag + wAmmo.reserve >= totalMax) return;
+        this.currency -= price;
+        const addAmmo = wDef.magazineSize * 2;
+        wAmmo.reserve = Math.min(wAmmo.reserve + addAmmo, totalMax - wAmmo.mag);
+        this.showWeaponMessage("+SHOTGUN SHELLS", "#44dd44");
         break;
       }
       case "barricade":
@@ -2743,10 +2795,10 @@ export class GameScene extends Phaser.Scene {
       burnedOut: this.player.burnedOut,
       level: this.levelingSystem.level,
       activeSlot: this.activeSlot,
-      equippedWeapon: this.equippedWeapon,
-      ammo: this.magazineAmmo,
-      maxAmmo: this.magazineSize,
-      reserveAmmo: this.reserveAmmo,
+      equippedWeapon: this.activeWeapon,
+      ammo: this.currentAmmo?.mag ?? 0,
+      maxAmmo: this.currentWeaponDef?.magazineSize ?? 0,
+      reserveAmmo: this.currentAmmo?.reserve ?? 0,
       reloading: this.reloading,
       barricadeCount: this.trapInventory.get("barricade" as TrapType) ?? 0,
       mineCount: this.trapInventory.get("landmine" as TrapType) ?? 0,

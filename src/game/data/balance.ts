@@ -78,9 +78,10 @@ export const BALANCE = {
       // Pistol is a starting weapon — not sold in shop
       { id: "shotgun", name: "Shotgun", desc: "8 shells, spread", basePrice: 350, unlockWave: 4 },
       { id: "smg", name: "SMG", desc: "50 rounds, rapid fire", basePrice: 500, unlockWave: 7 },
-      { id: "ammo", name: "Ammo Refill", desc: "+2 clips for current weapon", basePrice: 100 },
-      { id: "barricade", name: "Barricade", desc: "Blocks enemies, 300 HP", basePrice: 60 },
-      { id: "landmine", name: "Landmine", desc: "AoE explosion on contact", basePrice: 80 },
+      { id: "ammo_light", name: "Light Ammo", desc: "+2 clips (pistol & SMG)", basePrice: 75 },
+      { id: "ammo_shotgun", name: "Shotgun Shells", desc: "+2 shotgun clips", basePrice: 80, unlockWave: 4 },
+      { id: "barricade", name: "Barricade", desc: "Blocks enemies, 300 HP", basePrice: 30 },
+      { id: "landmine", name: "Landmine", desc: "AoE explosion on contact", basePrice: 40 },
     ],
   },
 
@@ -171,13 +172,13 @@ export const BALANCE = {
     barricade: {
       name: "Barricade",
       hp: 300,
-      price: 60,
+      price: 30,
     },
     landmine: {
       name: "Landmine",
       damage: 80,
       radius: 100,
-      price: 80,
+      price: 40,
     },
     maxPerType: 5,
     placementRange: 60,
@@ -233,7 +234,8 @@ export const BALANCE = {
       roamSpeed: 45,           // slow wander when not aggro
       aggroRange: 220,         // px — spot player and attack
       packRange: 180,          // px — dogs within this range of each other pack up
-      maxOnMap: 7,             // never more than 7 dogs alive
+      maxOnMap: 5,             // never more than 5 dogs alive
+      respawnMs: 15000,        // 15s respawn after death
       hpScalePerWave: 0.10,    // +10% HP per wave
       dmgScalePerWave: 0.06,   // +6% damage per wave
     },

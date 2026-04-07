@@ -797,7 +797,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     // Safety: if somehow inside a building, teleport out
     if (isExcludedZone(this.x, this.y)) {
-      this.setPosition(960, 960); // center of map
+      this.setPosition(500, 960); // open area west of estate
       this.roamTarget = null;
       this.dogState = "roaming";
     }
