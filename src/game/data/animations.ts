@@ -17,6 +17,9 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "shooting-smg", frames: 9 },
     { type: "high-kick", frames: 7 },
     { type: "walking-shooting-pistol", frames: 9 },
+    { type: "reloading-pistol", frames: 9 },
+    { type: "reloading-shotgun", frames: 4 },
+    { type: "reloading-smg", frames: 4 },
   ],
   dan: [
     { type: "walk", frames: 6 },
@@ -29,6 +32,9 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "shooting-shotgun", frames: 4 },
     { type: "shooting-smg", frames: 9 },
     { type: "throw-grenade", frames: 4 },
+    { type: "reloading-pistol", frames: 9 },
+    { type: "reloading-shotgun", frames: 4 },
+    { type: "reloading-smg", frames: 4 },
   ],
   // mason: temporarily removed from roster (sprite rework)
   pj: [
@@ -42,6 +48,9 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "shooting-shotgun", frames: 4 },
     { type: "shooting-smg", frames: 16 },
     { type: "swinging-katana", frames: 4 },
+    { type: "reloading-pistol", frames: 9 },
+    { type: "reloading-shotgun", frames: 4 },
+    { type: "reloading-smg", frames: 4 },
   ],
   jason: [
     { type: "walk", frames: 6 },
@@ -54,6 +63,9 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "shooting-shotgun", frames: 4 },
     { type: "shooting-smg", frames: 9 },
     { type: "light-cigarette", frames: 4 },
+    { type: "reloading-pistol", frames: 9 },
+    { type: "reloading-shotgun", frames: 4 },
+    { type: "reloading-smg", frames: 4 },
   ],
   creepyzombie: [
     { type: "walk", frames: 8 },
@@ -63,12 +75,16 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "taking-punch", frames: 6 },
     { type: "falling-back-death", frames: 7 },
     { type: "gunshot-death", frames: 17 },
+    { type: "running-8-frames", frames: 8 },
   ],
   zombiedog: [
     { type: "walk", frames: 8 },
     { type: "bite", frames: 4 },
     { type: "death", frames: 4 },
     { type: "leap", frames: 4 },
+    { type: "walk-6-frames", frames: 6 },
+    { type: "howl", frames: 4 },
+    { type: "running", frames: 9 },
   ],
   scaryboi: [
     { type: "fight-stance-idle-8-frames", frames: 8 },
@@ -79,6 +95,8 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "fireball", frames: 6 },
     { type: "throw-object", frames: 7 },
     { type: "backflip", frames: 10 },
+    { type: "falling-back-death", frames: 7 },
+    { type: "being-shot", frames: 9 },
   ],
 };
 

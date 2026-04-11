@@ -32,7 +32,7 @@ export const BALANCE = {
     intermissionLateMs: 20000,
     intermissionLateWave: 5,
     // New formula: base + floor(wave * perWave)
-    baseEnemyCount: 5,
+    baseEnemyCount: 3,
     enemiesPerWave: 1.4,
     playerCountModifiers: [1.0, 1.5, 2.0, 2.5],
     // WaW-style scaling — exponential HP, flat damage, speed tiers
@@ -44,7 +44,7 @@ export const BALANCE = {
     speedTierWaves: { jogStart: 4, runStart: 7 },
     // % of zombies at each speed tier per wave phase
     speedMix: {
-      early:  { shamble: 0.5, jog: 0.4, run: 0.1 },   // waves 1-3: mixed pace, not all shamblers
+      early:  { shamble: 0.9, jog: 0.1, run: 0.0 },   // waves 1-3: mostly shamblers, gentle ramp
       mid:    { shamble: 0.2, jog: 0.5, run: 0.3 },    // waves 4-6
       late:   { shamble: 0.1, jog: 0.3, run: 0.6 },    // waves 7-9
       swarm:  { shamble: 0.0, jog: 0.15, run: 0.85 },  // waves 10+
@@ -230,14 +230,15 @@ export const BALANCE = {
   enemies: {
     basic: { hp: 50, damage: 20, speed: 50, jogSpeed: 75, runSpeed: 100 },
     fast:  {
-      hp: 65, damage: 15, speed: 115, attackCooldown: 400,  // dog: beefy persistent map threat
-      roamSpeed: 45,           // slow wander when not aggro
-      aggroRange: 220,         // px — spot player and attack
-      packRange: 180,          // px — dogs within this range of each other pack up
+      hp: 30, damage: 12, speed: 115, attackCooldown: 400,  // dog: fragile but fast when aggro
+      roamSpeed: 30,           // slow idle wander on grass
+      aggroRange: 130,         // px — must be close to spot player (sneakable)
+      deaggroRange: 350,       // px — lose interest quickly
+      packRange: 150,          // px — dogs within this range of each other pack up
       maxOnMap: 5,             // never more than 5 dogs alive
       respawnMs: 15000,        // 15s respawn after death
-      hpScalePerWave: 0.10,    // +10% HP per wave
-      dmgScalePerWave: 0.06,   // +6% damage per wave
+      hpScalePerWave: 0.08,    // +8% HP per wave (was 10%)
+      dmgScalePerWave: 0.05,   // +5% damage per wave (was 6%)
     },
     boss:  {
       hp: 1200,

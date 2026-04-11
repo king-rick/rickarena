@@ -17,6 +17,7 @@ export class BootScene extends Phaser.Scene {
         document.fonts.load("16px HorrorPixel"),
         document.fonts.load("16px ChainsawCarnage"),
         document.fonts.load("16px Special Elite"),
+        document.fonts.load("bold 16px ChakraPetch"),
       ]);
     } catch {
       // Fonts may already be loaded via CSS, continue regardless

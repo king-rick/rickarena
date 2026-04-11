@@ -43,7 +43,7 @@ const VARIANT_TINTS: Record<EnemyType, number> = {
 
 const VARIANT_SCALES: Record<EnemyType, number> = {
   basic: 0.28,
-  fast: 0.4,
+  fast: 0.33,
   boss: 0.45,
 };
 
@@ -70,6 +70,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private biting = false;
   private leaping = false;
   dying = false;
+  fleeing = false;
   private takingPunch = false;
   private leapBiteCombo = false; // true when leap chains into bite for 1.5x damage
   private leapCooldown = 0; // ms until next leap allowed
@@ -85,10 +86,22 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private walkAnimType: string;
   private idleAnimType: string;
 
+  // Stuck detection (basic zombies only — prevents round-blocking)
+  private stuckTimer = 0; // ms spent barely moving
+  private stuckCheckX = 0;
+  private stuckCheckY = 0;
+  private stuckSampleTimer = 0; // ms until next position sample
+  private stuckTeleported = false; // true after first teleport attempt
+
   // Dog-specific state (persistent roaming pack creatures)
   dogState: "roaming" | "aggro" = "roaming";
   private roamTarget: { x: number; y: number } | null = null;
   private roamTimer = 0; // time until picking a new roam target
+  private hasRunningAnim: boolean = false; // dog "running" (aggro sprint)
+  private hasHowlAnim: boolean = false;    // dog howl
+  private howling = false;                  // true during howl animation
+  private hasBeingShotAnim: boolean = false; // boss "being-shot" stagger
+  private beingShot = false;                // true during being-shot animation
 
   // Boss-specific state
   private bossPhase: "stalk" | "chase" | "retreat" = "stalk";
@@ -168,9 +181,14 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.hasTakingPunchAnim = hasAnimation(spriteId, "taking-punch");
     this.hasFallingBackDeath = hasAnimation(spriteId, "falling-back-death");
     this.hasGunshotDeath = hasAnimation(spriteId, "gunshot-death");
+    this.hasRunningAnim = hasAnimation(spriteId, "running");
+    this.hasHowlAnim = hasAnimation(spriteId, "howl");
+    this.hasBeingShotAnim = hasAnimation(spriteId, "being-shot");
     this.leapCooldown = 2000 + Math.random() * 2000; // stagger initial leap timing
     this.lastX = x;
     this.lastY = y;
+    this.stuckCheckX = x;
+    this.stuckCheckY = y;
     // Dogs recalc paths faster; stagger initial timer so they don't all fire on the same frame
     if (isFast) this.pathRefreshInterval = 300;
     this.pathRefreshTimer = Math.random() * this.pathRefreshInterval;
@@ -182,6 +200,13 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     this.healthBarGfx = scene.add.graphics();
     this.healthBarGfx.setDepth(20);
+  }
+
+  /** Clean up orphaned graphics when sprite is destroyed (e.g. boss flee) */
+  preDestroy() {
+    if (this.healthBarGfx) {
+      this.healthBarGfx.destroy();
+    }
   }
 
   /** Apply extra stun time for heavy knockback (e.g. shotgun blasts) */
@@ -200,7 +225,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
    * @param source "melee" for punches, "ranged" for bullets/projectiles
    */
   takeDamage(amount: number, source: "melee" | "ranged" = "melee"): boolean {
-    if (this.dying) return false; // already dead — don't award duplicate kills
+    if (this.dying || this.fleeing) return false; // already dead or fleeing — don't process
     this.health -= amount;
     this.hitFlashTimer = 100;
     this.setTint(0xffffff);
@@ -219,12 +244,35 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       return true;
     }
 
+    // Boss being-shot stagger (ranged hits only, not during other actions)
+    if (this.enemyType === "boss" && source === "ranged" && this.hasBeingShotAnim
+        && !this.beingShot && !this.biting && !this.leaping && !this.backflipping && !this.castingFireball) {
+      this.playBeingShot();
+    }
+
     // Play taking-punch reaction (creepyzombie only, non-lethal hits)
     if (this.hasTakingPunchAnim && !this.takingPunch && !this.biting && !this.leaping) {
       this.playTakingPunch();
     }
 
     return false;
+  }
+
+  /** Play being-shot stagger animation (boss only), then resume walk */
+  private playBeingShot() {
+    this.beingShot = true;
+    const key = getAnimKey(this.spriteId, "being-shot", this.currentDir);
+    if (this.scene.anims.exists(key)) {
+      this.play(key);
+      this.once("animationcomplete", () => {
+        this.beingShot = false;
+        if (this.hasWalkAnim && !this.dying) {
+          this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
+        }
+      });
+    } else {
+      this.beingShot = false;
+    }
   }
 
   /** Play taking-punch flinch, then resume walk */
@@ -378,6 +426,24 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
   };
 
+  /** Play howl animation (dog aggro alert). Briefly stops the dog, then resumes. */
+  private playHowl() {
+    this.howling = true;
+    this.body.setVelocity(0, 0);
+    const howlKey = getAnimKey(this.spriteId, "howl", this.currentDir);
+    if (this.scene.anims.exists(howlKey)) {
+      this.play(howlKey);
+      this.once("animationcomplete", () => {
+        this.howling = false;
+        if (this.hasWalkAnim && !this.dying) {
+          this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
+        }
+      });
+    } else {
+      this.howling = false;
+    }
+  }
+
   /** Start a leap attack toward the player. May combo into bite for extra damage. */
   private startLeap(angle: number, dist: number) {
     if (this.leaping || this.biting || this.dying) return;
@@ -436,7 +502,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
 
     // Don't act while mid-animation
-    if (this.backflipping || this.castingFireball || this.biting || this.leaping) return;
+    if (this.backflipping || this.castingFireball || this.biting || this.leaping || this.beingShot) return;
 
     // Phase selection based on HP — low HP = cautious, not fleeing
     if (hpPct <= bossStats.backflipThreshold) {
@@ -647,19 +713,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     });
   }
 
-  /** Backflip only has east, SE, SW sprites. Pick the closest. */
+  /** Pick backflip direction — now has all 8 dirs, use current facing */
   private pickBackflipDir(): Direction {
-    const dirMap: Record<string, Direction> = {
-      "east": "east",
-      "south-east": "south-east",
-      "south": "south-east",
-      "south-west": "south-west",
-      "west": "south-west",
-      "north-west": "south-west",
-      "north": "east",
-      "north-east": "east",
-    };
-    return dirMap[this.currentDir] || "east";
+    return this.currentDir;
   }
 
   /** Check if this enemy is fully visible on the main camera */
@@ -790,7 +846,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
   /** Dog AI: roam freely, aggro when player is spotted, pack with nearby dogs */
   private updateDog(delta: number, player: Phaser.Physics.Arcade.Sprite) {
-    if (this.stunTimer > 0 || this.leaping || this.biting) {
+    if (this.stunTimer > 0 || this.leaping || this.biting || this.howling) {
       this.updateDirection(player);
       return;
     }
@@ -803,9 +859,10 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
 
     const dogStats = BALANCE.enemies.fast as any;
-    const aggroRange = dogStats.aggroRange ?? 220;
-    const packRange = dogStats.packRange ?? 180;
-    const roamSpeed = dogStats.roamSpeed ?? 45;
+    const aggroRange = dogStats.aggroRange ?? 130;
+    const deaggroRange = dogStats.deaggroRange ?? 350;
+    const packRange = dogStats.packRange ?? 150;
+    const roamSpeed = dogStats.roamSpeed ?? 30;
     const distToPlayer = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
 
     // Dogs go passive during intermission — force roaming, no aggro
@@ -815,32 +872,54 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         this.dogState = "roaming";
         this.roamTarget = null;
         this.pathWaypoints = [];
+        this.walkAnimType = "walk";
       }
       // Just roam, skip aggro checks below
     } else {
       // Check if player is in detection range (only during active waves)
-      if (distToPlayer < aggroRange) {
+      if (distToPlayer < aggroRange && this.dogState !== "aggro") {
         this.dogState = "aggro";
+        // Howl on first aggro
+        if (this.hasHowlAnim && !this.howling) {
+          this.playHowl();
+        }
       }
     }
 
-    // Pack behavior: if a nearby dog is aggro, this dog aggros too
+    // Pack behavior: if a nearby dog is aggro, this dog aggros too (max 3 aggro dogs)
     if (this.dogState === "roaming") {
       const enemies = (this.scene as any).enemies as Phaser.Physics.Arcade.Group | undefined;
       if (enemies) {
+        let aggroCount = 0;
         for (const child of enemies.getChildren()) {
           const other = child as Enemy;
           if (!other.active || other.dying || other === this || other.enemyType !== "fast") continue;
-          const d = Phaser.Math.Distance.Between(this.x, this.y, other.x, other.y);
-          if (d < packRange && other.dogState === "aggro") {
-            this.dogState = "aggro";
-            break;
+          if (other.dogState === "aggro") aggroCount++;
+        }
+        // Only join pack aggro if fewer than 3 dogs are already aggressive
+        if (aggroCount < 3) {
+          for (const child of enemies.getChildren()) {
+            const other = child as Enemy;
+            if (!other.active || other.dying || other === this || other.enemyType !== "fast") continue;
+            const d = Phaser.Math.Distance.Between(this.x, this.y, other.x, other.y);
+            if (d < packRange && other.dogState === "aggro") {
+              this.dogState = "aggro";
+              if (this.hasHowlAnim && !this.howling) {
+                this.playHowl();
+              }
+              break;
+            }
           }
         }
       }
     }
 
     if (this.dogState === "aggro") {
+      // Use running animation when aggro (faster, more aggressive look)
+      if (this.hasRunningAnim && this.walkAnimType !== "running") {
+        this.walkAnimType = "running";
+      }
+
       // Aggressive chase — use A* pathfinding
       const angle = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
 
@@ -889,11 +968,13 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         this.body.setVelocity(0, 0);
       }
 
-      // De-aggro if player gets very far away (2x aggro range)
-      if (distToPlayer > aggroRange * 2.5) {
+      // De-aggro if player gets far enough away
+      if (distToPlayer > deaggroRange) {
         this.dogState = "roaming";
         this.roamTarget = null;
         this.pathWaypoints = [];
+        // Switch back to walk animation
+        this.walkAnimType = "walk";
       }
 
       this.updateDirection(player);
@@ -921,22 +1002,37 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       if (this.roamTimer <= 0 || !this.roamTarget) {
         this.roamTimer = 3000 + Math.random() * 4000; // 3-7s between roam targets
 
+        // Use isFieldTile from scene to ensure dogs roam only on grass
+        const fieldCheck = (this.scene as any).isFieldTile as ((tx: number, ty: number) => boolean) | undefined;
+
         if (packTarget && !isExcludedZone(packTarget.x, packTarget.y)) {
           // Drift toward nearby dog with some randomness
-          this.roamTarget = {
-            x: packTarget.x + (Math.random() - 0.5) * 80,
-            y: packTarget.y + (Math.random() - 0.5) * 80,
-          };
+          const cx = packTarget.x + (Math.random() - 0.5) * 80;
+          const cy = packTarget.y + (Math.random() - 0.5) * 80;
+          const tx = Math.floor(cx / 32);
+          const ty = Math.floor(cy / 32);
+          if (!fieldCheck || fieldCheck(tx, ty)) {
+            this.roamTarget = { x: cx, y: cy };
+          }
         } else {
-          // Random wander point within surface play area (avoid buildings)
+          // Random wander point — only on grass tiles (ground layer, no props/walls/roof)
           let rx: number, ry: number;
-          let attempts = 0;
-          do {
-            rx = 100 + Math.random() * 1720;
-            ry = 100 + Math.random() * 1720;
-            attempts++;
-          } while (isExcludedZone(rx, ry) && attempts < 10);
-          this.roamTarget = { x: rx, y: ry };
+          let found = false;
+          for (let attempts = 0; attempts < 20; attempts++) {
+            const tx = 5 + Math.floor(Math.random() * 50); // tiles 5-54 (surface area with margin)
+            const ty = 5 + Math.floor(Math.random() * 50);
+            if (fieldCheck && !fieldCheck(tx, ty)) continue;
+            rx = tx * 32 + 16;
+            ry = ty * 32 + 16;
+            if (isExcludedZone(rx!, ry!)) continue;
+            this.roamTarget = { x: rx, y: ry };
+            found = true;
+            break;
+          }
+          if (!found) {
+            // Fallback: stay near current position
+            this.roamTarget = { x: this.x + (Math.random() - 0.5) * 100, y: this.y + (Math.random() - 0.5) * 100 };
+          }
         }
       }
 
@@ -965,12 +1061,37 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         }
       }
     }
+    // Separation force — push dogs apart so they don't stack on the same tile
+    const sepDist = 28; // min pixels apart
+    const sepForce = 60;
+    const allEnemies = (this.scene as any).enemies as Phaser.Physics.Arcade.Group | undefined;
+    if (allEnemies) {
+      let pushX = 0;
+      let pushY = 0;
+      for (const child of allEnemies.getChildren()) {
+        const other = child as Enemy;
+        if (!other.active || other.dying || other === this || other.enemyType !== "fast") continue;
+        const dx = this.x - other.x;
+        const dy = this.y - other.y;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < sepDist && d > 0) {
+          pushX += (dx / d) * sepForce;
+          pushY += (dy / d) * sepForce;
+        }
+      }
+      if (pushX !== 0 || pushY !== 0) {
+        this.body.setVelocity(
+          this.body.velocity.x + pushX,
+          this.body.velocity.y + pushY
+        );
+      }
+    }
   }
 
   // ---- End dog AI ----
 
   update(_time: number, delta: number) {
-    if (!this.active || !this.body || this.dying) return;
+    if (!this.active || !this.body || this.dying || this.fleeing) return;
 
     // Get player reference from scene
     const player = (this.scene as any).player as
@@ -1013,6 +1134,65 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     const isLastStand = remaining <= 3 && (wm?.state === "active" || wm?.state === "clearing");
     const moveSpeed = isLastStand ? this.speed * 1.15 : this.speed;
     const refreshRate = isLastStand ? 250 : this.pathRefreshInterval;
+
+    // Last-stand zombies switch to running animation (more aggressive)
+    const hasRunning8 = hasAnimation(this.spriteId, "running-8-frames");
+    if (isLastStand && hasRunning8 && this.walkAnimType !== "running-8-frames") {
+      this.walkAnimType = "running-8-frames";
+      if (!this.biting && !this.leaping && !this.takingPunch) {
+        this.play(getAnimKey(this.spriteId, "running-8-frames", this.currentDir), true);
+      }
+    } else if (!isLastStand && this.walkAnimType === "running-8-frames" && this.enemyType === "basic") {
+      this.walkAnimType = "walk";
+    }
+
+    // Stuck detection — if zombie barely moved in 5s, teleport; if still stuck after 3s more, auto-kill
+    // Skip when stunned, leaping, biting, or near the player (attacking is not stuck)
+    const nearPlayer = dist < 60;
+    if (this.stunTimer > 0 || this.leaping || this.biting || nearPlayer) {
+      // Reset stuck tracking when zombie is legitimately not moving (attacking, stunned, etc.)
+      this.stuckTimer = 0;
+      this.stuckCheckX = this.x;
+      this.stuckCheckY = this.y;
+    } else {
+      // Sample position every 1s — a shambler at 50px/s moves ~50px per sample
+      this.stuckSampleTimer += delta;
+      if (this.stuckSampleTimer >= 1000) {
+        this.stuckSampleTimer = 0;
+        const movedDist = Phaser.Math.Distance.Between(this.x, this.y, this.stuckCheckX, this.stuckCheckY);
+        if (movedDist < 10) {
+          this.stuckTimer += 1000;
+        } else {
+          this.stuckTimer = 0;
+          this.stuckTeleported = false;
+        }
+        this.stuckCheckX = this.x;
+        this.stuckCheckY = this.y;
+      }
+
+      const STUCK_TELEPORT_MS = 5000;
+      const STUCK_KILL_MS = 8000;
+
+      if (this.stuckTimer >= STUCK_KILL_MS) {
+        // Stuck too long even after teleport — silently remove (no cash reward)
+        const wm = (this.scene as any).waveManager;
+        wm?.onEnemyKilled?.();
+        this.die("ranged");
+        return;
+      } else if (this.stuckTimer >= STUCK_TELEPORT_MS && !this.stuckTeleported) {
+        // First attempt: teleport near the player
+        this.stuckTeleported = true;
+        const tpAngle = Math.random() * Math.PI * 2;
+        const tpDist = 200 + Math.random() * 150;
+        const tx = player.x + Math.cos(tpAngle) * tpDist;
+        const ty = player.y + Math.sin(tpAngle) * tpDist;
+        if (!isExcludedZone(tx, ty)) {
+          this.setPosition(tx, ty);
+          this.pathWaypoints = [];
+          this.pathRefreshTimer = 0; // recalc path immediately
+        }
+      }
+    }
 
     // A* pathfinding — request a new path periodically
     this.pathRefreshTimer -= delta;
@@ -1068,7 +1248,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     const newDir = angleToDirection(angle) as Direction;
     if (newDir !== this.currentDir) {
       this.currentDir = newDir;
-      if (!this.biting && !this.leaping && !this.takingPunch && !this.backflipping && !this.castingFireball) {
+      if (!this.biting && !this.leaping && !this.takingPunch && !this.backflipping && !this.castingFireball && !this.beingShot && !this.howling) {
         if (this.hasWalkAnim) {
           this.play(getAnimKey(this.spriteId, this.walkAnimType, newDir), true);
         } else {

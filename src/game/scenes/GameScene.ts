@@ -97,12 +97,34 @@ export class GameScene extends Phaser.Scene {
     cost: number;
     label: string;
     opened: boolean;
+    paid: boolean; // true after first purchase — reopens free
+    locked: boolean; // true = completely locked, shows "Locked" prompt, cannot open
+    health: number; // current HP — zombies bash it down
+    maxHealth: number; // starting HP (0 = indestructible until purchased)
+    broken: boolean; // true once zombies destroy it — permanently open, no repair
     promptText?: Phaser.GameObjects.Text;
     clearCols: number[];
     clearRows: number[];
+    savedTiles: { col: number; row: number; gid: number; layer: string }[]; // original tile GIDs for restoring
   }[] = [];
   private wallsBaseLayer?: Phaser.Tilemaps.TilemapLayer;
   private wallsTopLayer?: Phaser.Tilemaps.TilemapLayer;
+  private propsLowLayer?: Phaser.Tilemaps.TilemapLayer;
+  private propsMidLayer?: Phaser.Tilemaps.TilemapLayer;
+  private floorInteriorLayer?: Phaser.Tilemaps.TilemapLayer;
+
+  // Interior darkness — hide outside map when inside a building
+  private interiorDarknessRT?: Phaser.GameObjects.RenderTexture;
+  private playerInsideBuilding = true; // player spawns inside the house
+
+  // Starting room — chest + door before wave 1
+  private startingChestOpened = false;
+  private startingDoorOpened = false;
+  private startingChestPrompt?: Phaser.GameObjects.Text;
+  private startingDoorPrompt?: Phaser.GameObjects.Text;
+  private startingDoorBody?: Phaser.GameObjects.Zone; // physics body blocking doorway
+  private startingChestSprite?: Phaser.GameObjects.Sprite;
+  private hasWeapon = false; // false until player opens chest
   private roofLayer?: Phaser.Tilemaps.TilemapLayer;
   private roofVisible = true;
 
@@ -136,7 +158,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   shutdown() {
-    this.sound.stopAll();
+    try { this.sound.stopAll(); } catch { /* AudioContext may be closed */ }
   }
 
   create() {
@@ -150,13 +172,13 @@ export class GameScene extends Phaser.Scene {
     this.currency = 0;
     this.kills = 0;
     this.lastDamageTime = 0;
-    // Start with pistol — 4 clips worth (can buy up to totalClips max)
-    const pistolDef = BALANCE.weapons.pistol;
-    this.activeWeapon = "pistol";
+    // Start empty-handed — pistol comes from starting chest
+    this.activeWeapon = "pistol"; // weapon type (HUD reference), but no ammo until chest
     this.secondaryWeapon = null;
-    this.weaponAmmo = {
-      pistol: { mag: pistolDef.magazineSize, reserve: pistolDef.magazineSize * 3 },
-    };
+    this.weaponAmmo = {};
+    this.hasWeapon = false;
+    this.startingChestOpened = false;
+    this.startingDoorOpened = false;
     this.activeSlot = 1;
     this.reloading = false;
     this.reloadTimer = null;
@@ -164,6 +186,8 @@ export class GameScene extends Phaser.Scene {
     this.fireHeld = false;
     this.bloodSplats = [];
     this.pendingLevelUps = [];
+    this.roofVisible = true;          // match fresh layer alpha=1
+    this.playerInsideBuilding = true; // player spawns inside the house
 
     // Slow gameplay by 25%
     this.time.timeScale = 0.75;
@@ -179,8 +203,6 @@ export class GameScene extends Phaser.Scene {
       map.addTilesetImage("basic-props", "ts-basic-props")!,
       map.addTilesetImage("basic-struct", "ts-basic-struct")!,
       map.addTilesetImage("basic-wall", "ts-basic-wall")!,
-      map.addTilesetImage("bp-ground-32", "ts-bp-ground-32")!,
-      map.addTilesetImage("bp-rocks-64", "ts-bp-rocks-64")!,
       map.addTilesetImage("td-basic-stone", "ts-td-basic-stone")!,
       map.addTilesetImage("td-basic-wall", "ts-td-basic-wall")!,
       map.addTilesetImage("td-basic-plant", "ts-td-basic-plant")!,
@@ -193,11 +215,11 @@ export class GameScene extends Phaser.Scene {
     map.createLayer("ground", allTilesets, 0, 0)?.setDepth(-2);
     map.createLayer("ground_detail", allTilesets, 0, 0)?.setDepth(-1.5);
     map.createLayer("paths", allTilesets, 0, 0)?.setDepth(-1);
-    map.createLayer("floor_interior", allTilesets, 0, 0)?.setDepth(-0.5);
+    this.floorInteriorLayer = map.createLayer("floor_interior", allTilesets, 0, 0)?.setDepth(-0.5) ?? undefined;
     this.wallsBaseLayer = map.createLayer("walls_base", allTilesets, 0, 0)?.setDepth(0) ?? undefined;
     this.wallsTopLayer = map.createLayer("walls_top", allTilesets, 0, 0)?.setDepth(1) ?? undefined;
-    map.createLayer("props_low", allTilesets, 0, 0)?.setDepth(2);
-    map.createLayer("props_mid", allTilesets, 0, 0)?.setDepth(3);
+    this.propsLowLayer = map.createLayer("props_low", allTilesets, 0, 0)?.setDepth(2) ?? undefined;
+    this.propsMidLayer = map.createLayer("props_mid", allTilesets, 0, 0)?.setDepth(3) ?? undefined;
     map.createLayer("foliage_painted", allTilesets, 0, 0)?.setDepth(4);
     this.roofLayer = map.createLayer("roof", allTilesets, 0, 0)?.setDepth(26) ?? undefined;
     map.createLayer("overhangs", allTilesets, 0, 0)?.setDepth(25);
@@ -291,21 +313,39 @@ export class GameScene extends Phaser.Scene {
     // East tree wall — individual sprites so they overlap naturally
     this.spawnTreeWall(collisionRects);
 
-    // Fence border around the map perimeter
-    this.spawnFenceBorder();
+    // Fence border removed — perimeter handled by map tiles
 
     // A* pathfinding grid — built from collision rects + polygons
     this.pathfinder = new Pathfinder(ENDICOTT_MAP_W, ENDICOTT_MAP_H, collisionRects, collisionPolygons);
+
+    // Starting room — remove Tiled chest tile and replace with half-size sprite
+    {
+      const propsLayer = map.getLayer("props_low");
+      if (propsLayer?.tilemapLayer) {
+        propsLayer.tilemapLayer.removeTileAt(50, 52);
+      }
+      this.startingChestSprite = this.add.sprite(50 * 32 + 16, 52 * 32 + 16, "chest", 0);
+      this.startingChestSprite.setScale(0.5);
+      this.startingChestSprite.setDepth(2);
+    }
+
+    // Starting room door — block the doorway until player presses E
+    const startDoorZone = this.add.zone(50 * 32 + 16, 49.5 * 32 + 16, 32, 64).setOrigin(0.5);
+    this.physics.add.existing(startDoorZone, true);
+    this.obstacles.add(startDoorZone);
+    this.startingDoorBody = startDoorZone;
 
     // Purchasable doors — read from Tiled interactables layer
     this.doors = [];
     const interactLayer = map.getObjectLayer("interactables");
     if (interactLayer) {
       for (const obj of interactLayer.objects) {
-        if (obj.type === "door" || (obj as any).type === "door") {
+        if (obj.type === "door" || (obj as any).type === "door" || (obj as any).class === "door") {
           const props = (obj as any).properties as { name: string; value: any }[] | undefined;
           const cost = props?.find((p: any) => p.name === "cost")?.value ?? 1000;
           const label = props?.find((p: any) => p.name === "label")?.value ?? "Door";
+          const locked = props?.find((p: any) => p.name === "locked")?.value ?? false;
+          const doorHealth = props?.find((p: any) => p.name === "health")?.value ?? 0;
           const clearColsStr = props?.find((p: any) => p.name === "clearCols")?.value ?? "";
           const clearRowsStr = props?.find((p: any) => p.name === "clearRows")?.value ?? "";
           const clearCols = clearColsStr ? clearColsStr.split(",").map(Number) : [];
@@ -318,14 +358,31 @@ export class GameScene extends Phaser.Scene {
           this.physics.add.existing(doorZone, true);
           this.obstacles.add(doorZone);
 
-          this.doors.push({ zone: doorZone, cost, label, opened: false, clearCols, clearRows });
+          // Save original tile GIDs from all layers so we can restore them when the door closes
+          const savedTiles: { col: number; row: number; gid: number; layer: string }[] = [];
+          const layerMap: [string, Phaser.Tilemaps.TilemapLayer | undefined][] = [
+            ["walls_base", this.wallsBaseLayer],
+            ["walls_top", this.wallsTopLayer],
+            ["props_low", this.propsLowLayer],
+            ["props_mid", this.propsMidLayer],
+          ];
+          for (const col of clearCols) {
+            for (const row of clearRows) {
+              for (const [name, layer] of layerMap) {
+                const tile = layer?.getTileAt(col, row);
+                if (tile) savedTiles.push({ col, row, gid: tile.index, layer: name });
+              }
+            }
+          }
+
+          this.doors.push({ zone: doorZone, cost, label, opened: false, paid: false, locked, health: doorHealth, maxHealth: doorHealth, broken: false, clearCols, clearRows, savedTiles });
         }
       }
     }
 
-    // Player — spawn at south gate
-    const spawnX = ENDICOTT_MAP_W / 2;
-    const spawnY = ENDICOTT_MAP_H - 64;
+    // Player — spawn inside starting room (tile 50, 53)
+    const spawnX = 50 * 32 + 16; // tile center
+    const spawnY = 53 * 32 + 16;
     const stats = this.characterDef.stats;
 
     this.player = new Player(this, spawnX, spawnY, this.characterDef.id, {
@@ -401,11 +458,20 @@ export class GameScene extends Phaser.Scene {
       this
     );
 
-    // Enemy-obstacle collision
-    this.physics.add.collider(this.enemies, this.obstacles);
+    // Enemy-obstacle collision (includes door-bashing)
+    this.physics.add.collider(this.enemies, this.obstacles, this.handleEnemyObstacleCollision, undefined, this);
 
-    // Enemy-enemy collision so they spread out instead of stacking
-    this.physics.add.collider(this.enemies, this.enemies);
+    // Enemy-enemy collision — only separate when far from player so they can mob up close
+    this.physics.add.collider(this.enemies, this.enemies, undefined, (a, b) => {
+      const player = this.player;
+      if (!player?.active) return true;
+      const e1 = a as Enemy;
+      const e2 = b as Enemy;
+      const d1 = Phaser.Math.Distance.Between(e1.x, e1.y, player.x, player.y);
+      const d2 = Phaser.Math.Distance.Between(e2.x, e2.y, player.x, player.y);
+      // If both are within attack range of the player, let them stack
+      return d1 > 80 || d2 > 80;
+    }, this);
 
     // Projectiles
     ensureBulletTexture(this);
@@ -586,10 +652,12 @@ export class GameScene extends Phaser.Scene {
         }
       });
 
-      // E key to interact (buy doors)
+      // E key to interact (chest, starting door, purchasable doors)
       const eKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
       eKey.on("down", () => {
         if (this.gameOver || this.paused || this.shopOpen) return;
+        if (this.tryStartingChest()) return;
+        if (this.tryStartingDoor()) return;
         this.tryBuyNearbyDoor();
       });
 
@@ -606,7 +674,7 @@ export class GameScene extends Phaser.Scene {
         if (this.activeSlot !== 3) return; // only when barricade is selected
         this.barricadeVertical = !this.barricadeVertical;
         const orient = this.barricadeVertical ? "VERTICAL" : "HORIZONTAL";
-        this.showWeaponMessage(`BARRICADE: ${orient}`, "#dddd44");
+        this.showWeaponMessage(orient, "#44dd44");
       });
 
       // TAB key to toggle stats screen
@@ -631,12 +699,12 @@ export class GameScene extends Phaser.Scene {
           this.devMode = !this.devMode;
           if (this.devMode) {
             this.currency = 99999;
-            this.showWeaponMessage("DEV MODE ON", "#ff00ff");
+            this.showWeaponMessage("DEV MODE ON", "#ff4444");
           } else {
             this.player.invincible = false;
             hudState.update({ devPanelOpen: false, devSpawningDisabled: false });
             this.waveManager.spawningDisabled = false;
-            this.showWeaponMessage("DEV MODE OFF", "#888888");
+            this.showWeaponMessage("DEV MODE OFF", "#ff4444");
           }
           hudState.update({ devMode: this.devMode });
         });
@@ -646,7 +714,7 @@ export class GameScene extends Phaser.Scene {
         f1.on("down", () => {
           if (!this.devMode) return;
           this.currency += 9999;
-          this.showWeaponMessage("DEV: +$9999", "#ff00ff");
+          this.showWeaponMessage("DEV: +$9999", "#ff4444");
         });
 
         // F2: skip to next wave
@@ -663,7 +731,7 @@ export class GameScene extends Phaser.Scene {
           // Zero out remaining spawns so wave ends immediately
           (this.waveManager as any).enemiesToSpawn = 0;
           (this.waveManager as any).enemiesAlive = 0;
-          this.showWeaponMessage("DEV: WAVE SKIP", "#ff00ff");
+          this.showWeaponMessage("DEV: WAVE SKIP", "#ff4444");
         });
 
         // F3: full heal
@@ -673,7 +741,7 @@ export class GameScene extends Phaser.Scene {
           this.player.stats.health = this.player.stats.maxHealth;
           this.player.stats.stamina = this.player.stats.maxStamina;
           this.player.burnedOut = false;
-          this.showWeaponMessage("DEV: FULL HEAL", "#ff00ff");
+          this.showWeaponMessage("DEV: FULL HEAL", "#ff4444");
         });
 
         // F4: god mode toggle (invincible)
@@ -681,7 +749,7 @@ export class GameScene extends Phaser.Scene {
         f4.on("down", () => {
           if (!this.devMode) return;
           this.player.invincible = !this.player.invincible;
-          this.showWeaponMessage(this.player.invincible ? "DEV: GOD MODE ON" : "DEV: GOD MODE OFF", "#ff00ff");
+          this.showWeaponMessage(this.player.invincible ? "DEV: GOD MODE ON" : "DEV: GOD MODE OFF", "#ff4444");
         });
 
         // F5: dev panel toggle
@@ -701,14 +769,14 @@ export class GameScene extends Phaser.Scene {
               break;
             case "jumpToWave":
               this.waveManager.devJumpToWave(payload as number);
-              this.showWeaponMessage(`DEV: JUMP TO WAVE ${payload}`, "#ff00ff");
+              this.showWeaponMessage(`DEV: JUMP TO WAVE ${payload}`, "#ff4444");
               break;
             case "toggleSpawning":
               this.waveManager.spawningDisabled = !this.waveManager.spawningDisabled;
               hudState.update({ devSpawningDisabled: this.waveManager.spawningDisabled });
               this.showWeaponMessage(
                 this.waveManager.spawningDisabled ? "DEV: SPAWNING OFF" : "DEV: SPAWNING ON",
-                "#ff00ff"
+                "#ff4444"
               );
               break;
             case "killAll":
@@ -720,12 +788,12 @@ export class GameScene extends Phaser.Scene {
               });
               (this.waveManager as any).enemiesToSpawn = 0;
               (this.waveManager as any).enemiesAlive = 0;
-              this.showWeaponMessage("DEV: KILLED ALL", "#ff00ff");
+              this.showWeaponMessage("DEV: KILLED ALL", "#ff4444");
               break;
             case "spawnEnemy": {
               const { type, count } = payload as { type: string; count: number };
               this.waveManager.devSpawnEnemy(type as any, count);
-              this.showWeaponMessage(`DEV: SPAWNED ${count}x ${type.toUpperCase()}`, "#ff00ff");
+              this.showWeaponMessage(`DEV: SPAWNED ${count}x ${type.toUpperCase()}`, "#ff4444");
               break;
             }
           }
@@ -735,7 +803,7 @@ export class GameScene extends Phaser.Scene {
 
     // HUD container — still needed for game-over and level-up that use Phaser overlays
     this.hudContainer = this.add.container(0, 0);
-    this.hudContainer.setDepth(150);
+    this.hudContainer.setDepth(250);
     this.minimap.ignore(this.hudContainer);
     this.minimap.ignore(this.barricadeGhost);
 
@@ -748,19 +816,45 @@ export class GameScene extends Phaser.Scene {
     this.registerReactActions();
 
     // Wave manager
+    // Grab layer refs for field-tile checking
+    const groundLayer = map.getLayer("ground")?.tilemapLayer;
+    const propsLowLayer = map.getLayer("props_low")?.tilemapLayer;
+    const propsMidLayer = map.getLayer("props_mid")?.tilemapLayer;
+
+    // Expose field-tile check for dog roaming AI
+    const isFieldTile = (tx: number, ty: number): boolean => {
+      if (!groundLayer?.getTileAt(tx, ty)) return false;
+      if (this.wallsBaseLayer?.getTileAt(tx, ty)) return false;
+      if (this.wallsTopLayer?.getTileAt(tx, ty)) return false;
+      if (this.floorInteriorLayer?.getTileAt(tx, ty)) return false;
+      if (this.roofLayer?.getTileAt(tx, ty)) return false;
+      if (propsLowLayer?.getTileAt(tx, ty)) return false;
+      if (propsMidLayer?.getTileAt(tx, ty)) return false;
+      return true;
+    };
+    (this as any).isFieldTile = isFieldTile;
+
     this.waveManager = new WaveManager({
       scene: this,
       enemies: this.enemies,
       playerCount: 1,
       getPlayerPos: () => ({ x: this.player.x, y: this.player.y }),
+      isFieldTile,
+      isDoorOpen: (label: string) => {
+        const door = this.doors.find(d => d.label === label);
+        if (!door) return true; // unknown door = no restriction
+        return door.paid || door.broken;
+      },
     });
 
     // Ambient background loops
-    if (this.cache.audio.exists("sfx-ambient-birds")) {
-      const birds = this.sound.add("sfx-ambient-birds", { volume: 0.15, loop: true });
-      birds.play();
-      this.ambientSounds.push(birds);
-    }
+    try {
+      if (this.cache.audio.exists("sfx-ambient-birds")) {
+        const birds = this.sound.add("sfx-ambient-birds", { volume: 0.15, loop: true });
+        birds.play();
+        this.ambientSounds.push(birds);
+      }
+    } catch { /* AudioContext may be closed during HMR */ }
 
     this.waveManager.onWaveStart = (wave) => {
       this.closeShop();
@@ -802,7 +896,7 @@ export class GameScene extends Phaser.Scene {
       const waveBonus = BALANCE.economy.waveCompletionBonus.base +
         this.waveManager.wave * BALANCE.economy.waveCompletionBonus.perWave;
       this.currency += waveBonus;
-      this.showWeaponMessage(`+$${waveBonus} WAVE CLEAR`, "#44dd66");
+      this.showWeaponMessage(`+$${waveBonus} WAVE CLEAR`, "#44dd44");
 
       // Interest on banked cash
       const interest = Math.min(
@@ -823,9 +917,14 @@ export class GameScene extends Phaser.Scene {
     };
 
     this.waveManager.onBossFlee = () => {
-      this.showWeaponMessage("SCARYBOI RETREATS...", "#ff6644");
+      this.showWeaponMessage("SCARYBOI RETREATS...", "#ff4444");
       this.playSound("sfx-church-bell", 0.3);
     };
+
+    // Player spawns inside — build interior darkness immediately (no fade)
+    const spawnTileX = Math.floor(this.player.x / 32);
+    const spawnTileY = Math.floor(this.player.y / 32);
+    this.buildInteriorDarkness(spawnTileX, spawnTileY);
   }
 
   update(time: number, delta: number) {
@@ -865,10 +964,12 @@ export class GameScene extends Phaser.Scene {
     this.pathfinder.calculate();
 
     // Door proximity prompts
+    this.updateStartingRoomPrompts();
     this.updateDoorPrompts();
 
     // Roof fade — hide roof when player is under it
     this.updateRoofVisibility();
+    this.updateInteriorDarkness();
 
     // Barricade placement ghost
     const showGhost = this.activeSlot === 3
@@ -952,10 +1053,14 @@ export class GameScene extends Phaser.Scene {
    *  Pass raw 0-1 volume — it gets scaled by master sfxVolume and clamped. */
   private playSound(key: string, volume = 0.5) {
     if (this.sfxMuted) return;
-    if (this.cache.audio.exists(key)) {
-      // Clamp final volume to prevent any single sound from blowing out
-      const final = Math.min(volume * this.sfxVolume, 0.6);
-      this.sound.play(key, { volume: final });
+    // Guard against closed AudioContext (happens during HMR / scene teardown)
+    try {
+      if (this.cache.audio.exists(key) && this.sound?.locked === false) {
+        const final = Math.min(volume * this.sfxVolume, 0.6);
+        this.sound.play(key, { volume: final });
+      }
+    } catch {
+      // AudioContext closed — safe to ignore
     }
   }
 
@@ -1028,6 +1133,7 @@ export class GameScene extends Phaser.Scene {
     if (this.reloading) {
       this.reloading = false;
       if (this.reloadTimer) { this.reloadTimer.destroy(); this.reloadTimer = null; }
+      this.player.stopReload();
     }
 
     const currentIdx = available.indexOf(this.activeSlot);
@@ -1048,6 +1154,7 @@ export class GameScene extends Phaser.Scene {
     if ((index === 1 || index === 2) && index !== this.activeSlot && this.reloading) {
       this.reloading = false;
       if (this.reloadTimer) { this.reloadTimer.destroy(); this.reloadTimer = null; }
+      this.player.stopReload();
     }
 
     this.activeSlot = index;
@@ -1064,7 +1171,7 @@ export class GameScene extends Phaser.Scene {
       3: "BARRICADE",
       4: "MINE",
     };
-    this.showWeaponMessage(`${names[index]} SELECTED`, "#ff4466");
+    this.showWeaponMessage(names[index], "#44dd44");
   }
 
   private useActiveSlot() {
@@ -1276,7 +1383,6 @@ export class GameScene extends Phaser.Scene {
     this.playSound("sfx-punch1", 0.4);
     this.playSound("sfx-hit-classic", 0.35);
     if (hits > 0) this.playSound("sfx-whoosh", 0.3);
-    this.showWeaponMessage("SUPERKICK!", "#ff4444");
   }
 
   /** Dan — EMP Grenade: throw in character's facing direction */
@@ -1407,7 +1513,6 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.playSound("sfx-explosion", 0.4);
-    this.showWeaponMessage(`EMP! ${stunCount} STUNNED`, "#44aaff");
   }
 
   /** PJ — Katana Slash: wide arc swing in facing direction, high damage */
@@ -1477,48 +1582,12 @@ export class GameScene extends Phaser.Scene {
 
     this.playSound("sfx-whoosh", 0.35);
     if (hits > 0) this.playSound("sfx-hit-classic", 0.35);
-    this.showWeaponMessage("KATANA SLASH!", "#eeeeff");
   }
 
   /** Jason — Smokescreen: smoke cloud that heals player and confuses enemies */
   private abilitySmokescreen() {
-    // Play cigarette animation via a safe one-shot that doesn't break Player state
-    if (hasAnimation(this.characterDef.id, "light-cigarette")) {
-      const smokeKey = getAnimKey(this.characterDef.id, "light-cigarette", this.player["currentDir"]);
-      if (this.anims.exists(smokeKey)) {
-        // Temporarily mark player as shooting so movement doesn't override the anim
-        (this.player as any).shooting = true;
-        (this.player as any).currentAnim = "light-cigarette";
-        this.player.play(smokeKey);
-
-        // Use a named handler so we can safely remove it
-        const onCigComplete = () => {
-          // Hold on last frame for 1.5 seconds before returning to idle
-          this.time.delayedCall(1500, () => {
-            if (!this.player.active) return;
-            (this.player as any).shooting = false;
-            (this.player as any).holdingShoot = false;
-            (this.player as any).currentAnim = "idle";
-            const idleKey = getAnimKey(this.characterDef.id, "breathing-idle", this.player["currentDir"]);
-            if (this.anims.exists(idleKey)) this.player.play(idleKey, true);
-          });
-        };
-        this.player.off("animationcomplete", onCigComplete);
-        this.player.once("animationcomplete", onCigComplete);
-
-        // Safety: force-reset player state after 4s no matter what
-        this.time.delayedCall(4000, () => {
-          if (!this.player.active) return;
-          if ((this.player as any).currentAnim === "light-cigarette") {
-            (this.player as any).shooting = false;
-            (this.player as any).holdingShoot = false;
-            (this.player as any).punching = false;
-            (this.player as any).locked = false;
-            (this.player as any).currentAnim = "idle";
-          }
-        });
-      }
-    }
+    // Play cigarette animation with hold, then cleanly restore state
+    this.player.playAbilityAnimation("light-cigarette", 1500);
 
     // Destroy any existing smoke
     this.destroySmokescreen();
@@ -1536,8 +1605,6 @@ export class GameScene extends Phaser.Scene {
 
     // Activate damage + stamina buff (lasts longer than smoke)
     this.smokeBuffTimer = this.smokeBuffDuration;
-    this.showWeaponMessage("SMOKESCREEN!", "#88aa88");
-    this.showWeaponMessage("+DMG +STAMINA (10s)", "#66ccaa");
   }
 
   private drawSmokeCloud() {
@@ -1583,7 +1650,7 @@ export class GameScene extends Phaser.Scene {
         this.startReload();
       } else {
         this.playSound("sfx-dryfire", 0.4);
-        this.showWeaponMessage("OUT OF AMMO", "#cc3333");
+        this.showWeaponMessage("NO AMMO", "#ff4444");
       }
       return;
     }
@@ -1676,7 +1743,7 @@ export class GameScene extends Phaser.Scene {
       } else {
         this.time.delayedCall(250, () => {
           this.playSound("sfx-dryfire", 1.0);
-          this.showWeaponMessage("OUT OF AMMO", "#cc3333");
+          this.showWeaponMessage("NO AMMO", "#ff4444");
         });
       }
     }
@@ -1690,9 +1757,20 @@ export class GameScene extends Phaser.Scene {
     if (ammo.reserve <= 0 && ammo.mag <= 0) return;
 
     this.reloading = true;
-    this.showWeaponMessage("RELOADING...", "#ffaa33");
+    this.showWeaponMessage("RELOADING", "#ff4444");
+    this.player.playReload(this.activeWeapon);
 
+    // Play reload sound mid-animation (magazine click moment, ~50% through)
     const reloadingWeapon = this.activeWeapon; // capture in case player switches
+    this.time.delayedCall(Math.floor(weaponDef.reloadMs * 0.5), () => {
+      if (!this.reloading) return; // cancelled
+      if (reloadingWeapon === "shotgun") {
+        this.playSound("sfx-reload-shotgun", 0.5);
+      } else {
+        this.playSound("sfx-reload-rifle", 0.5);
+      }
+    });
+
     this.reloadTimer = this.time.delayedCall(weaponDef.reloadMs, () => {
       const wAmmo = this.weaponAmmo[reloadingWeapon];
       const wDef = BALANCE.weapons[reloadingWeapon as keyof typeof BALANCE.weapons];
@@ -1703,32 +1781,52 @@ export class GameScene extends Phaser.Scene {
       wAmmo.reserve -= loaded;
       this.reloading = false;
       this.reloadTimer = null;
-      if (reloadingWeapon === "shotgun") {
-        this.playSound("sfx-reload-shotgun", 0.5);
-      } else {
-        this.playSound("sfx-reload-rifle", 0.5);
-      }
       this.showWeaponMessage("RELOADED", "#44dd44");
     });
   }
 
-  private showWeaponMessage(msg: string, _color: string) {
-    // Render at high res then scale down so the font is crisp at 5x camera zoom
+  private activeWeaponMsg?: Phaser.GameObjects.Text;
+
+  private showWeaponMessage(msg: string, color: string) {
+    // Destroy previous message so only 1 shows at a time
+    if (this.activeWeaponMsg) {
+      this.activeWeaponMsg.destroy();
+      this.activeWeaponMsg = undefined;
+    }
+
+    const isGreen = color === "#44dd44";
     const txt = this.add.text(
       this.player.x, this.player.y - 40, msg,
       {
-        fontFamily: "ChainsawCarnage, HorrorPixel, monospace",
+        fontFamily: "ChakraPetch, sans-serif",
         fontSize: "36px",
+        fontStyle: "bold",
         stroke: "#000000",
         strokeThickness: 6,
+        shadow: {
+          offsetX: 0, offsetY: 0,
+          color: isGreen ? "#00ff88" : "#ff2200",
+          blur: 6, fill: true, stroke: false,
+        },
       }
     ).setDepth(100).setOrigin(0.5).setScale(0.25).setAlpha(0);
 
-    // Vertical gradient fill: bright red top to dark red bottom
-    const gradient = txt.context.createLinearGradient(0, 0, 0, txt.height);
-    gradient.addColorStop(0, "#ff4444");
-    gradient.addColorStop(1, "#8b0000");
-    txt.setFill(gradient);
+    // Horizontal gradient
+    const g = txt.context.createLinearGradient(0, 0, txt.width, 0);
+    if (isGreen) {
+      g.addColorStop(0, "#ffffff");
+      g.addColorStop(0.3, "#44ff88");
+      g.addColorStop(0.7, "#44ff88");
+      g.addColorStop(1, "#ffffff");
+    } else {
+      g.addColorStop(0, "#ffffff");
+      g.addColorStop(0.3, "#ff4444");
+      g.addColorStop(0.7, "#ff4444");
+      g.addColorStop(1, "#ffffff");
+    }
+    txt.setFill(g);
+
+    this.activeWeaponMsg = txt;
 
     this.tweens.add({
       targets: txt,
@@ -1743,7 +1841,10 @@ export class GameScene extends Phaser.Scene {
           duration: 400,
           delay: 300,
           ease: "Power2",
-          onComplete: () => txt.destroy(),
+          onComplete: () => {
+            txt.destroy();
+            if (this.activeWeaponMsg === txt) this.activeWeaponMsg = undefined;
+          },
         });
       },
     });
@@ -1760,11 +1861,11 @@ export class GameScene extends Phaser.Scene {
       if (count > 0) {
         this.selectedTrapIndex = idx;
         const name = BALANCE.traps[this.trapTypes[idx]].name;
-        this.showWeaponMessage(`${name.toUpperCase()} SELECTED`, "#dddd44");
+        this.showWeaponMessage(name.toUpperCase(), "#44dd44");
         return;
       }
     }
-    this.showWeaponMessage("NO TRAPS", "#cc3333");
+    this.showWeaponMessage("NO TRAPS", "#ff4444");
   }
 
   private placeTrap() {
@@ -1963,14 +2064,14 @@ export class GameScene extends Phaser.Scene {
       enemy.playBite();
       this.playBiteSound();
 
-      // Push enemy away on contact so they don't stay glued to player
+      // Brief nudge on contact — just enough to trigger bite anim, not repel them
       const pushAngle = Phaser.Math.Angle.Between(
         this.player.x,
         this.player.y,
         enemy.x,
         enemy.y
       );
-      const pushForce = enemy.enemyType === "fast" ? 200 : enemy.enemyType === "boss" ? 40 : 120;
+      const pushForce = enemy.enemyType === "fast" ? 80 : enemy.enemyType === "boss" ? 20 : 40;
       enemy.body?.setVelocity(
         Math.cos(pushAngle) * pushForce,
         Math.sin(pushAngle) * pushForce
@@ -2494,37 +2595,392 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  // ─── Interior darkness (fog of war inside buildings) ───
+
+  private updateInteriorDarkness() {
+    if (!this.floorInteriorLayer || !this.roofLayer) return;
+
+    const tileX = Math.floor(this.player.x / 32);
+    const tileY = Math.floor(this.player.y / 32);
+    const roofTile = this.roofLayer.getTileAt(tileX, tileY);
+    const isInside = !!roofTile;
+
+    if (isInside && !this.playerInsideBuilding) {
+      this.playerInsideBuilding = true;
+      this.fadeInInteriorDarkness(tileX, tileY);
+    } else if (!isInside && this.playerInsideBuilding) {
+      this.playerInsideBuilding = false;
+      this.fadeOutInteriorDarkness();
+    }
+  }
+
+  /** Flood-fill building interior, create black overlay with holes for visible tiles */
+  private buildInteriorDarkness(startTileX: number, startTileY: number) {
+    if (this.interiorDarknessRT) {
+      this.interiorDarknessRT.destroy();
+    }
+    if (!this.floorInteriorLayer) return;
+
+    // Flood-fill connected interior tiles
+    const visited = new Set<string>();
+    const queue: [number, number][] = [[startTileX, startTileY]];
+    const interiorTiles: [number, number][] = [];
+
+    while (queue.length > 0) {
+      const [tx, ty] = queue.pop()!;
+      const key = `${tx},${ty}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+
+      const tile = this.floorInteriorLayer.getTileAt(tx, ty);
+      if (!tile) continue;
+      // Only include tiles that are actually under a roof (skip stray floor tiles)
+      if (!this.roofLayer?.getTileAt(tx, ty)) continue;
+
+      interiorTiles.push([tx, ty]);
+      queue.push([tx - 1, ty], [tx + 1, ty], [tx, ty - 1], [tx, ty + 1]);
+    }
+
+    // Expand by 1 tile in cardinal directions — only into tiles with wall/roof content
+    const interiorSet = new Set(interiorTiles.map(([tx, ty]) => `${tx},${ty}`));
+    const expandedSet = new Set<string>(interiorSet);
+    const cardinals = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+    for (const [tx, ty] of interiorTiles) {
+      for (const [dx, dy] of cardinals) {
+        const nx = tx + dx;
+        const ny = ty + dy;
+        const key = `${nx},${ny}`;
+        if (expandedSet.has(key)) continue;
+        const hasWall = this.wallsBaseLayer?.getTileAt(nx, ny)
+          || this.wallsTopLayer?.getTileAt(nx, ny)
+          || this.roofLayer?.getTileAt(nx, ny);
+        if (hasWall) {
+          expandedSet.add(key);
+        }
+      }
+    }
+
+    const mapW = 100 * 32;
+    const mapH = 60 * 32;
+
+    // Create RenderTexture: fill black, then erase interior tiles
+    const rt = this.add.renderTexture(0, 0, mapW, mapH);
+    rt.setOrigin(0, 0);
+    rt.setDepth(200); // above all game objects (trees go up to ~192), below HUD (150+minimap 160)
+
+    // Fill entirely with black
+    rt.fill(0x000000, 1);
+
+    // Erase (punch out) the interior tiles so they're transparent
+    const eraser = this.make.graphics({ x: 0, y: 0 });
+    eraser.fillStyle(0xffffff, 1);
+    for (const key of expandedSet) {
+      const [tx, ty] = key.split(",").map(Number);
+      eraser.fillRect(tx * 32, ty * 32, 32, 32);
+    }
+    rt.erase(eraser);
+    eraser.destroy();
+
+    this.interiorDarknessRT = rt;
+  }
+
+  /** Fade to black, build the interior darkness, then reveal */
+  private fadeInInteriorDarkness(tileX: number, tileY: number) {
+    // Create a full-screen black overlay for the transition
+    const fade = this.add.graphics();
+    fade.setDepth(201);
+    fade.fillStyle(0x000000, 1);
+    fade.fillRect(0, 0, 100 * 32, 60 * 32);
+    fade.setAlpha(0);
+
+    this.tweens.add({
+      targets: fade,
+      alpha: 1,
+      duration: 250,
+      ease: "Sine.easeIn",
+      onComplete: () => {
+        // Build the interior mask while screen is black
+        this.buildInteriorDarkness(tileX, tileY);
+        // Fade the transition overlay out, revealing the masked interior
+        this.tweens.add({
+          targets: fade,
+          alpha: 0,
+          duration: 400,
+          ease: "Sine.easeOut",
+          onComplete: () => fade.destroy(),
+        });
+      },
+    });
+  }
+
+  /** Fade to black, remove the interior darkness, then reveal the outside */
+  private fadeOutInteriorDarkness() {
+    // Create a full-screen black overlay for the transition
+    const fade = this.add.graphics();
+    fade.setDepth(201);
+    fade.fillStyle(0x000000, 1);
+    fade.fillRect(0, 0, 100 * 32, 60 * 32);
+    fade.setAlpha(0);
+
+    this.tweens.add({
+      targets: fade,
+      alpha: 1,
+      duration: 250,
+      ease: "Sine.easeIn",
+      onComplete: () => {
+        // Remove interior darkness while screen is black
+        if (this.interiorDarknessRT) {
+          this.interiorDarknessRT.destroy();
+          this.interiorDarknessRT = undefined;
+        }
+        // Fade the transition overlay out, revealing the full map
+        this.tweens.add({
+          targets: fade,
+          alpha: 0,
+          duration: 400,
+          ease: "Sine.easeOut",
+          onComplete: () => fade.destroy(),
+        });
+      },
+    });
+  }
+
+  // ─── Starting Room (chest + door before wave 1) ───
+
+  private readonly startChestX = 50 * 32 + 16; // tile (50, 52) center
+  private readonly startChestY = 52 * 32 + 16;
+  private readonly startDoorX = 50 * 32 + 16;  // tile (50, 49-50) center
+  private readonly startDoorY = 49.5 * 32 + 16; // midpoint between rows 49-50
+  private readonly startInteractDist = 50; // px
+
+  private updateStartingRoomPrompts() {
+    if (this.waveManager.state !== "pre_game") {
+      if (this.startingChestPrompt) { this.startingChestPrompt.setVisible(false); }
+      if (this.startingDoorPrompt) { this.startingDoorPrompt.setVisible(false); }
+      return;
+    }
+
+    // Chest prompt
+    if (!this.startingChestOpened) {
+      const chestDist = Phaser.Math.Distance.Between(
+        this.player.x, this.player.y, this.startChestX, this.startChestY
+      );
+      if (chestDist < this.startInteractDist) {
+        if (!this.startingChestPrompt) {
+          this.startingChestPrompt = this.createPromptText(this.startChestX, this.startChestY + 20, "[E] OPEN CHEST");
+        }
+        this.startingChestPrompt.setVisible(true);
+      } else {
+        if (this.startingChestPrompt) this.startingChestPrompt.setVisible(false);
+      }
+    } else {
+      if (this.startingChestPrompt) this.startingChestPrompt.setVisible(false);
+    }
+
+    // Door prompt (only after chest is opened)
+    if (this.startingChestOpened && !this.startingDoorOpened) {
+      const doorDist = Phaser.Math.Distance.Between(
+        this.player.x, this.player.y, this.startDoorX, this.startDoorY
+      );
+      if (doorDist < this.startInteractDist) {
+        if (!this.startingDoorPrompt) {
+          this.startingDoorPrompt = this.createPromptText(this.startDoorX, this.startDoorY + 20, "[E] EXIT");
+        }
+        this.startingDoorPrompt.setVisible(true);
+      } else {
+        if (this.startingDoorPrompt) this.startingDoorPrompt.setVisible(false);
+      }
+    } else {
+      if (this.startingDoorPrompt) this.startingDoorPrompt.setVisible(false);
+    }
+  }
+
+  private tryStartingChest(): boolean {
+    if (this.startingChestOpened) return false;
+    const dist = Phaser.Math.Distance.Between(
+      this.player.x, this.player.y, this.startChestX, this.startChestY
+    );
+    if (dist >= this.startInteractDist) return false;
+
+    this.startingChestOpened = true;
+    this.hasWeapon = true;
+
+    // Give pistol
+    const pistolDef = BALANCE.weapons.pistol;
+    this.activeWeapon = "pistol";
+    this.weaponAmmo = {
+      pistol: { mag: pistolDef.magazineSize, reserve: pistolDef.magazineSize * 3 },
+    };
+    this.activeSlot = 1;
+
+    // Swap chest sprite from closed (frame 0) to open (frame 1)
+    if (this.startingChestSprite) {
+      this.startingChestSprite.setFrame(1);
+    }
+
+    // Destroy prompt
+    if (this.startingChestPrompt) {
+      this.startingChestPrompt.destroy();
+      this.startingChestPrompt = undefined;
+    }
+
+    this.showWeaponMessage("PISTOL ACQUIRED", "#44dd44");
+    this.playSound("sfx-purchase", 0.5);
+    return true;
+  }
+
+  private tryStartingDoor(): boolean {
+    if (this.startingDoorOpened || !this.startingChestOpened) return false;
+    const dist = Phaser.Math.Distance.Between(
+      this.player.x, this.player.y, this.startDoorX, this.startDoorY
+    );
+    if (dist >= this.startInteractDist) return false;
+
+    this.startingDoorOpened = true;
+
+    // Remove the door collision body so player can walk through
+    if (this.startingDoorBody) {
+      this.obstacles.remove(this.startingDoorBody);
+      this.startingDoorBody.destroy();
+      this.startingDoorBody = undefined;
+    }
+
+    // Clear door tiles visually
+    this.wallsBaseLayer?.removeTileAt(50, 49);
+    this.wallsBaseLayer?.removeTileAt(50, 50);
+
+    // Destroy prompt
+    if (this.startingDoorPrompt) {
+      this.startingDoorPrompt.destroy();
+      this.startingDoorPrompt = undefined;
+    }
+
+    // Start wave 1
+    this.waveManager.skipPreGame();
+
+    // Monitor player position — once they exit the room (north of row 49), seal it
+    const checkExit = this.time.addEvent({
+      delay: 100,
+      loop: true,
+      callback: () => {
+        // Player has walked north past the door (row 49 = y 1568)
+        if (this.player.y < 49 * 32) {
+          checkExit.destroy();
+          // Re-add collision to seal the room
+          const sealZone = this.add.zone(this.startDoorX, this.startDoorY, 32, 64).setOrigin(0.5);
+          this.physics.add.existing(sealZone, true);
+          this.obstacles.add(sealZone);
+          // Restore door tiles visually
+          this.wallsBaseLayer?.putTileAt(2888, 50, 49);
+          this.wallsBaseLayer?.putTileAt(2896, 50, 50);
+        }
+      },
+    });
+
+    return true;
+  }
+
+  // ─── Interactive prompt styling ───
+
+  private createPromptText(x: number, y: number, label: string, canAfford = true): Phaser.GameObjects.Text {
+    const txt = this.add.text(x, y, label, {
+      fontFamily: "ChakraPetch, sans-serif",
+      fontStyle: "bold",
+      fontSize: "5px",
+      stroke: "#000000",
+      strokeThickness: 1,
+      align: "center",
+      resolution: 4,
+      shadow: { offsetX: 0, offsetY: 0, color: "#00ccff", blur: 3, fill: true, stroke: false },
+    }).setOrigin(0.5).setDepth(100);
+    this.applyPromptGradient(txt, canAfford);
+    return txt;
+  }
+
+  private applyPromptGradient(txt: Phaser.GameObjects.Text, canAfford: boolean) {
+    const g = txt.context.createLinearGradient(0, 0, txt.width, 0);
+    if (canAfford) {
+      g.addColorStop(0, "#ffffff");
+      g.addColorStop(0.4, "#66eeff");
+      g.addColorStop(0.6, "#66eeff");
+      g.addColorStop(1, "#ffffff");
+    } else {
+      g.addColorStop(0, "#ff4444");
+      g.addColorStop(0.5, "#cc0000");
+      g.addColorStop(1, "#ff4444");
+    }
+    txt.setFill(g);
+  }
+
   // ─── Doors (purchasable barriers) ───
+
+  private getDoorLayer(name: string): Phaser.Tilemaps.TilemapLayer | undefined {
+    switch (name) {
+      case "walls_base": return this.wallsBaseLayer;
+      case "walls_top": return this.wallsTopLayer;
+      case "props_low": return this.propsLowLayer;
+      case "props_mid": return this.propsMidLayer;
+      default: return undefined;
+    }
+  }
 
   private readonly doorPromptDist = 60; // px from door center to show prompt
 
   private updateDoorPrompts() {
+    const closeDist = 100; // px — close door when player is this far away
     for (const door of this.doors) {
-      if (door.opened) {
+      // Broken doors stay permanently open
+      if (door.broken) {
         if (door.promptText) { door.promptText.setVisible(false); }
         continue;
       }
+
       const dist = Phaser.Math.Distance.Between(
         this.player.x, this.player.y,
         door.zone.x, door.zone.y
       );
-      if (dist < this.doorPromptDist) {
-        if (!door.promptText) {
-          const canAfford = this.currency >= door.cost;
-          door.promptText = this.add.text(door.zone.x, door.zone.y - 20, "", {
-            fontFamily: "var(--font-special-elite), 'Special Elite', serif",
-            fontSize: "4px",
-            color: canAfford ? "#ffdd44" : "#ff4444",
-            stroke: "#000000",
-            strokeThickness: 0.8,
-            align: "center",
-            resolution: 4,
-          }).setOrigin(0.5).setDepth(100);
+
+      // If door is open and player walked away, close it
+      if (door.opened && dist > closeDist) {
+        door.opened = false;
+        // Restore door tiles to their original layers
+        for (const t of door.savedTiles) {
+          this.getDoorLayer(t.layer)?.putTileAt(t.gid, t.col, t.row);
         }
-        const canAfford = this.currency >= door.cost;
-        door.promptText.setText(`[E] ${door.label} - $${door.cost}`);
-        door.promptText.setColor(canAfford ? "#ffdd44" : "#ff4444");
-        door.promptText.setVisible(true);
+        // Re-enable collision
+        (door.zone.body as Phaser.Physics.Arcade.StaticBody).enable = true;
+        continue;
+      }
+
+      if (door.opened) {
+        if (door.promptText) { door.promptText.setVisible(false); }
+        continue;
+      }
+
+      if (dist < this.doorPromptDist) {
+        if (door.locked) {
+          // Locked doors just say "Locked"
+          const label = `${door.label} — Locked`;
+          if (!door.promptText) {
+            door.promptText = this.createPromptText(door.zone.x, door.zone.y + 20, label, false);
+          } else {
+            door.promptText.setText(label);
+            this.applyPromptGradient(door.promptText, false);
+          }
+          door.promptText.setVisible(true);
+        } else {
+          const effectiveCost = door.paid ? 0 : door.cost;
+          const canAfford = this.currency >= effectiveCost;
+          const costText = effectiveCost > 0 ? ` - $${effectiveCost}` : "";
+          const label = `[E] ${door.label}${costText}`;
+          if (!door.promptText) {
+            door.promptText = this.createPromptText(door.zone.x, door.zone.y + 20, label, canAfford);
+          } else {
+            door.promptText.setText(label);
+            this.applyPromptGradient(door.promptText, canAfford);
+          }
+          door.promptText.setVisible(true);
+        }
       } else {
         if (door.promptText) { door.promptText.setVisible(false); }
       }
@@ -2533,49 +2989,113 @@ export class GameScene extends Phaser.Scene {
 
   private tryBuyNearbyDoor() {
     for (const door of this.doors) {
-      if (door.opened) continue;
+      if (door.opened || door.locked || door.broken) continue;
       const dist = Phaser.Math.Distance.Between(
         this.player.x, this.player.y,
         door.zone.x, door.zone.y
       );
       if (dist < this.doorPromptDist) {
-        if (this.currency < door.cost) {
+        const effectiveCost = door.paid ? 0 : door.cost;
+        if (this.currency < effectiveCost) {
           // Can't afford — flash the prompt red
           if (door.promptText) {
-            door.promptText.setColor("#ff0000");
+            this.applyPromptGradient(door.promptText, false);
             this.time.delayedCall(300, () => {
-              if (door.promptText) door.promptText.setColor("#ff4444");
+              if (door.promptText) this.applyPromptGradient(door.promptText, false);
             });
           }
           return;
         }
         // Purchase — remove collision, clear door tiles, hide prompt
-        this.currency -= door.cost;
+        if (!door.paid) {
+          this.currency -= door.cost;
+          door.paid = true;
+        }
         door.opened = true;
-        door.zone.destroy();
-        this.obstacles.remove(door.zone);
+        // Disable collision (don't destroy — we'll re-enable when door closes)
+        (door.zone.body as Phaser.Physics.Arcade.StaticBody).enable = false;
         if (door.promptText) {
-          door.promptText.destroy();
-          door.promptText = undefined;
+          door.promptText.setVisible(false);
         }
-        // Remove door tiles from walls_base and walls_top layers
-        if (door.clearCols.length > 0 && door.clearRows.length > 0) {
-          for (const col of door.clearCols) {
-            for (const row of door.clearRows) {
-              this.wallsBaseLayer?.removeTileAt(col, row);
-              this.wallsTopLayer?.removeTileAt(col, row);
-            }
-          }
+        // Remove door tiles from whichever layers they're on
+        for (const t of door.savedTiles) {
+          this.getDoorLayer(t.layer)?.removeTileAt(t.col, t.row);
         }
-        // Flash announcement
-        this.showWeaponMessage(`${door.label} OPENED`, "#44ff44");
-        // Play a sound if available
-        if (this.sound.get("sfx-purchase")) {
-          this.sound.play("sfx-purchase", { volume: this.sfxVolume * 0.5 });
-        }
+        this.showWeaponMessage(`${door.label} OPENED`, "#44dd44");
+        this.playSound("sfx-purchase", 0.5);
         return;
       }
     }
+  }
+
+  // ─── Zombie door-breaking ───
+
+  private doorBashCooldowns = new Map<Phaser.GameObjects.Zone, number>(); // zone → last bash time
+
+  private handleEnemyObstacleCollision(enemy: any, obstacle: any) {
+    // Check if the obstacle is a door zone that can be bashed
+    const door = this.doors.find(d => d.zone === obstacle);
+    if (!door || door.locked || door.broken || door.opened || door.maxHealth <= 0) return;
+
+    // Throttle bashing — one hit per enemy per 1.5s
+    const now = this.time.now;
+    const key = obstacle as Phaser.GameObjects.Zone;
+    const lastBash = this.doorBashCooldowns.get(key) ?? 0;
+    if (now - lastBash < 1500) return;
+    this.doorBashCooldowns.set(key, now);
+
+    // Deal damage based on enemy type
+    const enemyObj = enemy as any;
+    const bashDamage = enemyObj.enemyType === "boss" ? 25 : enemyObj.enemyType === "fast" ? 5 : 10;
+    door.health -= bashDamage;
+
+    // Visual feedback — flash the prompt with damage
+    if (door.health > 0) {
+      const pct = Math.round((door.health / door.maxHealth) * 100);
+      const label = `${door.label} — ${pct}%`;
+      if (!door.promptText) {
+        door.promptText = this.createPromptText(door.zone.x, door.zone.y + 20, label, false);
+      } else {
+        door.promptText.setText(label);
+        this.applyPromptGradient(door.promptText, false);
+      }
+      door.promptText.setVisible(true);
+      // Hide after 2s if player is far away
+      this.time.delayedCall(2000, () => {
+        if (door.promptText && !door.opened && !door.broken) {
+          const dist = Phaser.Math.Distance.Between(
+            this.player.x, this.player.y,
+            door.zone.x, door.zone.y
+          );
+          if (dist > this.doorPromptDist) door.promptText.setVisible(false);
+        }
+      });
+    } else {
+      this.breakDoor(door);
+    }
+  }
+
+  private breakDoor(door: (typeof this.doors)[number]) {
+    door.broken = true;
+    door.opened = true;
+    door.health = 0;
+
+    // Remove collision permanently
+    (door.zone.body as Phaser.Physics.Arcade.StaticBody).enable = false;
+
+    // Remove door tiles
+    for (const t of door.savedTiles) {
+      this.getDoorLayer(t.layer)?.removeTileAt(t.col, t.row);
+    }
+
+    // Hide any prompt
+    if (door.promptText) {
+      door.promptText.destroy();
+      door.promptText = undefined;
+    }
+
+    this.showWeaponMessage(`${door.label} DESTROYED`, "#ff4444");
+    this.playSound("sfx-purchase", 0.3);
   }
 
   private openShop() {
@@ -2606,7 +3126,7 @@ export class GameScene extends Phaser.Scene {
     const unlockWave = (item as any).unlockWave;
     if (!this.devMode && unlockWave && this.waveManager.wave < unlockWave) {
       this.playSound("sfx-error", 0.3);
-      this.showWeaponMessage(`UNLOCKS WAVE ${unlockWave}`, "#cc3333");
+      this.showWeaponMessage(`UNLOCKS WAVE ${unlockWave}`, "#ff4444");
       return;
     }
 
@@ -2620,7 +3140,6 @@ export class GameScene extends Phaser.Scene {
           this.player.stats.maxHealth,
           this.player.stats.health + 30
         );
-        this.showWeaponMessage("+30 HP", "#44dd66");
         break;
       }
       case "medkit": {
@@ -2630,7 +3149,6 @@ export class GameScene extends Phaser.Scene {
           this.player.stats.maxHealth,
           this.player.stats.health + 80
         );
-        this.showWeaponMessage("+80 HP", "#44dd66");
         break;
       }
       case "dmgBoost": {
@@ -2638,7 +3156,6 @@ export class GameScene extends Phaser.Scene {
         this.currency -= price;
         this.damageBoostActive = true;
         this.player.stats.damage += 5;
-        this.showWeaponMessage("+5 DAMAGE", "#ff8844");
         break;
       }
       case "shotgun":
@@ -2652,7 +3169,6 @@ export class GameScene extends Phaser.Scene {
           if (wAmmo.mag + wAmmo.reserve >= totalMax) return;
           this.currency -= price;
           wAmmo.reserve = totalMax - wAmmo.mag;
-          this.showWeaponMessage("AMMO REFILLED", "#44dd44");
           break;
         }
         // Buy new secondary (replaces old secondary if any)
@@ -2666,7 +3182,7 @@ export class GameScene extends Phaser.Scene {
         this.activeSlot = 2;
         this.reloading = false;
         if (this.reloadTimer) { this.reloadTimer.destroy(); this.reloadTimer = null; }
-        this.showWeaponMessage(weaponDef.name.toUpperCase() + " EQUIPPED", "#dddd44");
+        this.showWeaponMessage(weaponDef.name.toUpperCase() + " ACQUIRED", "#44dd44");
         break;
       }
       case "ammo_light": {
@@ -2685,12 +3201,10 @@ export class GameScene extends Phaser.Scene {
         }
         if (!anyRefilled) return;
         this.currency -= price;
-        this.showWeaponMessage("+LIGHT AMMO", "#44dd44");
         break;
       }
       case "ammo_shotgun": {
         if (this.secondaryWeapon !== "shotgun") {
-          this.showWeaponMessage("NO SHOTGUN", "#cc3333");
           return;
         }
         const wDef = BALANCE.weapons.shotgun;
@@ -2701,7 +3215,6 @@ export class GameScene extends Phaser.Scene {
         this.currency -= price;
         const addAmmo = wDef.magazineSize * 2;
         wAmmo.reserve = Math.min(wAmmo.reserve + addAmmo, totalMax - wAmmo.mag);
-        this.showWeaponMessage("+SHOTGUN SHELLS", "#44dd44");
         break;
       }
       case "barricade":
@@ -2709,15 +3222,10 @@ export class GameScene extends Phaser.Scene {
         const trapType = itemId as TrapType;
         const current = this.trapInventory.get(trapType) ?? 0;
         if (current >= BALANCE.traps.maxPerType) {
-          this.showWeaponMessage("MAX TRAPS", "#cc3333");
           return;
         }
         this.currency -= price;
         this.trapInventory.set(trapType, current + 1);
-        this.showWeaponMessage(
-          `${BALANCE.traps[trapType].name.toUpperCase()} x${current + 1}`,
-          "#44dd44"
-        );
         break;
       }
     }
@@ -2770,7 +3278,8 @@ export class GameScene extends Phaser.Scene {
     let countdownSecs = -1;
 
     if (state === "pre_game") {
-      countdownSecs = this.waveManager.getPreGameTimeLeft();
+      // No countdown — wave 1 starts when player exits starting room
+      countdownSecs = -1;
     } else if (state === "intermission") {
       if (this.waveManager.isReadyUp()) {
         countdownSecs = this.waveManager.getReadyCountdown();
@@ -2795,7 +3304,7 @@ export class GameScene extends Phaser.Scene {
       burnedOut: this.player.burnedOut,
       level: this.levelingSystem.level,
       activeSlot: this.activeSlot,
-      equippedWeapon: this.activeWeapon,
+      equippedWeapon: this.hasWeapon ? this.activeWeapon : null,
       ammo: this.currentAmmo?.mag ?? 0,
       maxAmmo: this.currentWeaponDef?.magazineSize ?? 0,
       reserveAmmo: this.currentAmmo?.reserve ?? 0,
@@ -2882,7 +3391,7 @@ export class GameScene extends Phaser.Scene {
     this.levelUpActive = false;
     this.waveManager.setFrozen(false);
     hudState.update({ levelUpActive: false });
-    this.showWeaponMessage(buff.name.toUpperCase(), "#ffffff");
+    this.showWeaponMessage(buff.name.toUpperCase(), "#44dd44");
 
     this.time.delayedCall(300, () => {
       this.showNextPendingLevelUp();

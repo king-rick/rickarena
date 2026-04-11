@@ -88,8 +88,6 @@ export class PreloadScene extends Phaser.Scene {
     this.load.image("ts-basic-props", "/assets/tilesets/basic-props.png");
     this.load.image("ts-basic-struct", "/assets/tilesets/basic-struct.png");
     this.load.image("ts-basic-wall", "/assets/tilesets/basic-wall.png");
-    this.load.image("ts-bp-ground-32", "/assets/tilesets/bloompixel/bp-ground-32.png");
-    this.load.image("ts-bp-rocks-64", "/assets/tilesets/bloompixel/bp-rocks-64.png");
     this.load.image("ts-td-basic-stone", "/assets/tilesets/td-basic-stone.png");
     this.load.image("ts-td-basic-wall", "/assets/tilesets/td-basic-wall.png");
     this.load.image("ts-td-basic-plant", "/assets/tilesets/td-basic-plant.png");
@@ -107,6 +105,7 @@ export class PreloadScene extends Phaser.Scene {
     this.load.image("gazebo", "/assets/sprites/gazebo.png");
 
     // Item sprites
+    this.load.spritesheet("chest", "/assets/sprites/items/chest.png", { frameWidth: 32, frameHeight: 32 });
     this.load.image("item-pistol", "/assets/sprites/items/pistol.png");
     this.load.image("item-shotgun", "/assets/sprites/items/shotgun.png");
     this.load.image("item-smg", "/assets/sprites/items/smg.png");
@@ -265,7 +264,8 @@ export class PreloadScene extends Phaser.Scene {
           const isLooping =
             anim.type === "walk" || anim.type === "breathing-idle"
             || anim.type === "running-6-frames" || anim.type === "running-8-frames"
-            || anim.type === "fight-stance-idle-8-frames";
+            || anim.type === "fight-stance-idle-8-frames"
+            || anim.type === "walk-6-frames" || anim.type === "running";
 
           let frameRate = 8;
           if (anim.type === "walk") frameRate = 10;
@@ -293,6 +293,13 @@ export class PreloadScene extends Phaser.Scene {
           else if (anim.type === "death") frameRate = 20;
           else if (anim.type === "gunshot-death") frameRate = 16;
           else if (anim.type === "leap") frameRate = 12;
+          else if (anim.type === "reloading-pistol") frameRate = 7;
+          else if (anim.type === "reloading-shotgun") frameRate = 2;   // 4 frames / 2fps = 2.0s → covers 1800ms reload
+          else if (anim.type === "reloading-smg") frameRate = 2.5;   // 4 frames / 2.5fps = 1.6s → covers 1500ms reload
+          else if (anim.type === "howl") frameRate = 6;
+          else if (anim.type === "walk-6-frames") frameRate = 10;
+          else if (anim.type === "running") frameRate = 14;
+          else if (anim.type === "being-shot") frameRate = 12;
 
           this.anims.create({
             key: animKey,

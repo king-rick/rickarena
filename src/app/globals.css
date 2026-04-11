@@ -25,6 +25,14 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: "ChakraPetch";
+  src: url("/assets/fonts/ChakraPetch-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --background: #ffffff;
   --foreground: #171717;

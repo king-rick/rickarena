@@ -23,6 +23,24 @@ function isExcluded(x: number, y: number): boolean {
   return false;
 }
 
+// ─── Gated spawn zones — locked until the associated door opens ───
+// Each zone defines an area that enemies CANNOT spawn in until isUnlocked() returns true.
+// Everything outside these zones is the default "starting area" and always active.
+export interface GatedZone {
+  label: string; // matches door label
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+const GATED_ZONES: GatedZone[] = [
+  // Left side of map — gated by the Gate ($300)
+  { label: "Gate", x: 0, y: 0, w: 620, h: 1920 },
+  // Upper/estate area — gated by Estate Entrance ($500)
+  { label: "Estate Entrance", x: 620, y: 0, w: 1300, h: 1100 },
+];
+
 // Dog spawn points — spread across the map edges (used by dog manager)
 const DOG_SPAWN_POINTS = [
   { x: 880, y: 1880 }, { x: 864, y: 50 }, { x: 40, y: 750 },
@@ -46,6 +64,8 @@ interface WaveManagerConfig {
   enemies: Phaser.Physics.Arcade.Group;
   playerCount: number;
   getPlayerPos: () => { x: number; y: number };
+  isFieldTile?: (tileX: number, tileY: number) => boolean; // true if tile is open field (ground only, no buildings/props)
+  isDoorOpen?: (label: string) => boolean; // true if the named door has been opened or broken
 }
 
 export class WaveManager {
@@ -85,6 +105,8 @@ export class WaveManager {
   // Persistent dog pack system
   private dogs: Enemy[] = [];
   private dogRespawnQueue: number[] = []; // timestamps when each dead dog can respawn
+  private isFieldTile: (tileX: number, tileY: number) => boolean;
+  private isDoorOpen: (label: string) => boolean;
 
   // Callbacks
   onWaveStart?: (wave: number) => void;
@@ -97,6 +119,8 @@ export class WaveManager {
     this.enemies = config.enemies;
     this.playerCount = config.playerCount;
     this.getPlayerPos = config.getPlayerPos;
+    this.isFieldTile = config.isFieldTile ?? (() => true);
+    this.isDoorOpen = config.isDoorOpen ?? (() => true);
   }
 
   update(delta: number) {
@@ -105,10 +129,7 @@ export class WaveManager {
 
     switch (this.state) {
       case "pre_game":
-        this.stateTimer += delta;
-        if (this.stateTimer >= this.preGameDuration) {
-          this.startWave();
-        }
+        // Pre-game waits indefinitely — wave 1 starts when player opens starting door
         break;
 
       case "active":
@@ -134,10 +155,10 @@ export class WaveManager {
         break;
 
       case "clearing": {
-        // Count all alive enemies for the HUD
+        // Count all alive enemies for the HUD (exclude fleeing boss — treated as "gone")
         this.enemiesAlive = this.enemies
           .getChildren()
-          .filter((e) => e.active && !(e as Enemy).dying).length;
+          .filter((e) => e.active && !(e as Enemy).dying && !(e as Enemy).fleeing).length;
 
         // Check SCARYBOI flee condition
         if (this.bossActive && this.bossEnemy) {
@@ -146,12 +167,14 @@ export class WaveManager {
 
         // Round-blocking enemies: zombies and bosses only
         // Dogs NEVER block round progression
+        // Fleeing bosses NEVER block round progression (retreating offscreen)
         const blocking = this.enemies
           .getChildren()
           .filter((e) => {
             if (!e.active || (e as Enemy).dying) return false;
             const enemy = e as Enemy;
             if (enemy.enemyType === "fast") return false; // dogs never block
+            if (enemy.fleeing) return false; // fleeing boss never blocks
             return true;
           }).length;
 
@@ -212,23 +235,71 @@ export class WaveManager {
     // Persist remaining HP for next encounter
     this.bossTotalHp = Math.max(1, this.bossEnemy.health);
 
-    // Visual flee — boss runs off screen then despawns
-    const angle = Math.random() * Math.PI * 2;
-    this.bossEnemy.body.setVelocity(
-      Math.cos(angle) * 250,
-      Math.sin(angle) * 250
+    const boss = this.bossEnemy;
+    const playerPos = this.getPlayerPos();
+
+    // Mark as fleeing so it doesn't block wave progression
+    boss.fleeing = true;
+
+    // Let the boss run off the map edge
+    boss.body.setCollideWorldBounds(false);
+
+    // Flee straight to the nearest map edge
+    const distToLeft = boss.x;
+    const distToRight = SURFACE_WIDTH - boss.x;
+    const distToTop = boss.y;
+    const distToBottom = MAP_HEIGHT - boss.y;
+    const minEdgeDist = Math.min(distToLeft, distToRight, distToTop, distToBottom);
+    let fleeAngle: number;
+    if (minEdgeDist === distToLeft) fleeAngle = Math.PI;           // left
+    else if (minEdgeDist === distToRight) fleeAngle = 0;           // right
+    else if (minEdgeDist === distToTop) fleeAngle = -Math.PI / 2;  // up
+    else fleeAngle = Math.PI / 2;                                   // down
+
+    const fleeSpeed = 400;
+    boss.body.setVelocity(
+      Math.cos(fleeAngle) * fleeSpeed,
+      Math.sin(fleeAngle) * fleeSpeed
     );
 
-    const boss = this.bossEnemy;
     this.bossActive = false;
     this.bossEnemy = null;
 
     // Show flee message
     this.onBossFlee?.();
 
-    // Destroy after running off
-    this.scene.time.delayedCall(1500, () => {
+    // Poll every 100ms: destroy the boss once it's off the player's visible screen
+    const checkOffscreen = this.scene.time.addEvent({
+      delay: 100,
+      loop: true,
+      callback: () => {
+        if (!boss.active) {
+          checkOffscreen.destroy();
+          return;
+        }
+        const cam = this.scene.cameras.main;
+        const halfW = (cam.width / cam.zoom) / 2;
+        const halfH = (cam.height / cam.zoom) / 2;
+        // Camera midpoint follows the player
+        const mx = cam.midPoint.x;
+        const my = cam.midPoint.y;
+        const margin = 60; // extra buffer so the boss fully exits the screen
+        const offscreen =
+          boss.x < mx - halfW - margin ||
+          boss.x > mx + halfW + margin ||
+          boss.y < my - halfH - margin ||
+          boss.y > my + halfH + margin;
+        if (offscreen) {
+          checkOffscreen.destroy();
+          boss.destroy();
+        }
+      },
+    });
+
+    // Safety net: destroy after 8 seconds regardless (e.g. if stuck on geometry)
+    this.scene.time.delayedCall(8000, () => {
       if (boss.active) {
+        checkOffscreen.destroy();
         boss.destroy();
       }
     });
@@ -324,12 +395,13 @@ export class WaveManager {
     return this.enemiesToSpawn + this.enemiesAlive;
   }
 
-  /** Count of round-blocking enemies (zombies + boss only, dogs never block) */
+  /** Count of round-blocking enemies (zombies + boss only, dogs and fleeing bosses never block) */
   getBlockingEnemies(): number {
     const alive = this.enemies.getChildren().filter((e) => {
       if (!e.active || (e as Enemy).dying) return false;
       const enemy = e as Enemy;
       if (enemy.enemyType === "fast") return false; // dogs never block
+      if (enemy.fleeing) return false; // fleeing boss never blocks
       return true;
     }).length;
     return this.enemiesToSpawn + alive;
@@ -366,6 +438,11 @@ export class WaveManager {
     // SCARYBOI recurring villain
     if (this.shouldSpawnBoss() && !this.spawningDisabled) {
       this.spawnBoss();
+    }
+
+    // Spawn fresh dog pack at wave start
+    if (!this.spawningDisabled) {
+      this.spawnDogPack();
     }
 
     this.onWaveStart?.(this.wave);
@@ -414,7 +491,7 @@ export class WaveManager {
     const pos = this.getPlayerPos();
     const farPoints = DOG_SPAWN_POINTS.filter(s => {
       const d = Phaser.Math.Distance.Between(pos.x, pos.y, s.x, s.y);
-      return d > 400 && !isExcluded(s.x, s.y);
+      return d > 400 && !isExcluded(s.x, s.y) && !this.isGated(s.x, s.y);
     });
     const spawn = farPoints.length > 0
       ? farPoints[Math.floor(Math.random() * farPoints.length)]
@@ -445,6 +522,9 @@ export class WaveManager {
       this.makeBossFlee();
     }
 
+    // Clear all dogs at round end — they'll be freshly spawned at next wave start
+    this.clearDogs();
+
     this.readyUp = false;
     this.readyCountdown = 0;
     this.setState("intermission");
@@ -469,23 +549,34 @@ export class WaveManager {
       sx = Phaser.Math.Clamp(sx, 60, SURFACE_WIDTH - 60);
       sy = Phaser.Math.Clamp(sy, 60, MAP_HEIGHT - 60);
 
-      if (!isExcluded(sx, sy)) {
+      if (!isExcluded(sx, sy) && !this.isGated(sx, sy)) {
         valid = true;
         break;
       }
     }
 
-    // If all attempts landed in exclusion zones, spawn at map edge near player
+    // If all attempts failed, try map edges in unlocked areas
     if (!valid) {
       const edges = [
         { x: Phaser.Math.Clamp(pos.x, 60, SURFACE_WIDTH - 60), y: 60 },
         { x: Phaser.Math.Clamp(pos.x, 60, SURFACE_WIDTH - 60), y: MAP_HEIGHT - 60 },
         { x: 60, y: Phaser.Math.Clamp(pos.y, 60, MAP_HEIGHT - 60) },
         { x: SURFACE_WIDTH - 60, y: Phaser.Math.Clamp(pos.y, 60, MAP_HEIGHT - 60) },
-      ];
-      const edge = edges[Math.floor(Math.random() * edges.length)];
-      sx = edge.x;
-      sy = edge.y;
+      ].filter(e => !isExcluded(e.x, e.y) && !this.isGated(e.x, e.y));
+      if (edges.length > 0) {
+        const edge = edges[Math.floor(Math.random() * edges.length)];
+        sx = edge.x;
+        sy = edge.y;
+        valid = true;
+      }
+    }
+
+    // Last resort: spawn near the player
+    if (!valid) {
+      sx = pos.x + (Math.random() > 0.5 ? 1 : -1) * (SPAWN_MIN_DIST + 50);
+      sy = pos.y + (Math.random() > 0.5 ? 1 : -1) * (SPAWN_MIN_DIST + 50);
+      sx = Phaser.Math.Clamp(sx, 60, SURFACE_WIDTH - 60);
+      sy = Phaser.Math.Clamp(sy, 60, MAP_HEIGHT - 60);
     }
 
     const type = this.pickEnemyType();
@@ -506,12 +597,12 @@ export class WaveManager {
     return "basic";
   }
 
-  // ─── Persistent Dog Pack System ───
+  // ─── Dog Pack System (spawn at wave start, clear at wave end) ───
 
-  /** Maintain the dog population — respawn dead dogs after delay, up to max */
+  /** During active waves, respawn dead dogs after delay up to max */
   private updateDogs(delta: number) {
     if (this.spawningDisabled) return;
-    if (this.state === "pre_game") return;
+    if (this.state !== "active" && this.state !== "clearing") return;
 
     const dogStats = BALANCE.enemies.fast as any;
     const maxDogs = dogStats.maxOnMap ?? 5;
@@ -526,16 +617,8 @@ export class WaveManager {
       this.dogRespawnQueue.push(now + respawnMs);
     }
 
-    // Initial population: if no dogs exist and no respawns queued, seed up to max
-    if (this.dogs.length === 0 && this.dogRespawnQueue.length === 0) {
-      for (let i = 0; i < maxDogs; i++) {
-        this.dogRespawnQueue.push(now + i * 2000); // stagger initial spawns
-      }
-    }
-
     // Process respawn queue
     if (this.dogs.length < maxDogs && this.dogRespawnQueue.length > 0) {
-      // Sort so earliest respawns come first
       this.dogRespawnQueue.sort((a, b) => a - b);
       while (this.dogs.length < maxDogs && this.dogRespawnQueue.length > 0 && this.dogRespawnQueue[0] <= now) {
         this.dogRespawnQueue.shift();
@@ -544,25 +627,54 @@ export class WaveManager {
     }
   }
 
+  /** Remove all dogs from the map */
+  private clearDogs() {
+    for (const dog of this.dogs) {
+      if (dog.active) {
+        dog.destroy();
+      }
+    }
+    this.dogs = [];
+    this.dogRespawnQueue = [];
+  }
+
+  /** Spawn a full pack of dogs at random field positions */
+  private spawnDogPack() {
+    const dogStats = BALANCE.enemies.fast as any;
+    const maxDogs = dogStats.maxOnMap ?? 5;
+    for (let i = 0; i < maxDogs; i++) {
+      this.spawnDog();
+    }
+  }
+
   private spawnDog() {
     const dogStats = BALANCE.enemies.fast;
-
-    // Pick a spawn point far from the player
     const pos = this.getPlayerPos();
-    const farSpawns = DOG_SPAWN_POINTS.filter(s => {
-      const d = Phaser.Math.Distance.Between(pos.x, pos.y, s.x, s.y);
-      return d > 400 && !isExcluded(s.x, s.y);
-    });
 
-    if (farSpawns.length === 0) return;
+    // Try random field positions (ground-only, no buildings, not on perimeter)
+    const margin = 5 * 32; // 5 tiles from edge
+    let sx = 0, sy = 0;
+    let valid = false;
 
-    const point = farSpawns[Math.floor(Math.random() * farSpawns.length)];
-    let sx = point.x + (Math.random() - 0.5) * 120;
-    let sy = point.y + (Math.random() - 0.5) * 120;
-    sx = Phaser.Math.Clamp(sx, 60, SURFACE_WIDTH - 60);
-    sy = Phaser.Math.Clamp(sy, 60, MAP_HEIGHT - 60);
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const tx = Math.floor(margin / 32 + Math.random() * ((SURFACE_WIDTH - 2 * margin) / 32));
+      const ty = Math.floor(margin / 32 + Math.random() * ((MAP_HEIGHT - 2 * margin) / 32));
+      sx = tx * 32 + 16;
+      sy = ty * 32 + 16;
 
-    if (isExcluded(sx, sy)) return; // skip this tick
+      // Must be on open field (ground-only tile)
+      if (!this.isFieldTile(tx, ty)) continue;
+      // Must not be in exclusion zone or gated area
+      if (isExcluded(sx, sy)) continue;
+      if (this.isGated(sx, sy)) continue;
+      // Must be at least 300px from player
+      if (Phaser.Math.Distance.Between(pos.x, pos.y, sx, sy) < 300) continue;
+
+      valid = true;
+      break;
+    }
+
+    if (!valid) return;
 
     // Scale stats by wave
     const w = Math.max(1, this.wave);
@@ -574,6 +686,16 @@ export class WaveManager {
     this.enemies.add(dog);
     this.dogs.push(dog);
     this.enemiesAlive++;
+  }
+
+  /** Check if a position is in a gated zone whose door is still closed */
+  private isGated(x: number, y: number): boolean {
+    for (const zone of GATED_ZONES) {
+      if (x >= zone.x && x <= zone.x + zone.w && y >= zone.y && y <= zone.y + zone.h) {
+        if (!this.isDoorOpen(zone.label)) return true;
+      }
+    }
+    return false;
   }
 
   /** Dev: spawn a specific enemy type at a random edge position */
