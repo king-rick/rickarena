@@ -163,6 +163,10 @@ export class PreloadScene extends Phaser.Scene {
     this.load.image("fx-explosion", "/assets/sprites/items/explosion.png");
     this.load.image("fx-smoke", "/assets/sprites/items/smoke-puff.png");
     this.load.image("fx-spark", "/assets/sprites/items/spark.png");
+    this.load.spritesheet("fireball-sheet", "/assets/sprites/fireball-sheet.png", {
+      frameWidth: 32,
+      frameHeight: 32,
+    });
 
     // Audio
     // Weapons (2 variants per weapon for variety)
@@ -310,6 +314,15 @@ export class PreloadScene extends Phaser.Scene {
         }
       }
     }
+
+    // SCARYBOI fireball animation — 5 frames at 32x32, starting at frame 134 (col14, row6)
+    // Source: all-fire-bullet-16x16.png, x=448 y=192, frameWidth=32 frameHeight=32
+    this.anims.create({
+      key: "boss-fireball",
+      frames: this.anims.generateFrameNumbers("fireball-sheet", { start: 134, end: 138 }),
+      frameRate: 12,
+      repeat: -1,
+    });
 
     // Generate pre-rotated vertical barricade texture
     const bSrc = this.textures.get("trap-barricade").getSourceImage() as HTMLImageElement;

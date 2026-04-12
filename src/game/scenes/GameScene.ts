@@ -33,6 +33,7 @@ export class GameScene extends Phaser.Scene {
   private kills = 0;
   private gameOver = false;
   private paused = false;
+  private scaryboiIntroActive = false;
   private damageBoostActive = false;
   private baseDamage = 0;
 
@@ -217,6 +218,7 @@ export class GameScene extends Phaser.Scene {
     map.createLayer("paths", allTilesets, 0, 0)?.setDepth(-1);
     this.floorInteriorLayer = map.createLayer("floor_interior", allTilesets, 0, 0)?.setDepth(-0.5) ?? undefined;
     this.wallsBaseLayer = map.createLayer("walls_base", allTilesets, 0, 0)?.setDepth(0) ?? undefined;
+    map.createLayer("inside walls", allTilesets, 0, 0)?.setDepth(0.5);
     this.wallsTopLayer = map.createLayer("walls_top", allTilesets, 0, 0)?.setDepth(1) ?? undefined;
     this.propsLowLayer = map.createLayer("props_low", allTilesets, 0, 0)?.setDepth(2) ?? undefined;
     this.propsMidLayer = map.createLayer("props_mid", allTilesets, 0, 0)?.setDepth(3) ?? undefined;
@@ -532,7 +534,7 @@ export class GameScene extends Phaser.Scene {
         Phaser.Input.Keyboard.KeyCodes.SPACE
       );
       space.on("down", () => {
-        if (this.gameOver || this.paused) return;
+        if (this.gameOver || this.paused || this.scaryboiIntroActive) return;
         if (this.levelUpActive) return; // Don't punch while picking buffs
         if (this.waveManager.state === "pre_game") {
           this.waveManager.skipPreGame();
@@ -644,7 +646,7 @@ export class GameScene extends Phaser.Scene {
         Phaser.Input.Keyboard.KeyCodes.B
       );
       bKey.on("down", () => {
-        if (this.gameOver || this.paused) return;
+        if (this.gameOver || this.paused || this.scaryboiIntroActive) return;
         if (this.shopOpen) {
           this.closeShop();
         } else if (this.devMode || this.waveManager.state === "intermission" || this.waveManager.state === "pre_game") {
@@ -670,7 +672,7 @@ export class GameScene extends Phaser.Scene {
         Phaser.Input.Keyboard.KeyCodes.V
       );
       vKey.on("down", () => {
-        if (this.gameOver || this.paused) return;
+        if (this.gameOver || this.paused || this.scaryboiIntroActive) return;
         if (this.activeSlot !== 3) return; // only when barricade is selected
         this.barricadeVertical = !this.barricadeVertical;
         const orient = this.barricadeVertical ? "VERTICAL" : "HORIZONTAL";
@@ -921,6 +923,19 @@ export class GameScene extends Phaser.Scene {
       this.playSound("sfx-church-bell", 0.3);
     };
 
+    this.waveManager.onBossFirstSpawn = () => {
+      this.scaryboiIntroActive = true;
+      hudState.update({ scaryboiIntroActive: true });
+    };
+
+    hudState.registerScaryboiIntroAction(() => {
+      // React handles the 700ms fade-out. Re-enable input after it completes.
+      this.time.delayedCall(700, () => {
+        this.scaryboiIntroActive = false;
+        hudState.update({ scaryboiIntroActive: false });
+      });
+    });
+
     // Player spawns inside — build interior darkness immediately (no fade)
     const spawnTileX = Math.floor(this.player.x / 32);
     const spawnTileY = Math.floor(this.player.y / 32);
@@ -952,7 +967,7 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    if (this.gameOver || this.paused) return;
+    if (this.gameOver || this.paused || this.scaryboiIntroActive) return;
 
     // Freeze player movement while shop or level-up overlay is open
     if (this.shopOpen || this.levelUpActive) {

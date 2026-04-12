@@ -764,14 +764,14 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     stats: { damage: number; projectileSpeed: number; range: number }
   ) {
     const scene = this.scene;
-    // Simple circle graphic as fireball
-    const fb = scene.add.graphics();
-    fb.fillStyle(0xff4400, 1);
-    fb.fillCircle(0, 0, 8);
-    fb.fillStyle(0xffaa00, 0.7);
-    fb.fillCircle(0, 0, 5);
-    fb.setPosition(this.x, this.y);
-    fb.setDepth(10);
+    // Animated fireball sprite — sprite faces right (0 rad), rotate to match travel angle
+    const fb = scene.add.sprite(this.x, this.y, "fireball-sheet")
+      .setDepth(10)
+      .setScale(2)
+      .setRotation(angle);
+    if (scene.anims.exists("boss-fireball")) {
+      fb.play("boss-fireball");
+    }
 
     // Enable physics on the graphics via a zone
     const zone = scene.add.zone(this.x, this.y, 16, 16);
@@ -785,6 +785,19 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     const startX = this.x;
     const startY = this.y;
     const dmg = stats.damage;
+
+    // Define destroy first so colliders can reference it
+    const destroyFireball = () => {
+      scene.events.off("update", updateHandler);
+      fb.destroy();
+      if (zone.active) zone.destroy();
+    };
+
+    // Collide with map obstacles and player barricades
+    const obstacles = (scene as any).obstacles;
+    const barricades = (scene as any).barricades;
+    if (obstacles) scene.physics.add.collider(zone, obstacles, destroyFireball as any);
+    if (barricades) scene.physics.add.collider(zone, barricades, destroyFireball as any);
 
     // Check for player overlap every frame
     const updateHandler = () => {
@@ -826,12 +839,6 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
           destroyFireball();
         }
       }
-    };
-
-    const destroyFireball = () => {
-      scene.events.off("update", updateHandler);
-      fb.destroy();
-      zone.destroy();
     };
 
     scene.events.on("update", updateHandler);

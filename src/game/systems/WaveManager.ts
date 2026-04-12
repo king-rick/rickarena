@@ -113,6 +113,7 @@ export class WaveManager {
   onIntermissionStart?: (wave: number) => void;
   onStateChange?: (state: WaveState) => void;
   onBossFlee?: () => void;
+  onBossFirstSpawn?: () => void;
 
   constructor(config: WaveManagerConfig) {
     this.scene = config.scene;
@@ -513,7 +514,13 @@ export class WaveManager {
     this.bossEnemy = boss;
     this.bossDamageTaken = 0;
     this.bossLastWave = this.wave;
+
+    const isFirst = this.bossAppearances.length === 0;
     this.bossAppearances.push(this.wave);
+
+    if (isFirst) {
+      this.onBossFirstSpawn?.();
+    }
   }
 
   private beginIntermission() {

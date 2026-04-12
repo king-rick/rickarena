@@ -1,5 +1,23 @@
 # RickArena Changelog
 
+## 2026-04-12 — SCARYBOI Intro Cinematic + Animated Fireballs
+
+**SCARYBOI intro cinematic:**
+- Full-screen cinematic overlay triggers the first time SCARYBOI spawns in a run (wave 6+, once per run only).
+- Fades in over 900ms with Ken Burns slow zoom on SCARYBOI concept art.
+- Displays name "S C A R Y B O I" in red with glow effect and quote: *"You lasted longer than the others. Admirable, but mistaken..."*
+- "Bring it" dismiss button appears after 600ms delay with red hover glow. Player input locked until dismissed.
+- Fades out 700ms after click, then gameplay resumes.
+
+**Animated fireballs:**
+- Replaced drawn orange circle with a 5-frame pixel art animation (32×32px) from the fire bullet spritesheet.
+- Fireball sprite rotates to match travel direction.
+- Fireballs now collide with and destroy on contact with map walls and player barricades.
+
+**Bug fixes:**
+- AudioContext HMR fix: Phaser's internal `suspend()`/`resume()` calls now wrapped in try/catch, eliminating `InvalidStateError` on hot reload.
+- Added `inside walls` tile layer to GameScene render pipeline (was in TMJ but never created in code).
+
 ## 2026-03-31 — WaW Zombie Scaling + Combat Overhaul
 
 **WaW-style difficulty scaling:**

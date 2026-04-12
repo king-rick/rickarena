@@ -19,6 +19,7 @@ import { HealthBar } from "./hud/HealthBar";
 import { StaminaBar } from "./hud/StaminaBar";
 import { DevPanel } from "./hud/DevPanel";
 import { StatsScreen } from "./hud/StatsScreen";
+import { ScaryboiIntro } from "./hud/ScaryboiIntro";
 
 interface Props {
   canvasRect: CanvasRect;
@@ -41,6 +42,10 @@ export function HUDOverlay({ canvasRect }: Props) {
     hudState.subscribe,
     () => hudState.getField("paused")
   );
+  const scaryboiIntroActive = useSyncExternalStore(
+    hudState.subscribe,
+    () => hudState.getField("scaryboiIntroActive")
+  );
 
   if (!hudVisible && !gameOver) return null;
 
@@ -57,6 +62,13 @@ export function HUDOverlay({ canvasRect }: Props) {
       {gameOver && (
         <div className="absolute" style={{ ...baseStyle, zIndex: 50 }}>
           <GameOverOverlay />
+        </div>
+      )}
+
+      {/* SCARYBOI intro cinematic — first appearance only */}
+      {scaryboiIntroActive && !gameOver && (
+        <div className="absolute" style={{ ...baseStyle, zIndex: 45 }}>
+          <ScaryboiIntro />
         </div>
       )}
 

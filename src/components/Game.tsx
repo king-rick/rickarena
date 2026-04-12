@@ -41,6 +41,19 @@ export default function Game() {
 
       gameRef.current = new Phaser.Game(gameConfig);
 
+      // Patch Phaser's WebAudio suspend/resume to survive HMR and closed AudioContext
+      gameRef.current.events.once("ready", () => {
+        const sm = gameRef.current?.sound as any;
+        if (sm?.context) {
+          const orig = {
+            suspend: sm.context.suspend?.bind(sm.context),
+            resume: sm.context.resume?.bind(sm.context),
+          };
+          sm.context.suspend = async () => { try { await orig.suspend?.(); } catch {} };
+          sm.context.resume  = async () => { try { await orig.resume?.();  } catch {} };
+        }
+      });
+
       // Focus the canvas so keyboard input works immediately
       gameRef.current.events.once("ready", () => {
         gameRef.current?.canvas?.focus();

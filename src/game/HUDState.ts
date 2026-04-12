@@ -147,6 +147,9 @@ export interface HUDData {
   devPanelOpen: boolean;
   devMode: boolean;
   devSpawningDisabled: boolean;
+
+  // SCARYBOI intro cinematic
+  scaryboiIntroActive: boolean;
 }
 
 const DEFAULT_STATE: HUDData = {
@@ -216,6 +219,7 @@ const DEFAULT_STATE: HUDData = {
   devPanelOpen: false,
   devMode: false,
   devSpawningDisabled: false,
+  scaryboiIntroActive: false,
 };
 
 type Listener = () => void;
@@ -250,6 +254,10 @@ class HUDStateStore {
   private devAction: ActionHandler | null = null;
   registerDevAction(handler: ActionHandler) { this.devAction = handler; }
   dispatchDevAction(action: string, payload?: any) { this.devAction?.(action, payload); }
+
+  private scaryboiIntroAction: ActionHandler | null = null;
+  registerScaryboiIntroAction(handler: ActionHandler) { this.scaryboiIntroAction = handler; }
+  dispatchScaryboiIntroAction(action: string, payload?: any) { this.scaryboiIntroAction?.(action, payload); }
 
   /** Called by Phaser every frame (or on change) to push new state */
   update(partial: Partial<HUDData>) {
