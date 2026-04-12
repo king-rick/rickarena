@@ -1,29 +1,83 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback, useSyncExternalStore } from "react";
 import { hudState } from "@/game/HUDState";
+
+const VO_SRC = "/assets/audio/voice/rickarena-scaryboi-intro-vo.mp3";
+const DISMISS_MS = 700;
 
 export function ScaryboiIntro() {
   const [visible, setVisible] = useState(false);
   const [dismissing, setDismissing] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const fadeRafRef = useRef<number | null>(null);
+
+  const sfxVolume = useSyncExternalStore(
+    hudState.subscribe,
+    () => hudState.getField("sfxVolume")
+  );
 
   useEffect(() => {
-    // Small delay so the fade-in transition fires after mount
     const t = setTimeout(() => setVisible(true), 50);
     return () => clearTimeout(t);
+  }, []);
+
+  // Voice-over: start when the intro image fade begins (visible === true)
+  useEffect(() => {
+    if (!visible) return;
+    const a = new Audio(VO_SRC);
+    a.volume = sfxVolume;
+    audioRef.current = a;
+    void a.play().catch(() => {
+      /* autoplay / decode blocked — cinematic still works */
+    });
+    return () => {
+      if (fadeRafRef.current !== null) {
+        cancelAnimationFrame(fadeRafRef.current);
+        fadeRafRef.current = null;
+      }
+      a.pause();
+      a.src = "";
+      if (audioRef.current === a) audioRef.current = null;
+    };
+  }, [visible]);
+
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.volume = sfxVolume;
+  }, [sfxVolume]);
+
+  const stopVoFade = useCallback(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    const startVol = a.volume;
+    const t0 = performance.now();
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - t0) / DISMISS_MS);
+      a.volume = startVol * (1 - t);
+      if (t < 1) {
+        fadeRafRef.current = requestAnimationFrame(tick);
+      } else {
+        fadeRafRef.current = null;
+        a.pause();
+        a.src = "";
+        if (audioRef.current === a) audioRef.current = null;
+      }
+    };
+    fadeRafRef.current = requestAnimationFrame(tick);
   }, []);
 
   const handleDismiss = () => {
     if (dismissing) return;
     setDismissing(true);
+    stopVoFade();
     setTimeout(() => {
       hudState.dispatchScaryboiIntroAction("dismissed");
-    }, 700);
+    }, DISMISS_MS);
   };
 
   const opacity = dismissing ? 0 : visible ? 1 : 0;
   const transition = dismissing
-    ? "opacity 700ms ease-in"
+    ? `opacity ${DISMISS_MS}ms ease-in`
     : "opacity 900ms ease-out";
 
   return (
@@ -101,11 +155,12 @@ export function ScaryboiIntro() {
           lineHeight: 1.65,
           textShadow: "0 1px 6px rgba(0,0,0,1)",
         }}>
-          "You lasted longer than the others. Admirable, but mistaken..."
+          &quot;You&apos;ve lasted longer than the others. Admirable, but mistaken...&quot;
         </div>
 
         {/* Dismiss — only shown once fully visible */}
         <button
+          type="button"
           onClick={handleDismiss}
           style={{
             marginTop: 18,

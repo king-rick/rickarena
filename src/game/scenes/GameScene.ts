@@ -9,6 +9,7 @@ import { WaveManager, WaveState } from "../systems/WaveManager";
 import { LevelingSystem, BuffOption } from "../systems/LevelingSystem";
 import { hasAnimation, getAnimKey } from "../data/animations";
 import { hudState } from "../HUDState";
+import { isPublicBuild, PUBLIC_BUILD_UNLOCKABLE_DOOR_LABEL } from "../publicBuild";
 import { Pathfinder } from "../systems/Pathfinder";
 // Village map constants
 const VILLAGE_MAP_W = 80 * 16;  // 1280px
@@ -378,6 +379,15 @@ export class GameScene extends Phaser.Scene {
           }
 
           this.doors.push({ zone: doorZone, cost, label, opened: false, paid: false, locked, health: doorHealth, maxHealth: doorHealth, broken: false, clearCols, clearRows, savedTiles });
+        }
+      }
+    }
+
+    // Public demo (e.g. Vercel): only the first $300 Gate is openable; all other purchasable doors stay locked.
+    if (isPublicBuild()) {
+      for (const door of this.doors) {
+        if (door.label !== PUBLIC_BUILD_UNLOCKABLE_DOOR_LABEL) {
+          door.locked = true;
         }
       }
     }
@@ -843,8 +853,9 @@ export class GameScene extends Phaser.Scene {
       getPlayerPos: () => ({ x: this.player.x, y: this.player.y }),
       isFieldTile,
       isDoorOpen: (label: string) => {
-        const door = this.doors.find(d => d.label === label);
-        if (!door) return true; // unknown door = no restriction
+        const door = this.doors.find((d) => d.label === label);
+        // Public demo: missing door data = treat as closed so spawns never leak into locked map areas.
+        if (!door) return !isPublicBuild();
         return door.paid || door.broken;
       },
     });
@@ -2974,8 +2985,8 @@ export class GameScene extends Phaser.Scene {
 
       if (dist < this.doorPromptDist) {
         if (door.locked) {
-          // Locked doors just say "Locked"
-          const label = `${door.label} — Locked`;
+          // Local dev: "Name — Locked". Public demo: plain "LOCKED" (no price / no [E] — those are for unlocked doors only).
+          const label = isPublicBuild() ? "LOCKED" : `${door.label} — Locked`;
           if (!door.promptText) {
             door.promptText = this.createPromptText(door.zone.x, door.zone.y + 20, label, false);
           } else {

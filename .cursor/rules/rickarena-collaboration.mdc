@@ -1,0 +1,26 @@
+---
+description: Plan-first workflow and scope control for RickArena (owner-driven design)
+alwaysApply: true
+---
+
+# RickArena — collaboration with Rick
+
+## Plan before you build
+
+- For **every requested code change** (including bugfixes, balancing, content, refactors, config, docs, and tooling), write a **clear plan first**: intent, files to touch, concrete changes, and risks or alternatives.
+- **Wait for Rick’s explicit approval** of that plan before editing. Do not add mechanics or tuning he did not ask for “while you’re in there.”
+- **After** he approves a plan, **execute it without asking for per-step approval**. Use elevated permissions when needed to complete the **approved** work.
+
+## Scope: whose ideas ship
+
+- Implement **Rick’s** requested behavior and fixes. Treat unsolicited **new mechanics, balance, or map incentives** as out of scope unless he asks for suggestions and picks one.
+- **Review, bugs, regressions:** flag problems and fix **narrow** issues that are clearly wrong or broken when you’re already working in that area—still **no** extra design layered on without a plan he approved.
+
+## No plan exceptions
+
+- Do **not** skip planning, even for one-line or obvious fixes.
+- The required sequence is always: **plan → Rick approval → implementation**.
+
+## Suggestions
+
+- Offer **optional** ideas or tradeoffs **when he asks**, or when a requested change has a **blocking** ambiguity—briefly, not as automatic implementation.

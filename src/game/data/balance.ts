@@ -9,7 +9,7 @@ export const BALANCE = {
   },
   stamina: {
     regenDelay: 1200, // ms before stamina starts regenerating
-    punchCost: 10,
+    punchCost: 9,
     sprintCostPerSecond: 10,
     baseRegen: 8, // per second (overrides character regen when used)
   },

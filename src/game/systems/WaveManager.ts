@@ -494,9 +494,19 @@ export class WaveManager {
       const d = Phaser.Math.Distance.Between(pos.x, pos.y, s.x, s.y);
       return d > 400 && !isExcluded(s.x, s.y) && !this.isGated(s.x, s.y);
     });
-    const spawn = farPoints.length > 0
-      ? farPoints[Math.floor(Math.random() * farPoints.length)]
-      : DOG_SPAWN_POINTS[0];
+    let spawn: { x: number; y: number };
+    if (farPoints.length > 0) {
+      spawn = farPoints[Math.floor(Math.random() * farPoints.length)];
+    } else {
+      const anyValid = DOG_SPAWN_POINTS.filter(
+        (s) => !isExcluded(s.x, s.y) && !this.isGated(s.x, s.y)
+      );
+      if (anyValid.length > 0) {
+        spawn = anyValid[Math.floor(Math.random() * anyValid.length)];
+      } else {
+        spawn = this.findAnyValidSurfaceSpawn(pos);
+      }
+    }
 
     const hpMult = this.getWaveHpMultiplier();
     const dmgMult = this.getWaveDamageMultiplier();
@@ -578,12 +588,37 @@ export class WaveManager {
       }
     }
 
-    // Last resort: spawn near the player
+    // Last resort: random offsets from player — must still respect exclusion + gates (never bypass)
     if (!valid) {
-      sx = pos.x + (Math.random() > 0.5 ? 1 : -1) * (SPAWN_MIN_DIST + 50);
-      sy = pos.y + (Math.random() > 0.5 ? 1 : -1) * (SPAWN_MIN_DIST + 50);
-      sx = Phaser.Math.Clamp(sx, 60, SURFACE_WIDTH - 60);
-      sy = Phaser.Math.Clamp(sy, 60, MAP_HEIGHT - 60);
+      for (let attempt = 0; attempt < 50; attempt++) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = SPAWN_MIN_DIST + 40 + Math.random() * 250;
+        sx = pos.x + Math.cos(angle) * dist;
+        sy = pos.y + Math.sin(angle) * dist;
+        sx = Phaser.Math.Clamp(sx, 60, SURFACE_WIDTH - 60);
+        sy = Phaser.Math.Clamp(sy, 60, MAP_HEIGHT - 60);
+        if (!isExcluded(sx, sy) && !this.isGated(sx, sy)) {
+          valid = true;
+          break;
+        }
+      }
+    }
+    // Ring search from player — covers edge case where random samples all hit bad tiles
+    if (!valid) {
+      for (let ring = 1; ring <= 25 && !valid; ring++) {
+        const dist = SPAWN_MIN_DIST + ring * 35;
+        for (let k = 0; k < 16; k++) {
+          const angle = (k / 16) * Math.PI * 2;
+          sx = pos.x + Math.cos(angle) * dist;
+          sy = pos.y + Math.sin(angle) * dist;
+          sx = Phaser.Math.Clamp(sx, 60, SURFACE_WIDTH - 60);
+          sy = Phaser.Math.Clamp(sy, 60, MAP_HEIGHT - 60);
+          if (!isExcluded(sx, sy) && !this.isGated(sx, sy)) {
+            valid = true;
+            break;
+          }
+        }
+      }
     }
 
     const type = this.pickEnemyType();
@@ -705,6 +740,32 @@ export class WaveManager {
     return false;
   }
 
+  /**
+   * Boss fallback when no preset dog point is valid — must respect exclusion + gates
+   * (same rules as zombie spawns; avoids spawning SCARYBOI behind locked doors).
+   */
+  private findAnyValidSurfaceSpawn(near: { x: number; y: number }): { x: number; y: number } {
+    for (let attempt = 0; attempt < 160; attempt++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 80 + Math.random() * 880;
+      const sx = Phaser.Math.Clamp(near.x + Math.cos(angle) * dist, 60, SURFACE_WIDTH - 60);
+      const sy = Phaser.Math.Clamp(near.y + Math.sin(angle) * dist, 60, MAP_HEIGHT - 60);
+      if (!isExcluded(sx, sy) && !this.isGated(sx, sy)) {
+        return { x: sx, y: sy };
+      }
+    }
+    for (let tx = 2; tx < 58; tx++) {
+      for (let ty = 2; ty < 58; ty++) {
+        const sx = tx * 32 + 16;
+        const sy = ty * 32 + 16;
+        if (!isExcluded(sx, sy) && !this.isGated(sx, sy)) {
+          return { x: sx, y: sy };
+        }
+      }
+    }
+    return { x: near.x, y: near.y };
+  }
+
   /** Dev: spawn a specific enemy type at a random edge position */
   devSpawnEnemy(type: EnemyType, count: number = 1) {
     for (let i = 0; i < count; i++) {
@@ -712,18 +773,26 @@ export class WaveManager {
       const cam = this.scene.cameras.main;
       const halfW = (cam.width / cam.zoom) / 2;
       const halfH = (cam.height / cam.zoom) / 2;
-      const margin = 40 + Math.random() * 40;
-      const side = Math.floor(Math.random() * 4);
-
-      let sx: number, sy: number;
-      switch (side) {
-        case 0: sx = pos.x + (Math.random() - 0.5) * halfW * 2; sy = pos.y - halfH - margin; break;
-        case 1: sx = pos.x + (Math.random() - 0.5) * halfW * 2; sy = pos.y + halfH + margin; break;
-        case 2: sx = pos.x - halfW - margin; sy = pos.y + (Math.random() - 0.5) * halfH * 2; break;
-        default: sx = pos.x + halfW + margin; sy = pos.y + (Math.random() - 0.5) * halfH * 2; break;
+      let sx = 0;
+      let sy = 0;
+      let ok = false;
+      for (let attempt = 0; attempt < 30; attempt++) {
+        const margin = 40 + Math.random() * 40;
+        const side = Math.floor(Math.random() * 4);
+        switch (side) {
+          case 0: sx = pos.x + (Math.random() - 0.5) * halfW * 2; sy = pos.y - halfH - margin; break;
+          case 1: sx = pos.x + (Math.random() - 0.5) * halfW * 2; sy = pos.y + halfH + margin; break;
+          case 2: sx = pos.x - halfW - margin; sy = pos.y + (Math.random() - 0.5) * halfH * 2; break;
+          default: sx = pos.x + halfW + margin; sy = pos.y + (Math.random() - 0.5) * halfH * 2; break;
+        }
+        sx = Phaser.Math.Clamp(sx, 60, SURFACE_WIDTH - 60);
+        sy = Phaser.Math.Clamp(sy, 60, MAP_HEIGHT - 60);
+        if (!isExcluded(sx, sy) && !this.isGated(sx, sy)) {
+          ok = true;
+          break;
+        }
       }
-      sx = Phaser.Math.Clamp(sx, 60, SURFACE_WIDTH - 60);
-      sy = Phaser.Math.Clamp(sy, 60, MAP_HEIGHT - 60);
+      if (!ok) continue;
 
       const hpMult = this.getWaveHpMultiplier();
       const dmgMult = this.getWaveDamageMultiplier();
