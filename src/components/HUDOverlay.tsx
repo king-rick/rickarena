@@ -20,6 +20,7 @@ import { StaminaBar } from "./hud/StaminaBar";
 import { DevPanel } from "./hud/DevPanel";
 import { StatsScreen } from "./hud/StatsScreen";
 import { ScaryboiIntro } from "./hud/ScaryboiIntro";
+import { MasonAnnouncement } from "./hud/MasonAnnouncement";
 
 interface Props {
   canvasRect: CanvasRect;
@@ -46,6 +47,10 @@ export function HUDOverlay({ canvasRect }: Props) {
     hudState.subscribe,
     () => hudState.getField("scaryboiIntroActive")
   );
+  const masonAnnouncementActive = useSyncExternalStore(
+    hudState.subscribe,
+    () => hudState.getField("masonAnnouncementActive")
+  );
 
   if (!hudVisible && !gameOver) return null;
 
@@ -69,6 +74,13 @@ export function HUDOverlay({ canvasRect }: Props) {
       {scaryboiIntroActive && !gameOver && (
         <div className="absolute" style={{ ...baseStyle, zIndex: 45 }}>
           <ScaryboiIntro />
+        </div>
+      )}
+
+      {/* MASON announcement cinematic — wave 5 cutscene */}
+      {masonAnnouncementActive && !gameOver && (
+        <div className="absolute" style={{ ...baseStyle, zIndex: 44 }}>
+          <MasonAnnouncement />
         </div>
       )}
 

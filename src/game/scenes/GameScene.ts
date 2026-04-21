@@ -35,6 +35,7 @@ export class GameScene extends Phaser.Scene {
   private gameOver = false;
   private paused = false;
   private scaryboiIntroActive = false;
+  private masonCutsceneActive = false;
   private damageBoostActive = false;
   private baseDamage = 0;
 
@@ -89,6 +90,27 @@ export class GameScene extends Phaser.Scene {
   private smokeBuffDamageBonus = 40; // flat damage bonus while buff active (one-shots walkers)
   private smokeBuffRegenBonus = 5; // extra stamina regen/sec while buff active
   private readonly smokeBuffDuration = 9000; // 9 seconds
+
+  // Power + Machines (CoD Zombies perk system)
+  private powerOn = false;
+  private generator: {
+    sprite: Phaser.GameObjects.Sprite;
+    x: number;
+    y: number;
+    promptText?: Phaser.GameObjects.Text;
+  } | null = null;
+  private machines: {
+    machineType: string; // "zyn" | "keg"
+    label: string;
+    cost: number;
+    x: number;
+    y: number;
+    sprite: Phaser.GameObjects.Sprite;
+    purchased: boolean;
+    promptText?: Phaser.GameObjects.Text;
+  }[] = [];
+  private reloadSpeedMultiplier = 1; // Zyn perk: < 1 = faster reload
+  private armor = 0; // Keg perk: damage hits armor before HP
 
   // Shop
   private shopOpen = false;
@@ -190,6 +212,11 @@ export class GameScene extends Phaser.Scene {
     this.pendingLevelUps = [];
     this.roofVisible = true;          // match fresh layer alpha=1
     this.playerInsideBuilding = true; // player spawns inside the house
+    this.powerOn = false;
+    this.generator = null;
+    this.machines = [];
+    this.reloadSpeedMultiplier = 1;
+    this.armor = 0;
 
     // Slow gameplay by 25%
     this.time.timeScale = 0.75;
@@ -383,6 +410,30 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    // Generator + Machines — read from interactables layer
+    if (interactLayer) {
+      for (const obj of interactLayer.objects) {
+        const objType = ((obj as any).type || (obj as any).class || "").toLowerCase();
+        const props = (obj as any).properties as { name: string; value: any }[] | undefined;
+        const cx = obj.x! + (obj.width || 32) / 2;
+        const cy = obj.y! + (obj.height || 64) / 2;
+
+        if (objType === "generator") {
+          const label = props?.find((p: any) => p.name === "label")?.value ?? "Generator";
+          const sprite = this.add.sprite(cx, cy, "generator-off").setDepth(3);
+          this.generator = { sprite, x: cx, y: cy };
+        } else if (objType === "machine") {
+          const name = ((obj as any).name || "").toLowerCase();
+          const machineType = name.includes("zyn") ? "zyn" : "keg";
+          const cost = props?.find((p: any) => p.name === "cost")?.value ?? 1000;
+          const label = props?.find((p: any) => p.name === "label")?.value ?? "Machine";
+          const textureKey = `machine-${machineType}-off`;
+          const sprite = this.add.sprite(cx, cy, textureKey).setDepth(3);
+          this.machines.push({ machineType, label, cost, x: cx, y: cy, sprite, purchased: false });
+        }
+      }
+    }
+
     // Public demo (e.g. Vercel): only the first $300 Gate is openable; all other purchasable doors stay locked.
     if (isPublicBuild()) {
       for (const door of this.doors) {
@@ -544,7 +595,7 @@ export class GameScene extends Phaser.Scene {
         Phaser.Input.Keyboard.KeyCodes.SPACE
       );
       space.on("down", () => {
-        if (this.gameOver || this.paused || this.scaryboiIntroActive) return;
+        if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonCutsceneActive) return;
         if (this.levelUpActive) return; // Don't punch while picking buffs
         if (this.waveManager.state === "pre_game") {
           this.waveManager.skipPreGame();
@@ -656,7 +707,7 @@ export class GameScene extends Phaser.Scene {
         Phaser.Input.Keyboard.KeyCodes.B
       );
       bKey.on("down", () => {
-        if (this.gameOver || this.paused || this.scaryboiIntroActive) return;
+        if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonCutsceneActive) return;
         if (this.shopOpen) {
           this.closeShop();
         } else if (this.devMode || this.waveManager.state === "intermission" || this.waveManager.state === "pre_game") {
@@ -664,12 +715,14 @@ export class GameScene extends Phaser.Scene {
         }
       });
 
-      // E key to interact (chest, starting door, purchasable doors)
+      // E key to interact (chest, starting door, purchasable doors, generator, machines)
       const eKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
       eKey.on("down", () => {
         if (this.gameOver || this.paused || this.shopOpen) return;
         if (this.tryStartingChest()) return;
         if (this.tryStartingDoor()) return;
+        if (this.tryInteractGenerator()) return;
+        if (this.tryBuyMachine()) return;
         this.tryBuyNearbyDoor();
       });
 
@@ -682,7 +735,7 @@ export class GameScene extends Phaser.Scene {
         Phaser.Input.Keyboard.KeyCodes.V
       );
       vKey.on("down", () => {
-        if (this.gameOver || this.paused || this.scaryboiIntroActive) return;
+        if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonCutsceneActive) return;
         if (this.activeSlot !== 3) return; // only when barricade is selected
         this.barricadeVertical = !this.barricadeVertical;
         const orient = this.barricadeVertical ? "VERTICAL" : "HORIZONTAL";
@@ -936,6 +989,8 @@ export class GameScene extends Phaser.Scene {
 
     this.waveManager.onBossFirstSpawn = () => {
       this.scaryboiIntroActive = true;
+      this.physics.pause();
+      this.game.canvas.style.pointerEvents = "none";
       hudState.update({ scaryboiIntroActive: true });
     };
 
@@ -943,7 +998,48 @@ export class GameScene extends Phaser.Scene {
       // React handles the 700ms fade-out. Re-enable input after it completes.
       this.time.delayedCall(700, () => {
         this.scaryboiIntroActive = false;
+        this.physics.resume();
+        this.game.canvas.style.pointerEvents = "auto";
         hudState.update({ scaryboiIntroActive: false });
+      });
+    });
+
+    // MASON — scripted villain callbacks
+    this.waveManager.onMasonAnnouncement = () => {
+      this.masonCutsceneActive = true;
+      this.physics.pause();
+      this.game.canvas.style.pointerEvents = "none";
+      hudState.update({ masonAnnouncementActive: true });
+    };
+
+    this.waveManager.onMasonFirstSpawn = () => {
+      this.masonCutsceneActive = true;
+      this.physics.pause();
+      this.game.canvas.style.pointerEvents = "none";
+      hudState.update({ masonFightIntroActive: true });
+    };
+
+    this.waveManager.onMasonFinalFight = () => {
+      this.masonCutsceneActive = true;
+      this.physics.pause();
+      this.game.canvas.style.pointerEvents = "none";
+      hudState.update({ masonFinalIntroActive: true });
+    };
+
+    this.waveManager.onMasonFlee = () => {
+      this.showWeaponMessage("MASON RETREATS...", "#7c3aed");
+    };
+
+    this.waveManager.onMasonDefeated = () => {
+      this.showWeaponMessage("MASON DEFEATED", "#7c3aed");
+    };
+
+    hudState.registerMasonAnnouncementAction(() => {
+      this.time.delayedCall(700, () => {
+        this.masonCutsceneActive = false;
+        this.physics.resume();
+        this.game.canvas.style.pointerEvents = "auto";
+        hudState.update({ masonAnnouncementActive: false, masonFightIntroActive: false, masonFinalIntroActive: false });
       });
     });
 
@@ -978,7 +1074,7 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    if (this.gameOver || this.paused || this.scaryboiIntroActive) return;
+    if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonCutsceneActive) return;
 
     // Freeze player movement while shop or level-up overlay is open
     if (this.shopOpen || this.levelUpActive) {
@@ -992,6 +1088,7 @@ export class GameScene extends Phaser.Scene {
     // Door proximity prompts
     this.updateStartingRoomPrompts();
     this.updateDoorPrompts();
+    this.updateMachinePrompts();
 
     // Roof fade — hide roof when player is under it
     this.updateRoofVisibility();
@@ -1786,9 +1883,12 @@ export class GameScene extends Phaser.Scene {
     this.showWeaponMessage("RELOADING", "#ff4444");
     this.player.playReload(this.activeWeapon);
 
+    // Zyn perk: faster reload
+    const effectiveReloadMs = Math.floor(weaponDef.reloadMs * this.reloadSpeedMultiplier);
+
     // Play reload sound mid-animation (magazine click moment, ~50% through)
     const reloadingWeapon = this.activeWeapon; // capture in case player switches
-    this.time.delayedCall(Math.floor(weaponDef.reloadMs * 0.5), () => {
+    this.time.delayedCall(Math.floor(effectiveReloadMs * 0.5), () => {
       if (!this.reloading) return; // cancelled
       if (reloadingWeapon === "shotgun") {
         this.playSound("sfx-reload-shotgun", 0.5);
@@ -1797,7 +1897,7 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    this.reloadTimer = this.time.delayedCall(weaponDef.reloadMs, () => {
+    this.reloadTimer = this.time.delayedCall(effectiveReloadMs, () => {
       const wAmmo = this.weaponAmmo[reloadingWeapon];
       const wDef = BALANCE.weapons[reloadingWeapon as keyof typeof BALANCE.weapons];
       if (!wAmmo || !wDef) { this.reloading = false; return; }
@@ -2086,7 +2186,17 @@ export class GameScene extends Phaser.Scene {
       this.lastDamageTime = now;
 
       const enemy = enemyObj as Enemy;
-      this.player.stats.health -= enemy.getEffectiveDamage();
+      let incomingDmg = enemy.getEffectiveDamage();
+      // Keg perk: armor absorbs damage before HP
+      if (this.armor > 0) {
+        const absorbed = Math.min(this.armor, incomingDmg);
+        this.armor -= absorbed;
+        incomingDmg -= absorbed;
+        if (this.armor <= 0) {
+          this.showWeaponMessage("ARMOR BROKEN", "#ff8844");
+        }
+      }
+      this.player.stats.health -= incomingDmg;
       enemy.playBite();
       this.playBiteSound();
 
@@ -2966,8 +3076,8 @@ export class GameScene extends Phaser.Scene {
         door.zone.x, door.zone.y
       );
 
-      // If door is open and player walked away, close it
-      if (door.opened && dist > closeDist) {
+      // If door is open and player walked away, close it (skip if paid — paid doors stay open)
+      if (door.opened && !door.paid && dist > closeDist) {
         door.opened = false;
         // Restore door tiles to their original layers
         for (const t of door.savedTiles) {
@@ -3122,6 +3232,123 @@ export class GameScene extends Phaser.Scene {
 
     this.showWeaponMessage(`${door.label} DESTROYED`, "#ff4444");
     this.playSound("sfx-purchase", 0.3);
+  }
+
+  // ─── Generator + Machines (power system) ───
+
+  private readonly machinePromptDist = 60;
+
+  private updateMachinePrompts() {
+    // Generator prompt
+    if (this.generator && !this.powerOn) {
+      const dist = Phaser.Math.Distance.Between(
+        this.player.x, this.player.y, this.generator.x, this.generator.y
+      );
+      if (dist < this.machinePromptDist) {
+        if (!this.generator.promptText) {
+          this.generator.promptText = this.createPromptText(
+            this.generator.x, this.generator.y + 20, "[E] Turn on Generator", true
+          );
+        }
+        this.generator.promptText.setVisible(true);
+      } else {
+        if (this.generator.promptText) this.generator.promptText.setVisible(false);
+      }
+    } else if (this.generator?.promptText) {
+      this.generator.promptText.setVisible(false);
+    }
+
+    // Machine prompts
+    for (const machine of this.machines) {
+      const dist = Phaser.Math.Distance.Between(
+        this.player.x, this.player.y, machine.x, machine.y
+      );
+      if (dist < this.machinePromptDist) {
+        let label: string;
+        let canAfford = false;
+        if (!this.powerOn) {
+          label = "No power.. turn on the generator";
+        } else if (machine.purchased) {
+          label = `${machine.label} — Already Purchased`;
+        } else {
+          canAfford = this.currency >= machine.cost;
+          label = `[E] ${machine.label} — $${machine.cost}`;
+        }
+        if (!machine.promptText) {
+          machine.promptText = this.createPromptText(machine.x, machine.y + 20, label, canAfford);
+        } else {
+          machine.promptText.setText(label);
+          this.applyPromptGradient(machine.promptText, canAfford);
+        }
+        machine.promptText.setVisible(true);
+      } else {
+        if (machine.promptText) machine.promptText.setVisible(false);
+      }
+    }
+  }
+
+  private tryInteractGenerator(): boolean {
+    if (!this.generator || this.powerOn) return false;
+    const dist = Phaser.Math.Distance.Between(
+      this.player.x, this.player.y, this.generator.x, this.generator.y
+    );
+    if (dist >= this.machinePromptDist) return false;
+
+    this.powerOn = true;
+
+    // Swap generator sprite to lit version
+    this.generator.sprite.setTexture("generator-on");
+
+    // Swap all machine sprites to lit versions
+    for (const machine of this.machines) {
+      machine.sprite.setTexture(`machine-${machine.machineType}-on`);
+    }
+
+    // Hide generator prompt
+    if (this.generator.promptText) {
+      this.generator.promptText.destroy();
+      this.generator.promptText = undefined;
+    }
+
+    this.showWeaponMessage("POWER ON", "#44dd44");
+    this.playSound("sfx-purchase", 0.7);
+    return true;
+  }
+
+  private tryBuyMachine(): boolean {
+    if (!this.powerOn) return false;
+    for (const machine of this.machines) {
+      if (machine.purchased) continue;
+      const dist = Phaser.Math.Distance.Between(
+        this.player.x, this.player.y, machine.x, machine.y
+      );
+      if (dist >= this.machinePromptDist) continue;
+
+      if (this.currency < machine.cost) {
+        // Can't afford — flash prompt
+        if (machine.promptText) {
+          this.applyPromptGradient(machine.promptText, false);
+        }
+        return true;
+      }
+
+      // Purchase
+      this.currency -= machine.cost;
+      machine.purchased = true;
+      this.playSound("sfx-purchase", 0.5);
+
+      // Apply perk
+      if (machine.machineType === "zyn") {
+        this.reloadSpeedMultiplier = 0.5; // 50% faster reloads
+        this.showWeaponMessage("ZYN — QUICK RELOAD", "#44ddff");
+      } else if (machine.machineType === "keg") {
+        this.armor = 100; // 100 points of armor
+        this.showWeaponMessage("KEG — LIQUID COURAGE", "#ffaa22");
+      }
+
+      return true;
+    }
+    return false;
   }
 
   private openShop() {

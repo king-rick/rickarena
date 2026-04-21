@@ -150,6 +150,11 @@ export interface HUDData {
 
   // SCARYBOI intro cinematic
   scaryboiIntroActive: boolean;
+
+  // MASON cinematics
+  masonAnnouncementActive: boolean;  // wave 5 cutscene
+  masonFightIntroActive: boolean;    // wave 10 brief fight intro
+  masonFinalIntroActive: boolean;    // wave 15 final fight intro
 }
 
 const DEFAULT_STATE: HUDData = {
@@ -220,6 +225,9 @@ const DEFAULT_STATE: HUDData = {
   devMode: false,
   devSpawningDisabled: false,
   scaryboiIntroActive: false,
+  masonAnnouncementActive: false,
+  masonFightIntroActive: false,
+  masonFinalIntroActive: false,
 };
 
 type Listener = () => void;
@@ -258,6 +266,10 @@ class HUDStateStore {
   private scaryboiIntroAction: ActionHandler | null = null;
   registerScaryboiIntroAction(handler: ActionHandler) { this.scaryboiIntroAction = handler; }
   dispatchScaryboiIntroAction(action: string, payload?: any) { this.scaryboiIntroAction?.(action, payload); }
+
+  private masonAnnouncementAction: ActionHandler | null = null;
+  registerMasonAnnouncementAction(handler: ActionHandler) { this.masonAnnouncementAction = handler; }
+  dispatchMasonAnnouncementAction(action: string, payload?: any) { this.masonAnnouncementAction?.(action, payload); }
 
   /** Called by Phaser every frame (or on change) to push new state */
   update(partial: Partial<HUDData>) {

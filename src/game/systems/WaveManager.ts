@@ -102,6 +102,12 @@ export class WaveManager {
   private bossTotalHp = 1200;
   private bossAppearances: number[] = [];
 
+  // MASON — scripted villain tracking
+  private masonActive = false;
+  private masonEnemy: Enemy | null = null;
+  private masonDamageTaken = 0;
+  private masonFinalFightStarted = false;
+
   // Persistent dog pack system
   private dogs: Enemy[] = [];
   private dogRespawnQueue: number[] = []; // timestamps when each dead dog can respawn
@@ -114,6 +120,13 @@ export class WaveManager {
   onStateChange?: (state: WaveState) => void;
   onBossFlee?: () => void;
   onBossFirstSpawn?: () => void;
+
+  // MASON callbacks
+  onMasonAnnouncement?: () => void;
+  onMasonFirstSpawn?: () => void;
+  onMasonFinalFight?: () => void;
+  onMasonFlee?: () => void;
+  onMasonDefeated?: () => void;
 
   constructor(config: WaveManagerConfig) {
     this.scene = config.scene;
@@ -149,6 +162,11 @@ export class WaveManager {
           this.checkBossFlee();
         }
 
+        // Check MASON flee condition (brief encounter only)
+        if (this.masonActive && this.masonEnemy) {
+          this.checkMasonFlee();
+        }
+
         // All spawned? Transition to clearing
         if (this.enemiesToSpawn <= 0) {
           this.setState("clearing");
@@ -164,6 +182,11 @@ export class WaveManager {
         // Check SCARYBOI flee condition
         if (this.bossActive && this.bossEnemy) {
           this.checkBossFlee();
+        }
+
+        // Check MASON flee condition (brief encounter only)
+        if (this.masonActive && this.masonEnemy) {
+          this.checkMasonFlee();
         }
 
         // Round-blocking enemies: zombies and bosses only
@@ -206,6 +229,13 @@ export class WaveManager {
   onBossDamaged(amount: number) {
     if (this.bossActive) {
       this.bossDamageTaken += amount;
+    }
+  }
+
+  /** Track damage dealt to MASON — only matters for brief encounter flee */
+  onMasonDamaged(amount: number) {
+    if (this.masonActive) {
+      this.masonDamageTaken += amount;
     }
   }
 
@@ -306,6 +336,121 @@ export class WaveManager {
     });
   }
 
+  /** Check if MASON should flee (brief encounter wave 10 only) */
+  private checkMasonFlee() {
+    if (!this.masonEnemy || !this.masonActive) return;
+
+    // If mason actually died, handle defeat
+    if (this.masonEnemy.dying || !this.masonEnemy.active) {
+      this.masonActive = false;
+      this.masonEnemy = null;
+      this.onMasonDefeated?.();
+      return;
+    }
+
+    // Brief encounter: flee after threshold damage
+    const isBrief = this.masonEnemy.masonBriefEncounter;
+    if (isBrief) {
+      const threshold = (BALANCE.enemies as any).mason.briefEncounterFleeThreshold;
+      if (this.masonDamageTaken >= threshold) {
+        this.makeMasonFlee();
+      }
+    }
+  }
+
+  private makeMasonFlee() {
+    if (!this.masonEnemy || !this.masonEnemy.active) return;
+
+    const mason = this.masonEnemy;
+    mason.fleeing = true;
+    mason.body.setCollideWorldBounds(false);
+
+    // Flee to nearest map edge
+    const distToLeft = mason.x;
+    const distToRight = SURFACE_WIDTH - mason.x;
+    const distToTop = mason.y;
+    const distToBottom = MAP_HEIGHT - mason.y;
+    const minEdgeDist = Math.min(distToLeft, distToRight, distToTop, distToBottom);
+    let fleeAngle: number;
+    if (minEdgeDist === distToLeft) fleeAngle = Math.PI;
+    else if (minEdgeDist === distToRight) fleeAngle = 0;
+    else if (minEdgeDist === distToTop) fleeAngle = -Math.PI / 2;
+    else fleeAngle = Math.PI / 2;
+
+    const fleeSpeed = 350;
+    mason.body.setVelocity(
+      Math.cos(fleeAngle) * fleeSpeed,
+      Math.sin(fleeAngle) * fleeSpeed
+    );
+
+    this.masonActive = false;
+    this.masonEnemy = null;
+    this.onMasonFlee?.();
+
+    // Poll every 100ms: destroy mason once off screen
+    const checkOffscreen = this.scene.time.addEvent({
+      delay: 100,
+      loop: true,
+      callback: () => {
+        if (!mason.active) { checkOffscreen.destroy(); return; }
+        const cam = this.scene.cameras.main;
+        const halfW = (cam.width / cam.zoom) / 2;
+        const halfH = (cam.height / cam.zoom) / 2;
+        const mx = cam.midPoint.x;
+        const my = cam.midPoint.y;
+        const margin = 60;
+        const offscreen =
+          mason.x < mx - halfW - margin ||
+          mason.x > mx + halfW + margin ||
+          mason.y < my - halfH - margin ||
+          mason.y > my + halfH + margin;
+        if (offscreen) {
+          checkOffscreen.destroy();
+          mason.destroy();
+        }
+      },
+    });
+
+    this.scene.time.delayedCall(8000, () => {
+      if (mason.active) {
+        checkOffscreen.destroy();
+        mason.destroy();
+      }
+    });
+  }
+
+  /** Spawn MASON — briefEncounter=true for wave 10 (flees after threshold) */
+  private spawnMason(briefEncounter: boolean) {
+    const pos = this.getPlayerPos();
+    const farPoints = DOG_SPAWN_POINTS.filter(s => {
+      const d = Phaser.Math.Distance.Between(pos.x, pos.y, s.x, s.y);
+      return d > 400 && !isExcluded(s.x, s.y) && !this.isGated(s.x, s.y);
+    });
+    let spawn: { x: number; y: number };
+    if (farPoints.length > 0) {
+      spawn = farPoints[Math.floor(Math.random() * farPoints.length)];
+    } else {
+      const anyValid = DOG_SPAWN_POINTS.filter(
+        (s) => !isExcluded(s.x, s.y) && !this.isGated(s.x, s.y)
+      );
+      if (anyValid.length > 0) {
+        spawn = anyValid[Math.floor(Math.random() * anyValid.length)];
+      } else {
+        spawn = this.findAnyValidSurfaceSpawn(pos);
+      }
+    }
+
+    const mason = new Enemy(this.scene, spawn.x, spawn.y, "mason", 1, 1);
+    mason.setMasonBriefEncounter(briefEncounter);
+    mason.body.setCollideWorldBounds(true);
+    this.enemies.add(mason);
+    this.enemiesAlive++;
+
+    this.masonActive = true;
+    this.masonEnemy = mason;
+    this.masonDamageTaken = 0;
+  }
+
   onEnemyKilled() {
     this.enemiesAlive = Math.max(0, this.enemiesAlive - 1);
   }
@@ -335,6 +480,9 @@ export class WaveManager {
     this.enemiesAlive = 0;
     this.bossActive = false;
     this.bossEnemy = null;
+    this.masonActive = false;
+    this.masonEnemy = null;
+    this.masonDamageTaken = 0;
     this.startWave();
   }
 
@@ -441,6 +589,21 @@ export class WaveManager {
       this.spawnBoss();
     }
 
+    // MASON — scripted appearances on fixed waves
+    const masonWaves = (BALANCE.waves as any).masonSpawn;
+    if (this.wave === masonWaves.announcementWave) {
+      this.onMasonAnnouncement?.();
+    }
+    if (this.wave === masonWaves.briefEncounterWave && !this.spawningDisabled) {
+      this.spawnMason(true);
+      this.onMasonFirstSpawn?.();
+    }
+    if (this.wave === masonWaves.finalFightWave && !this.spawningDisabled) {
+      this.masonFinalFightStarted = true;
+      this.spawnMason(false);
+      this.onMasonFinalFight?.();
+    }
+
     // Spawn fresh dog pack at wave start
     if (!this.spawningDisabled) {
       this.spawnDogPack();
@@ -537,6 +700,14 @@ export class WaveManager {
     // If SCARYBOI is still active at wave end, make him flee
     if (this.bossActive && this.bossEnemy && this.bossEnemy.active) {
       this.makeBossFlee();
+    }
+
+    // If MASON brief encounter is still active at wave end, make him flee
+    if (this.masonActive && this.masonEnemy && this.masonEnemy.active) {
+      const isBrief = this.masonEnemy.masonBriefEncounter;
+      if (isBrief) {
+        this.makeMasonFlee();
+      }
     }
 
     // Clear all dogs at round end — they'll be freshly spawned at next wave start
@@ -768,6 +939,10 @@ export class WaveManager {
 
   /** Dev: spawn a specific enemy type at a random edge position */
   devSpawnEnemy(type: EnemyType, count: number = 1) {
+    if (type === "mason") {
+      this.spawnMason(false);
+      return;
+    }
     for (let i = 0; i < count; i++) {
       const pos = this.getPlayerPos();
       const cam = this.scene.cameras.main;

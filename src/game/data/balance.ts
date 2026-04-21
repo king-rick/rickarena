@@ -57,12 +57,18 @@ export const BALANCE = {
       firstEligibleWave: 5,
       fleeThreshold: 300, // damage taken this encounter before he retreats
     },
+    // MASON — main villain, scripted appearances on specific waves
+    masonSpawn: {
+      announcementWave: 5,    // cutscene only, no fight
+      briefEncounterWave: 10, // spawns but flees after taking briefEncounterFleeThreshold
+      finalFightWave: 15,     // full fight, no retreat
+    },
   },
 
   // Economy — tight early, loosens slightly mid-game
   economy: {
-    killReward: { basic: 12, fast: 10, boss: 100 },
-    xpPerKill: { basic: 10, fast: 8, boss: 100 },
+    killReward: { basic: 12, fast: 10, boss: 100, mason: 500 },
+    xpPerKill: { basic: 10, fast: 8, boss: 100, mason: 500 },
     waveCompletionBonus: { base: 30, perWave: 10 }, // $30 + wave * $10
     priceInflationPerWave: 0.05, // 5% per wave
     interestRate: 0.05, // 5% interest on banked cash per intermission
@@ -254,6 +260,22 @@ export const BALANCE = {
         leapAttack: { damage: 30, range: 250, cooldown: 4000 }, // gap closer
       },
       backflipThreshold: 0.25, // backflips away below 25% HP
+    },
+    mason: {
+      hp: 2500,
+      speed: 35,           // slow menacing walk
+      runSpeed: 65,        // phase 2+ speed
+      rageSpeed: 85,       // phase 3 speed
+      knockbackResist: 0.9,
+      briefEncounterFleeThreshold: 500, // wave 10 encounter flees after this damage
+      attacks: {
+        leadJab:     { damage: 20,  range: 65,  cooldown: 700  },
+        crossPunch:  { damage: 45,  range: 75,  cooldown: 2200, knockback: 150 },
+        throwObject: { damage: 25,  range: 450, cooldown: 3500, projectileSpeed: 280 },
+        fireBreath:  { damage: 40,  range: 120, cooldown: 5000, coneAngle: 60 },
+        jumpAndLand: { damage: 55,  range: 300, cooldown: 6000, landRadius: 80 },
+        boomBox:     { damage: 30,  range: 180, cooldown: 20000 },
+      },
     },
   },
 } as const;

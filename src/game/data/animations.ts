@@ -36,7 +36,17 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "reloading-shotgun", frames: 4 },
     { type: "reloading-smg", frames: 4 },
   ],
-  // mason: temporarily removed from roster (sprite rework)
+  mason: [
+    { type: "breathing-idle", frames: 4 },
+    { type: "walk", frames: 6 },
+    { type: "lead-jab", frames: 3 },
+    { type: "throw-object", frames: 7 },
+    { type: "taking-punch", frames: 6 },
+    { type: "fire-breath", frames: 9 },
+    { type: "jump-and-land", frames: 9 },
+    { type: "boom-box", frames: 17 },
+    { type: "death", frames: 9 },
+  ],
   pj: [
     { type: "walk", frames: 6 },
     { type: "running-6-frames", frames: 6 },

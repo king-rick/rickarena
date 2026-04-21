@@ -4,7 +4,7 @@ import { hasAnimation, getAnimKey } from "../data/animations";
 import { Direction } from "../data/characters";
 import type { Pathfinder } from "../systems/Pathfinder";
 
-export type EnemyType = "basic" | "fast" | "boss";
+export type EnemyType = "basic" | "fast" | "boss" | "mason";
 
 // Exclusion zones — dogs should not roam into buildings or estate interior
 const EXCLUSION_ZONES = [
@@ -39,12 +39,14 @@ const VARIANT_TINTS: Record<EnemyType, number> = {
   basic: 0xffffff,
   fast: 0xffffff,
   boss: 0xffffff,
+  mason: 0xffffff,
 };
 
 const VARIANT_SCALES: Record<EnemyType, number> = {
   basic: 0.28,
   fast: 0.33,
   boss: 0.45,
+  mason: 0.52,
 };
 
 export class Enemy extends Phaser.Physics.Arcade.Sprite {
@@ -110,6 +112,14 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private castingFireball = false;
   private bossRunning = false; // true when in chase speed
 
+  // Mason-specific state
+  private masonPhase: "stalk" | "chase" | "rage" = "stalk";
+  private masonAttackCooldowns: Record<string, number> = {};
+  masonBriefEncounter: boolean = false;
+  private castingFireBreath = false;
+  private jumpingAndLanding = false;
+  private playingBoomBox = false;
+
   constructor(
     scene: Phaser.Scene,
     x: number,
@@ -120,16 +130,17 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     speedTier?: "shamble" | "jog" | "run"
   ) {
     const isBoss = type === "boss";
+    const isMason = type === "mason";
     const isFast = type === "fast";
-    const spriteId = isBoss ? "scaryboi" : isFast ? "zombiedog" : "creepyzombie";
+    const spriteId = isMason ? "mason" : isBoss ? "scaryboi" : isFast ? "zombiedog" : "creepyzombie";
     super(scene, x, y, `${spriteId}-south`);
 
     this.spriteId = spriteId;
     const baseStats = BALANCE.enemies[type];
     this.enemyType = type;
-    this.maxHealth = Math.floor(baseStats.hp * waveMultiplier);
+    this.maxHealth = Math.floor((baseStats as any).hp * waveMultiplier);
     this.health = this.maxHealth;
-    if (isBoss) {
+    if (isMason || isBoss) {
       this.speed = (baseStats as any).speed;
       this.damage = Math.floor((baseStats as any).attacks.crossPunch.damage * waveDamageMultiplier);
     } else if (type === "basic") {
@@ -151,7 +162,10 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.setDepth(5);
 
     // Collision body covering torso + feet for reliable hit detection
-    if (isBoss) {
+    if (isMason) {
+      this.body.setSize(65, 75);
+      this.body.setOffset(50, 50);
+    } else if (isBoss) {
       this.body.setSize(60, 70);
       this.body.setOffset(50, 50);
     } else if (isFast) {
@@ -167,9 +181,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.setTint(this.baseTint);
     }
 
-    // Boss uses different anim names
-    const walkAnim = isBoss ? "running-8-frames" : "walk";
-    const idleAnim = isBoss ? "fight-stance-idle-8-frames" : "walk";
+    // Boss and mason use different anim names
+    const walkAnim = isMason ? "walk" : isBoss ? "running-8-frames" : "walk";
+    const idleAnim = isMason ? "breathing-idle" : isBoss ? "fight-stance-idle-8-frames" : "walk";
     this.walkAnimType = walkAnim;
     this.idleAnimType = idleAnim;
 
@@ -230,14 +244,18 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.hitFlashTimer = 100;
     this.setTint(0xffffff);
 
-    // Notify WaveManager of boss damage for flee threshold tracking
+    // Notify WaveManager of boss/mason damage for flee threshold tracking
     if (this.enemyType === "boss") {
       const wm = (this.scene as any).waveManager;
       wm?.onBossDamaged?.(amount);
     }
+    if (this.enemyType === "mason") {
+      const wm = (this.scene as any).waveManager;
+      wm?.onMasonDamaged?.(amount);
+    }
 
-    // Stun on hit — fast enemies stun longer (fragile), boss resists stun
-    this.stunTimer = this.enemyType === "fast" ? 400 : this.enemyType === "boss" ? 80 : 200;
+    // Stun on hit — fast enemies stun longer (fragile), boss/mason resist stun
+    this.stunTimer = this.enemyType === "fast" ? 400 : (this.enemyType === "boss" || this.enemyType === "mason") ? 80 : 200;
 
     if (this.health <= 0) {
       this.die(source);
@@ -248,6 +266,13 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     if (this.enemyType === "boss" && source === "ranged" && this.hasBeingShotAnim
         && !this.beingShot && !this.biting && !this.leaping && !this.backflipping && !this.castingFireball) {
       this.playBeingShot();
+    }
+
+    // Mason taking-punch stagger (any hit, not during special actions)
+    if (this.enemyType === "mason" && this.hasTakingPunchAnim
+        && !this.takingPunch && !this.biting && !this.castingFireBreath
+        && !this.jumpingAndLanding && !this.playingBoomBox) {
+      this.playTakingPunch();
     }
 
     // Play taking-punch reaction (creepyzombie only, non-lethal hits)
@@ -390,8 +415,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     this.biting = true;
 
-    // Boss uses cross-punch/lead-jab, others use bite/lunge-bite
-    const isBossEnemy = this.enemyType === "boss";
+    // Boss and mason use cross-punch/lead-jab, others use bite/lunge-bite
+    const isBossEnemy = this.enemyType === "boss" || this.enemyType === "mason";
     const useLunge = this.hasLungeBiteAnim && Math.random() < 0.5;
     const animType = isBossEnemy
       ? (useLunge ? "lead-jab" : "cross-punch")
@@ -849,6 +874,401 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
   // ---- End boss AI ----
 
+  // ---- Mason AI ----
+
+  /** Set whether this is a brief encounter (wave 10 — flees after damage threshold) */
+  setMasonBriefEncounter(val: boolean) {
+    this.masonBriefEncounter = val;
+  }
+
+  private canMasonAttack(attackId: string): boolean {
+    return (this.masonAttackCooldowns[attackId] ?? 0) <= 0;
+  }
+
+  /** Mason phase-based combat AI */
+  private updateMason(delta: number, player: any) {
+    const angle = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
+    const dist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
+    const hpPct = this.health / this.maxHealth;
+    const masonStats = (BALANCE.enemies as any).mason;
+
+    // Tick all attack cooldowns
+    for (const key of Object.keys(this.masonAttackCooldowns)) {
+      if (this.masonAttackCooldowns[key] > 0) {
+        this.masonAttackCooldowns[key] -= delta;
+      }
+    }
+
+    // Don't act while mid-animation
+    if (this.castingFireBreath || this.jumpingAndLanding || this.playingBoomBox || this.biting || this.takingPunch) return;
+
+    // Phase transitions based on HP
+    if (hpPct > 0.66) {
+      this.masonPhase = "stalk";
+    } else if (hpPct > 0.33) {
+      this.masonPhase = "chase";
+    } else {
+      this.masonPhase = "rage";
+    }
+
+    // Clamp to map bounds
+    const mapW = (this.scene as any).mapWidth ?? 1920;
+    const mapH = (this.scene as any).mapHeight ?? 1920;
+    const pad = 48;
+    if (this.x < pad || this.x > mapW - pad || this.y < pad || this.y > mapH - pad) {
+      const cx = mapW / 2;
+      const cy = mapH / 2;
+      const toCenter = Phaser.Math.Angle.Between(this.x, this.y, cx, cy);
+      this.body.setVelocity(
+        Math.cos(toCenter) * masonStats.speed,
+        Math.sin(toCenter) * masonStats.speed
+      );
+      return;
+    }
+
+    // Select move speed based on phase
+    const moveSpeed =
+      this.masonPhase === "rage" ? masonStats.rageSpeed :
+      this.masonPhase === "chase" ? masonStats.runSpeed :
+      masonStats.speed;
+
+    switch (this.masonPhase) {
+      case "stalk":
+        // Walk toward player slowly; use melee and throw-object
+        this.body.setVelocity(
+          Math.cos(angle) * moveSpeed,
+          Math.sin(angle) * moveSpeed
+        );
+        if (dist < masonStats.attacks.leadJab.range && this.canMasonAttack("leadJab")) {
+          this.masonMeleeAttack("leadJab", "lead-jab", masonStats.attacks.leadJab.damage);
+          return;
+        }
+        if (dist < masonStats.attacks.crossPunch.range && this.canMasonAttack("crossPunch")) {
+          this.masonMeleeAttack("crossPunch", "cross-punch", masonStats.attacks.crossPunch.damage);
+          return;
+        }
+        if (dist < masonStats.attacks.throwObject.range && dist > 100 && this.canMasonAttack("throwObject")) {
+          this.masonThrowObject(angle, masonStats.attacks.throwObject);
+          return;
+        }
+        break;
+
+      case "chase":
+        // Faster; adds fire-breath and jump-and-land
+        this.body.setVelocity(
+          Math.cos(angle) * moveSpeed,
+          Math.sin(angle) * moveSpeed
+        );
+        if (dist < masonStats.attacks.leadJab.range && this.canMasonAttack("leadJab")) {
+          this.masonMeleeAttack("leadJab", "lead-jab", masonStats.attacks.leadJab.damage);
+          return;
+        }
+        if (dist < masonStats.attacks.crossPunch.range && this.canMasonAttack("crossPunch")) {
+          this.masonMeleeAttack("crossPunch", "cross-punch", masonStats.attacks.crossPunch.damage);
+          return;
+        }
+        if (dist < masonStats.attacks.fireBreath.range && this.canMasonAttack("fireBreath")) {
+          this.masonFireBreath(angle, player, masonStats.attacks.fireBreath);
+          return;
+        }
+        if (dist < masonStats.attacks.jumpAndLand.range && dist > 80 && this.canMasonAttack("jumpAndLand")) {
+          this.masonJumpAndLand(player, masonStats.attacks.jumpAndLand);
+          return;
+        }
+        if (dist < masonStats.attacks.throwObject.range && dist > 100 && this.canMasonAttack("throwObject")) {
+          this.masonThrowObject(angle, masonStats.attacks.throwObject);
+          return;
+        }
+        break;
+
+      case "rage":
+        // Fastest; all attacks including boom-box
+        this.body.setVelocity(
+          Math.cos(angle) * moveSpeed,
+          Math.sin(angle) * moveSpeed
+        );
+        if (dist < masonStats.attacks.leadJab.range && this.canMasonAttack("leadJab")) {
+          this.masonMeleeAttack("leadJab", "lead-jab", masonStats.attacks.leadJab.damage);
+          return;
+        }
+        if (dist < masonStats.attacks.crossPunch.range && this.canMasonAttack("crossPunch")) {
+          this.masonMeleeAttack("crossPunch", "cross-punch", masonStats.attacks.crossPunch.damage);
+          return;
+        }
+        if (dist < masonStats.attacks.fireBreath.range && this.canMasonAttack("fireBreath")) {
+          this.masonFireBreath(angle, player, masonStats.attacks.fireBreath);
+          return;
+        }
+        if (dist < masonStats.attacks.jumpAndLand.range && dist > 80 && this.canMasonAttack("jumpAndLand")) {
+          this.masonJumpAndLand(player, masonStats.attacks.jumpAndLand);
+          return;
+        }
+        if (this.canMasonAttack("boomBox")) {
+          this.masonBoomBox(masonStats.attacks.boomBox);
+          return;
+        }
+        if (dist < masonStats.attacks.throwObject.range && dist > 100 && this.canMasonAttack("throwObject")) {
+          this.masonThrowObject(angle, masonStats.attacks.throwObject);
+          return;
+        }
+        break;
+    }
+  }
+
+  /** Mason melee: play anim, set damage, resume walk on complete */
+  private masonMeleeAttack(attackId: string, animType: string, dmg: number) {
+    this.biting = true;
+    const masonStats = (BALANCE.enemies as any).mason;
+    const cd = masonStats.attacks[attackId]?.cooldown ?? 2000;
+    this.masonAttackCooldowns[attackId] = cd;
+    this.damage = dmg;
+
+    this.body.setVelocity(0, 0);
+    const key = getAnimKey(this.spriteId, animType, this.currentDir);
+    if (this.scene.anims.exists(key)) {
+      this.play(key);
+      this.once("animationcomplete", () => {
+        this.biting = false;
+        if (this.hasWalkAnim && !this.dying) {
+          this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
+        }
+      });
+    } else {
+      this.biting = false;
+    }
+  }
+
+  /** Mason throw-object: play anim, spawn a physics projectile */
+  private masonThrowObject(
+    angle: number,
+    stats: { damage: number; projectileSpeed: number; range: number; cooldown: number }
+  ) {
+    this.biting = true;
+    this.masonAttackCooldowns["throwObject"] = stats.cooldown;
+    this.body.setVelocity(0, 0);
+
+    const key = getAnimKey(this.spriteId, "throw-object", this.currentDir);
+    if (this.scene.anims.exists(key)) {
+      this.play(key);
+    }
+
+    // Spawn projectile partway through animation
+    this.scene.time.delayedCall(350, () => {
+      if (!this.active || this.dying) return;
+      this.spawnMasonProjectile(angle, stats);
+    });
+
+    this.once("animationcomplete", () => {
+      this.biting = false;
+      if (this.hasWalkAnim && !this.dying) {
+        this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
+      }
+    });
+  }
+
+  /** Simple physics projectile for throw-object */
+  private spawnMasonProjectile(
+    angle: number,
+    stats: { damage: number; projectileSpeed: number; range: number }
+  ) {
+    const scene = this.scene;
+    const zone = scene.add.zone(this.x, this.y, 20, 20);
+    scene.physics.add.existing(zone, false);
+    const zBody = zone.body as Phaser.Physics.Arcade.Body;
+    zBody.setVelocity(
+      Math.cos(angle) * stats.projectileSpeed,
+      Math.sin(angle) * stats.projectileSpeed
+    );
+
+    const startX = this.x;
+    const startY = this.y;
+    const dmg = stats.damage;
+
+    const destroyProj = () => {
+      scene.events.off("update", updateHandler);
+      if (zone.active) zone.destroy();
+    };
+
+    const updateHandler = () => {
+      if (!zone.active) return;
+      const traveled = Phaser.Math.Distance.Between(startX, startY, zone.x, zone.y);
+      if (traveled > stats.range || zone.x < 0 || zone.x > 3200 || zone.y < 0 || zone.y > 1920) {
+        destroyProj();
+        return;
+      }
+      const player = (scene as any).player;
+      if ((scene as any).gameOver) { destroyProj(); return; }
+      if (player?.active && !player.invincible) {
+        const d = Phaser.Math.Distance.Between(zone.x, zone.y, player.x, player.y);
+        if (d < 28) {
+          player.stats.health -= dmg;
+          scene.cameras.main.flash(80, 255, 80, 0, false);
+          scene.cameras.main.shake(60, 0.003);
+          (scene as any).playPlayerHurt?.();
+          if (player.stats.health <= 0) {
+            player.stats.health = 0;
+            (scene as any).gameOver = true;
+            player.body.setVelocity(0, 0);
+            player.playDeath?.(() => (scene as any).triggerGameOver?.());
+          }
+          destroyProj();
+        }
+      }
+    };
+
+    scene.events.on("update", updateHandler);
+    scene.time.delayedCall(4000, destroyProj);
+  }
+
+  /** Mason fire-breath: play anim, then AoE cone damage in front */
+  private masonFireBreath(
+    angle: number,
+    player: any,
+    stats: { damage: number; range: number; cooldown: number; coneAngle: number }
+  ) {
+    this.castingFireBreath = true;
+    this.masonAttackCooldowns["fireBreath"] = stats.cooldown;
+    this.body.setVelocity(0, 0);
+
+    const key = getAnimKey(this.spriteId, "fire-breath", this.currentDir);
+    if (this.scene.anims.exists(key)) {
+      this.play(key);
+    }
+
+    // Apply cone damage partway through animation (frame ~5 of 9)
+    this.scene.time.delayedCall(500, () => {
+      if (!this.active || this.dying) return;
+      const pDist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
+      if (pDist > stats.range) return;
+      if ((this.scene as any).gameOver) return;
+
+      // Cone check: player must be within coneAngle/2 degrees of facing angle
+      const toPlayer = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
+      let angleDiff = Math.abs(Phaser.Math.Angle.Wrap(toPlayer - angle));
+      if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
+      const halfCone = Phaser.Math.DegToRad(stats.coneAngle / 2);
+
+      if (angleDiff <= halfCone && !player.invincible) {
+        player.stats.health -= stats.damage;
+        this.scene.cameras.main.flash(120, 255, 120, 0, false);
+        this.scene.cameras.main.shake(90, 0.005);
+        (this.scene as any).playPlayerHurt?.();
+        if (player.stats.health <= 0) {
+          player.stats.health = 0;
+          (this.scene as any).gameOver = true;
+          player.body.setVelocity(0, 0);
+          player.playDeath?.(() => (this.scene as any).triggerGameOver?.());
+        }
+      }
+    });
+
+    this.once("animationcomplete", () => {
+      this.castingFireBreath = false;
+      if (this.hasWalkAnim && !this.dying) {
+        this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
+      }
+    });
+  }
+
+  /** Mason jump-and-land: play anim, tween toward player, AoE on land */
+  private masonJumpAndLand(
+    player: any,
+    stats: { damage: number; landRadius: number; cooldown: number }
+  ) {
+    this.jumpingAndLanding = true;
+    this.masonAttackCooldowns["jumpAndLand"] = stats.cooldown;
+    this.body.setVelocity(0, 0);
+
+    const targetX = player.x + (Math.random() - 0.5) * 40;
+    const targetY = player.y + (Math.random() - 0.5) * 40;
+
+    const key = getAnimKey(this.spriteId, "jump-and-land", this.currentDir);
+    if (this.scene.anims.exists(key)) {
+      this.play(key);
+    }
+
+    // Tween toward player landing position — arrives around frame 7 of 9
+    const landDelay = 700; // ms before "landing"
+    this.scene.tweens.add({
+      targets: this,
+      x: targetX,
+      y: targetY,
+      duration: landDelay,
+      ease: "Sine.easeIn",
+    });
+
+    // AoE damage on landing
+    this.scene.time.delayedCall(landDelay, () => {
+      if (!this.active || this.dying) return;
+      if ((this.scene as any).gameOver) return;
+      const pDist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
+      if (pDist <= stats.landRadius && !player.invincible) {
+        player.stats.health -= stats.damage;
+        this.scene.cameras.main.flash(150, 255, 100, 0, false);
+        this.scene.cameras.main.shake(120, 0.008);
+        (this.scene as any).playPlayerHurt?.();
+        if (player.stats.health <= 0) {
+          player.stats.health = 0;
+          (this.scene as any).gameOver = true;
+          player.body.setVelocity(0, 0);
+          player.playDeath?.(() => (this.scene as any).triggerGameOver?.());
+        }
+      }
+    });
+
+    this.once("animationcomplete", () => {
+      this.jumpingAndLanding = false;
+      if (this.hasWalkAnim && !this.dying) {
+        this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
+      }
+    });
+  }
+
+  /** Mason boom-box: long animation, radial shockwave on completion, speed boost to nearby enemies */
+  private masonBoomBox(stats: { damage: number; range: number; cooldown: number }) {
+    this.playingBoomBox = true;
+    this.masonAttackCooldowns["boomBox"] = stats.cooldown;
+    this.body.setVelocity(0, 0);
+
+    const key = getAnimKey(this.spriteId, "boom-box", this.currentDir);
+    if (this.scene.anims.exists(key)) {
+      this.play(key);
+    }
+
+    this.once("animationcomplete", () => {
+      this.playingBoomBox = false;
+
+      if (this.dying || !this.active) return;
+
+      // Deal radial damage to player if in range
+      const player = (this.scene as any).player as any;
+      if (player?.active && !(this.scene as any).gameOver && !player.invincible) {
+        const dist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
+        if (dist <= stats.range) {
+          player.stats.health -= stats.damage;
+          this.scene.cameras.main.flash(200, 180, 0, 255, false);
+          this.scene.cameras.main.shake(200, 0.010);
+          (this.scene as any).playPlayerHurt?.();
+          if (player.stats.health <= 0) {
+            player.stats.health = 0;
+            (this.scene as any).gameOver = true;
+            player.body.setVelocity(0, 0);
+            player.playDeath?.(() => (this.scene as any).triggerGameOver?.());
+          }
+        }
+      }
+
+      // Emit event so WaveManager can give nearby enemies a temporary speed boost
+      this.scene.events.emit("masonBoomBoxShockwave", { x: this.x, y: this.y, range: stats.range });
+
+      if (this.hasWalkAnim && !this.dying) {
+        this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
+      }
+    });
+  }
+
+  // ---- End mason AI ----
+
   // ---- Dog pack AI ----
 
   /** Dog AI: roam freely, aggro when player is spotted, pack with nearby dogs */
@@ -1124,6 +1544,14 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       return;
     }
 
+    // Mason uses its own AI system
+    if (this.enemyType === "mason" && this.stunTimer <= 0) {
+      this.updateMason(delta, player);
+      this.updateDirection(player);
+      this.updateVisuals(delta);
+      return;
+    }
+
     // Dogs use pack roaming AI
     if (this.enemyType === "fast") {
       this.updateDog(delta, player);
@@ -1255,7 +1683,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     const newDir = angleToDirection(angle) as Direction;
     if (newDir !== this.currentDir) {
       this.currentDir = newDir;
-      if (!this.biting && !this.leaping && !this.takingPunch && !this.backflipping && !this.castingFireball && !this.beingShot && !this.howling) {
+      if (!this.biting && !this.leaping && !this.takingPunch && !this.backflipping && !this.castingFireball && !this.beingShot && !this.howling && !this.castingFireBreath && !this.jumpingAndLanding && !this.playingBoomBox) {
         if (this.hasWalkAnim) {
           this.play(getAnimKey(this.spriteId, this.walkAnimType, newDir), true);
         } else {
@@ -1285,7 +1713,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     // Health bar (only when damaged)
     this.healthBarGfx.clear();
     if (this.health < this.maxHealth) {
-      const isBoss = this.enemyType === "boss";
+      const isBoss = this.enemyType === "boss" || this.enemyType === "mason";
       const barW = isBoss ? 40 : 24;
       const barH = isBoss ? 4 : 2;
       const barX = this.x - barW / 2;

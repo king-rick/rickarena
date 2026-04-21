@@ -9,6 +9,7 @@ const ENEMY_TYPES = [
   { id: "basic", label: "Zombie", color: "#55cc55" },
   { id: "fast", label: "Zombie Dog", color: "#55aaff" },
   { id: "boss", label: "SCARYBOI", color: "#ff4400" },
+  { id: "mason", label: "MASON", color: "#cc44ff" },
 ] as const;
 
 export const DevPanel = memo(function DevPanel() {
@@ -17,7 +18,7 @@ export const DevPanel = memo(function DevPanel() {
   const wave = useSyncExternalStore(hudState.subscribe, () => hudState.getField("wave"));
   const spawningDisabled = useSyncExternalStore(hudState.subscribe, () => hudState.getField("devSpawningDisabled"));
 
-  const [spawnCounts, setSpawnCounts] = useState<Record<string, number>>({ basic: 1, fast: 1, boss: 1 });
+  const [spawnCounts, setSpawnCounts] = useState<Record<string, number>>({ basic: 1, fast: 1, boss: 1, mason: 1 });
   const [jumpWave, setJumpWave] = useState(1);
 
   // Close on Escape

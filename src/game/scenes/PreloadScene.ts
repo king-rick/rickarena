@@ -68,7 +68,19 @@ export class PreloadScene extends Phaser.Scene {
         `zombiedog-${dir}`,
         `/assets/sprites/zombiedog/rotations/${dir}.png`
       );
+      this.load.image(
+        `mason-${dir}`,
+        `/assets/sprites/mason/rotations/${dir}.png`
+      );
     }
+
+    // Generator + machine props (on/off states)
+    this.load.image("generator-on", "/assets/sprites/generator.png");
+    this.load.image("generator-off", "/assets/sprites/generator-off.png");
+    this.load.image("machine-zyn-on", "/assets/sprites/machine-zyn.png");
+    this.load.image("machine-zyn-off", "/assets/sprites/machine-zyn-off.png");
+    this.load.image("machine-keg-on", "/assets/sprites/machine-keg.png");
+    this.load.image("machine-keg-off", "/assets/sprites/machine-keg-off.png");
 
     // Tiles
     this.load.image("grass-tile", "/assets/sprites/tiles/grass-patch.png");
@@ -304,6 +316,9 @@ export class PreloadScene extends Phaser.Scene {
           else if (anim.type === "walk-6-frames") frameRate = 10;
           else if (anim.type === "running") frameRate = 14;
           else if (anim.type === "being-shot") frameRate = 12;
+          else if (anim.type === "fire-breath") frameRate = 10;
+          else if (anim.type === "jump-and-land") frameRate = 10;
+          else if (anim.type === "boom-box") frameRate = 10;
 
           this.anims.create({
             key: animKey,
