@@ -36,9 +36,20 @@ export interface GatedZone {
 
 const GATED_ZONES: GatedZone[] = [
   // Left side of map — gated by the Gate ($300)
-  { label: "Gate", x: 0, y: 0, w: 620, h: 1920 },
+  { label: "Gate", x: 0, y: 0, w: 672, h: 1920 },
   // Upper/estate area — gated by Estate Entrance ($500)
   { label: "Estate Entrance", x: 620, y: 0, w: 1300, h: 1100 },
+];
+
+// ─── Room zones — detect player camping in enclosed areas ───
+// When the player stays in a room, flanking zombies spawn at entrance points
+const ROOM_ZONES = [
+  { label: "NW Building", x: 50, y: 50, w: 280, h: 500,
+    entrances: [{ x: 190, y: 570 }] },
+  { label: "SW Building", x: 10, y: 1170, w: 520, h: 480,
+    entrances: [{ x: 383, y: 1155 }] },
+  { label: "Estate", x: 920, y: 60, w: 890, h: 980,
+    entrances: [{ x: 1058, y: 1060 }] },
 ];
 
 // Dog spawn points — spread across the map edges (used by dog manager)
@@ -102,17 +113,21 @@ export class WaveManager {
   private bossTotalHp = 1200;
   private bossAppearances: number[] = [];
 
-  // MASON — scripted villain tracking
-  private masonActive = false;
-  private masonEnemy: Enemy | null = null;
-  private masonDamageTaken = 0;
-  private masonFinalFightStarted = false;
 
   // Persistent dog pack system
   private dogs: Enemy[] = [];
   private dogRespawnQueue: number[] = []; // timestamps when each dead dog can respawn
   private isFieldTile: (tileX: number, tileY: number) => boolean;
   private isDoorOpen: (label: string) => boolean;
+
+  // Room pressure — flanking spawns when player camps in a room
+  playerInRoom = false;
+  private roomTimer = 0; // ms player has been in a room
+  private roomFlankTimer = 0; // ms until next flanking spawn burst
+  private currentRoom: typeof ROOM_ZONES[number] | null = null;
+  private readonly ROOM_FLANK_DELAY = 8000; // 8s before first flank spawns
+  private readonly ROOM_FLANK_INTERVAL = 12000; // 12s between flank bursts
+  private readonly ROOM_FLANK_COUNT = 2; // zombies per flank burst
 
   // Callbacks
   onWaveStart?: (wave: number) => void;
@@ -121,12 +136,6 @@ export class WaveManager {
   onBossFlee?: () => void;
   onBossFirstSpawn?: () => void;
 
-  // MASON callbacks
-  onMasonAnnouncement?: () => void;
-  onMasonFirstSpawn?: () => void;
-  onMasonFinalFight?: () => void;
-  onMasonFlee?: () => void;
-  onMasonDefeated?: () => void;
 
   constructor(config: WaveManagerConfig) {
     this.scene = config.scene;
@@ -140,6 +149,9 @@ export class WaveManager {
   update(delta: number) {
     // Maintain persistent dog pack (always running, even during intermission)
     this.updateDogs(delta);
+
+    // Room pressure — detect player camping and spawn flanking zombies
+    this.updateRoomPressure(delta);
 
     switch (this.state) {
       case "pre_game":
@@ -162,11 +174,6 @@ export class WaveManager {
           this.checkBossFlee();
         }
 
-        // Check MASON flee condition (brief encounter only)
-        if (this.masonActive && this.masonEnemy) {
-          this.checkMasonFlee();
-        }
-
         // All spawned? Transition to clearing
         if (this.enemiesToSpawn <= 0) {
           this.setState("clearing");
@@ -182,11 +189,6 @@ export class WaveManager {
         // Check SCARYBOI flee condition
         if (this.bossActive && this.bossEnemy) {
           this.checkBossFlee();
-        }
-
-        // Check MASON flee condition (brief encounter only)
-        if (this.masonActive && this.masonEnemy) {
-          this.checkMasonFlee();
         }
 
         // Round-blocking enemies: zombies and bosses only
@@ -232,12 +234,6 @@ export class WaveManager {
     }
   }
 
-  /** Track damage dealt to MASON — only matters for brief encounter flee */
-  onMasonDamaged(amount: number) {
-    if (this.masonActive) {
-      this.masonDamageTaken += amount;
-    }
-  }
 
   /** Check if SCARYBOI should flee this encounter */
   private checkBossFlee() {
@@ -336,120 +332,6 @@ export class WaveManager {
     });
   }
 
-  /** Check if MASON should flee (brief encounter wave 10 only) */
-  private checkMasonFlee() {
-    if (!this.masonEnemy || !this.masonActive) return;
-
-    // If mason actually died, handle defeat
-    if (this.masonEnemy.dying || !this.masonEnemy.active) {
-      this.masonActive = false;
-      this.masonEnemy = null;
-      this.onMasonDefeated?.();
-      return;
-    }
-
-    // Brief encounter: flee after threshold damage
-    const isBrief = this.masonEnemy.masonBriefEncounter;
-    if (isBrief) {
-      const threshold = (BALANCE.enemies as any).mason.briefEncounterFleeThreshold;
-      if (this.masonDamageTaken >= threshold) {
-        this.makeMasonFlee();
-      }
-    }
-  }
-
-  private makeMasonFlee() {
-    if (!this.masonEnemy || !this.masonEnemy.active) return;
-
-    const mason = this.masonEnemy;
-    mason.fleeing = true;
-    mason.body.setCollideWorldBounds(false);
-
-    // Flee to nearest map edge
-    const distToLeft = mason.x;
-    const distToRight = SURFACE_WIDTH - mason.x;
-    const distToTop = mason.y;
-    const distToBottom = MAP_HEIGHT - mason.y;
-    const minEdgeDist = Math.min(distToLeft, distToRight, distToTop, distToBottom);
-    let fleeAngle: number;
-    if (minEdgeDist === distToLeft) fleeAngle = Math.PI;
-    else if (minEdgeDist === distToRight) fleeAngle = 0;
-    else if (minEdgeDist === distToTop) fleeAngle = -Math.PI / 2;
-    else fleeAngle = Math.PI / 2;
-
-    const fleeSpeed = 350;
-    mason.body.setVelocity(
-      Math.cos(fleeAngle) * fleeSpeed,
-      Math.sin(fleeAngle) * fleeSpeed
-    );
-
-    this.masonActive = false;
-    this.masonEnemy = null;
-    this.onMasonFlee?.();
-
-    // Poll every 100ms: destroy mason once off screen
-    const checkOffscreen = this.scene.time.addEvent({
-      delay: 100,
-      loop: true,
-      callback: () => {
-        if (!mason.active) { checkOffscreen.destroy(); return; }
-        const cam = this.scene.cameras.main;
-        const halfW = (cam.width / cam.zoom) / 2;
-        const halfH = (cam.height / cam.zoom) / 2;
-        const mx = cam.midPoint.x;
-        const my = cam.midPoint.y;
-        const margin = 60;
-        const offscreen =
-          mason.x < mx - halfW - margin ||
-          mason.x > mx + halfW + margin ||
-          mason.y < my - halfH - margin ||
-          mason.y > my + halfH + margin;
-        if (offscreen) {
-          checkOffscreen.destroy();
-          mason.destroy();
-        }
-      },
-    });
-
-    this.scene.time.delayedCall(8000, () => {
-      if (mason.active) {
-        checkOffscreen.destroy();
-        mason.destroy();
-      }
-    });
-  }
-
-  /** Spawn MASON — briefEncounter=true for wave 10 (flees after threshold) */
-  private spawnMason(briefEncounter: boolean) {
-    const pos = this.getPlayerPos();
-    const farPoints = DOG_SPAWN_POINTS.filter(s => {
-      const d = Phaser.Math.Distance.Between(pos.x, pos.y, s.x, s.y);
-      return d > 400 && !isExcluded(s.x, s.y) && !this.isGated(s.x, s.y);
-    });
-    let spawn: { x: number; y: number };
-    if (farPoints.length > 0) {
-      spawn = farPoints[Math.floor(Math.random() * farPoints.length)];
-    } else {
-      const anyValid = DOG_SPAWN_POINTS.filter(
-        (s) => !isExcluded(s.x, s.y) && !this.isGated(s.x, s.y)
-      );
-      if (anyValid.length > 0) {
-        spawn = anyValid[Math.floor(Math.random() * anyValid.length)];
-      } else {
-        spawn = this.findAnyValidSurfaceSpawn(pos);
-      }
-    }
-
-    const mason = new Enemy(this.scene, spawn.x, spawn.y, "mason", 1, 1);
-    mason.setMasonBriefEncounter(briefEncounter);
-    mason.body.setCollideWorldBounds(true);
-    this.enemies.add(mason);
-    this.enemiesAlive++;
-
-    this.masonActive = true;
-    this.masonEnemy = mason;
-    this.masonDamageTaken = 0;
-  }
 
   onEnemyKilled() {
     this.enemiesAlive = Math.max(0, this.enemiesAlive - 1);
@@ -480,9 +362,6 @@ export class WaveManager {
     this.enemiesAlive = 0;
     this.bossActive = false;
     this.bossEnemy = null;
-    this.masonActive = false;
-    this.masonEnemy = null;
-    this.masonDamageTaken = 0;
     this.startWave();
   }
 
@@ -589,20 +468,6 @@ export class WaveManager {
       this.spawnBoss();
     }
 
-    // MASON — scripted appearances on fixed waves
-    const masonWaves = (BALANCE.waves as any).masonSpawn;
-    if (this.wave === masonWaves.announcementWave) {
-      this.onMasonAnnouncement?.();
-    }
-    if (this.wave === masonWaves.briefEncounterWave && !this.spawningDisabled) {
-      this.spawnMason(true);
-      this.onMasonFirstSpawn?.();
-    }
-    if (this.wave === masonWaves.finalFightWave && !this.spawningDisabled) {
-      this.masonFinalFightStarted = true;
-      this.spawnMason(false);
-      this.onMasonFinalFight?.();
-    }
 
     // Spawn fresh dog pack at wave start
     if (!this.spawningDisabled) {
@@ -700,14 +565,6 @@ export class WaveManager {
     // If SCARYBOI is still active at wave end, make him flee
     if (this.bossActive && this.bossEnemy && this.bossEnemy.active) {
       this.makeBossFlee();
-    }
-
-    // If MASON brief encounter is still active at wave end, make him flee
-    if (this.masonActive && this.masonEnemy && this.masonEnemy.active) {
-      const isBrief = this.masonEnemy.masonBriefEncounter;
-      if (isBrief) {
-        this.makeMasonFlee();
-      }
     }
 
     // Clear all dogs at round end — they'll be freshly spawned at next wave start
@@ -812,13 +669,21 @@ export class WaveManager {
 
   // ─── Dog Pack System (spawn at wave start, clear at wave end) ───
 
+  /** Effective dog cap: 4 before Gate opens, full maxOnMap after */
+  private getEffectiveDogCap(): number {
+    const dogStats = BALANCE.enemies.fast as any;
+    const maxDogs = dogStats.maxOnMap ?? 5;
+    if (!this.isDoorOpen("Gate")) return Math.min(maxDogs, 4);
+    return maxDogs;
+  }
+
   /** During active waves, respawn dead dogs after delay up to max */
   private updateDogs(delta: number) {
     if (this.spawningDisabled) return;
     if (this.state !== "active" && this.state !== "clearing") return;
 
     const dogStats = BALANCE.enemies.fast as any;
-    const maxDogs = dogStats.maxOnMap ?? 5;
+    const maxDogs = this.getEffectiveDogCap();
     const respawnMs = dogStats.respawnMs ?? 15000;
     const now = this.scene.time.now;
 
@@ -853,8 +718,7 @@ export class WaveManager {
 
   /** Spawn a full pack of dogs at random field positions */
   private spawnDogPack() {
-    const dogStats = BALANCE.enemies.fast as any;
-    const maxDogs = dogStats.maxOnMap ?? 5;
+    const maxDogs = this.getEffectiveDogCap();
     for (let i = 0; i < maxDogs; i++) {
       this.spawnDog();
     }
@@ -902,13 +766,77 @@ export class WaveManager {
   }
 
   /** Check if a position is in a gated zone whose door is still closed */
-  private isGated(x: number, y: number): boolean {
+  isGated(x: number, y: number): boolean {
     for (const zone of GATED_ZONES) {
       if (x >= zone.x && x <= zone.x + zone.w && y >= zone.y && y <= zone.y + zone.h) {
         if (!this.isDoorOpen(zone.label)) return true;
       }
     }
     return false;
+  }
+
+  /** Room pressure — when player camps in a room, spawn flanking zombies at entrances */
+  private updateRoomPressure(delta: number) {
+    // Only during active combat
+    if (this.state !== "active" && this.state !== "clearing") {
+      this.playerInRoom = false;
+      this.roomTimer = 0;
+      this.currentRoom = null;
+      return;
+    }
+
+    const pos = this.getPlayerPos();
+
+    // Check if player is inside any room zone
+    let inRoom: typeof ROOM_ZONES[number] | null = null;
+    for (const room of ROOM_ZONES) {
+      if (pos.x >= room.x && pos.x <= room.x + room.w &&
+          pos.y >= room.y && pos.y <= room.y + room.h) {
+        inRoom = room;
+        break;
+      }
+    }
+
+    if (inRoom) {
+      this.playerInRoom = true;
+      if (this.currentRoom !== inRoom) {
+        // Entered a new room — reset timers
+        this.currentRoom = inRoom;
+        this.roomTimer = 0;
+        this.roomFlankTimer = this.ROOM_FLANK_DELAY;
+      }
+      this.roomTimer += delta;
+      this.roomFlankTimer -= delta;
+
+      // After delay, spawn flanking zombies at the room entrance(s)
+      if (this.roomFlankTimer <= 0 && !this.spawningDisabled) {
+        this.roomFlankTimer = this.ROOM_FLANK_INTERVAL;
+        this.spawnFlankingZombies(inRoom);
+      }
+    } else {
+      this.playerInRoom = false;
+      this.roomTimer = 0;
+      this.currentRoom = null;
+    }
+  }
+
+  /** Spawn a burst of zombies at a room's entrance points */
+  private spawnFlankingZombies(room: typeof ROOM_ZONES[number]) {
+    const hpMult = this.getWaveHpMultiplier();
+    const dmgMult = this.getWaveDamageMultiplier();
+
+    for (const entrance of room.entrances) {
+      for (let i = 0; i < this.ROOM_FLANK_COUNT; i++) {
+        // Spread around the entrance point
+        const sx = entrance.x + (Math.random() - 0.5) * 60;
+        const sy = entrance.y + (Math.random() - 0.5) * 40;
+        const speedTier = this.getZombieSpeedTier();
+        const enemy = new Enemy(this.scene, sx, sy, "basic", hpMult, dmgMult, speedTier);
+        enemy.body.setCollideWorldBounds(true);
+        this.enemies.add(enemy);
+        this.enemiesAlive++;
+      }
+    }
   }
 
   /**
@@ -939,10 +867,6 @@ export class WaveManager {
 
   /** Dev: spawn a specific enemy type at a random edge position */
   devSpawnEnemy(type: EnemyType, count: number = 1) {
-    if (type === "mason") {
-      this.spawnMason(false);
-      return;
-    }
     for (let i = 0; i < count; i++) {
       const pos = this.getPlayerPos();
       const cam = this.scene.cameras.main;

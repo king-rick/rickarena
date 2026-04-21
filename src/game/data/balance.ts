@@ -57,12 +57,6 @@ export const BALANCE = {
       firstEligibleWave: 5,
       fleeThreshold: 300, // damage taken this encounter before he retreats
     },
-    // MASON — main villain, scripted appearances on specific waves
-    masonSpawn: {
-      announcementWave: 5,    // cutscene only, no fight
-      briefEncounterWave: 10, // spawns but flees after taking briefEncounterFleeThreshold
-      finalFightWave: 15,     // full fight, no retreat
-    },
   },
 
   // Economy — tight early, loosens slightly mid-game
@@ -108,6 +102,7 @@ export const BALANCE = {
       proficiency: "Pistols",
       dropoff: 0,
       auto: false,
+      knockback: 0,
     },
     shotgun: {
       name: "Shotgun",
@@ -142,6 +137,7 @@ export const BALANCE = {
       dropoff: 0.7, // more dropoff at range
       closeRangeBonus: 1.4, // 40% more damage at point blank, scales down to 1.0 at mid-range
       auto: true,
+      knockback: 20,
     },
   },
   proficiencyBonus: {
@@ -263,18 +259,13 @@ export const BALANCE = {
     },
     mason: {
       hp: 2500,
-      speed: 35,           // slow menacing walk
-      runSpeed: 65,        // phase 2+ speed
-      rageSpeed: 85,       // phase 3 speed
-      knockbackResist: 0.9,
-      briefEncounterFleeThreshold: 500, // wave 10 encounter flees after this damage
+      speed: 35,           // slow menacing walk (only moves when player is off-screen)
+      knockbackResist: 0.98,
       attacks: {
         leadJab:     { damage: 20,  range: 65,  cooldown: 700  },
-        crossPunch:  { damage: 45,  range: 75,  cooldown: 2200, knockback: 150 },
-        throwObject: { damage: 25,  range: 450, cooldown: 3500, projectileSpeed: 280 },
         fireBreath:  { damage: 40,  range: 120, cooldown: 5000, coneAngle: 60 },
         jumpAndLand: { damage: 55,  range: 300, cooldown: 6000, landRadius: 80 },
-        boomBox:     { damage: 30,  range: 180, cooldown: 20000 },
+        boomBox:     { damage: 30,  range: 250, cooldown: 15000 },
       },
     },
   },

@@ -35,7 +35,9 @@ export class GameScene extends Phaser.Scene {
   private gameOver = false;
   private paused = false;
   private scaryboiIntroActive = false;
-  private masonCutsceneActive = false;
+  private masonIntroActive = false;
+  private masonTriggered = false; // true once Mason intro has fired (one-time)
+  private masonEnemy: Enemy | null = null; // reference to Mason entity
   private damageBoostActive = false;
   private baseDamage = 0;
 
@@ -595,7 +597,7 @@ export class GameScene extends Phaser.Scene {
         Phaser.Input.Keyboard.KeyCodes.SPACE
       );
       space.on("down", () => {
-        if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonCutsceneActive) return;
+        if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonIntroActive) return;
         if (this.levelUpActive) return; // Don't punch while picking buffs
         if (this.waveManager.state === "pre_game") {
           this.waveManager.skipPreGame();
@@ -707,7 +709,7 @@ export class GameScene extends Phaser.Scene {
         Phaser.Input.Keyboard.KeyCodes.B
       );
       bKey.on("down", () => {
-        if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonCutsceneActive) return;
+        if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonIntroActive) return;
         if (this.shopOpen) {
           this.closeShop();
         } else if (this.devMode || this.waveManager.state === "intermission" || this.waveManager.state === "pre_game") {
@@ -735,7 +737,7 @@ export class GameScene extends Phaser.Scene {
         Phaser.Input.Keyboard.KeyCodes.V
       );
       vKey.on("down", () => {
-        if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonCutsceneActive) return;
+        if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonIntroActive) return;
         if (this.activeSlot !== 3) return; // only when barricade is selected
         this.barricadeVertical = !this.barricadeVertical;
         const orient = this.barricadeVertical ? "VERTICAL" : "HORIZONTAL";
@@ -1004,44 +1006,20 @@ export class GameScene extends Phaser.Scene {
       });
     });
 
-    // MASON — scripted villain callbacks
-    this.waveManager.onMasonAnnouncement = () => {
-      this.masonCutsceneActive = true;
-      this.physics.pause();
-      this.game.canvas.style.pointerEvents = "none";
-      hudState.update({ masonAnnouncementActive: true });
-    };
-
-    this.waveManager.onMasonFirstSpawn = () => {
-      this.masonCutsceneActive = true;
-      this.physics.pause();
-      this.game.canvas.style.pointerEvents = "none";
-      hudState.update({ masonFightIntroActive: true });
-    };
-
-    this.waveManager.onMasonFinalFight = () => {
-      this.masonCutsceneActive = true;
-      this.physics.pause();
-      this.game.canvas.style.pointerEvents = "none";
-      hudState.update({ masonFinalIntroActive: true });
-    };
-
-    this.waveManager.onMasonFlee = () => {
-      this.showWeaponMessage("MASON RETREATS...", "#7c3aed");
-    };
-
-    this.waveManager.onMasonDefeated = () => {
-      this.showWeaponMessage("MASON DEFEATED", "#7c3aed");
-    };
-
+    // Mason announcement callback — player dismissed the intro card
     hudState.registerMasonAnnouncementAction(() => {
       this.time.delayedCall(700, () => {
-        this.masonCutsceneActive = false;
+        this.masonIntroActive = false;
         this.physics.resume();
         this.game.canvas.style.pointerEvents = "auto";
-        hudState.update({ masonAnnouncementActive: false, masonFightIntroActive: false, masonFinalIntroActive: false });
+        hudState.update({ masonAnnouncementActive: false });
+        // Activate Mason — he starts fighting
+        if (this.masonEnemy && this.masonEnemy.active) {
+          this.masonEnemy.fleeing = false; // clear idle lock
+        }
       });
     });
+
 
     // Player spawns inside — build interior darkness immediately (no fade)
     const spawnTileX = Math.floor(this.player.x / 32);
@@ -1074,7 +1052,7 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonCutsceneActive) return;
+    if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonIntroActive) return;
 
     // Freeze player movement while shop or level-up overlay is open
     if (this.shopOpen || this.levelUpActive) {
@@ -1089,6 +1067,20 @@ export class GameScene extends Phaser.Scene {
     this.updateStartingRoomPrompts();
     this.updateDoorPrompts();
     this.updateMachinePrompts();
+
+    // Mason estate trigger — player reaches top of stairs
+    if (!this.masonTriggered) {
+      const ptx = Math.floor(this.player.x / 32);
+      const pty = Math.floor(this.player.y / 32);
+      if (
+        (ptx === 39 && pty === 18) ||
+        (ptx === 39 && pty === 19) ||
+        (ptx === 39 && pty === 11) ||
+        (ptx === 39 && pty === 12)
+      ) {
+        this.triggerMasonIntro();
+      }
+    }
 
     // Roof fade — hide roof when player is under it
     this.updateRoofVisibility();
@@ -2154,7 +2146,14 @@ export class GameScene extends Phaser.Scene {
       const weaponDef = BALANCE.weapons[proj.weaponType as keyof typeof BALANCE.weapons];
       const baseKnockback = (weaponDef as any)?.knockback ?? 50;
       // Fast enemies get pushed harder by shotgun (lighter = easier to knock around)
-      const typeMult = enemy.enemyType === "fast" ? 1.5 : enemy.enemyType === "boss" ? 0.2 : 1.0;
+      let typeMult = 1.0;
+      if (enemy.enemyType === "fast") typeMult = 1.5;
+      else if (enemy.enemyType === "boss") typeMult = 0.2;
+      else if (enemy.enemyType === "mason") {
+        // Mason: zero knockback from pistol, slight from shotgun, none from SMG
+        const wt = proj.weaponType;
+        typeMult = wt === "shotgun" ? 0.08 : 0;
+      }
       const knockForce = baseKnockback * typeMult;
 
       // Shotgun blasts need longer stun so the knockback actually plays out
@@ -2169,6 +2168,14 @@ export class GameScene extends Phaser.Scene {
         currentVx + Math.cos(angle) * knockForce,
         currentVy + Math.sin(angle) * knockForce
       );
+
+      // Mason weapon-specific stagger: no stagger from pistol, stagger from SMG and shotgun
+      if (enemy.enemyType === "mason" && !killed) {
+        const wt = proj.weaponType;
+        if (wt === "smg" || wt === "shotgun") {
+          enemy.playTakingPunch();
+        }
+      }
 
       proj.destroy();
     };
@@ -3058,6 +3065,31 @@ export class GameScene extends Phaser.Scene {
       case "props_mid": return this.propsMidLayer;
       default: return undefined;
     }
+  }
+
+  /** Spawn Mason behind the DJ table and show intro card */
+  private triggerMasonIntro() {
+    this.masonTriggered = true;
+    this.masonIntroActive = true;
+    this.physics.pause();
+    this.game.canvas.style.pointerEvents = "none";
+
+    // Spawn Mason behind the DJ table (DJ at x:1512, y:195), facing south
+    const masonX = 1512;
+    const masonY = 170; // just north of the DJ table
+    const mason = new Enemy(this, masonX, masonY, "mason", 1, 1);
+    this.enemies.add(mason);
+    mason.setDepth(5);
+
+    // Lock Mason in place with breathing idle, facing south
+    mason.fleeing = true; // prevents updateMason from running
+    mason.body.setVelocity(0, 0);
+    mason.body.setImmovable(true);
+
+    this.masonEnemy = mason;
+
+    // Show the intro card
+    hudState.update({ masonAnnouncementActive: true });
   }
 
   private readonly doorPromptDist = 60; // px from door center to show prompt

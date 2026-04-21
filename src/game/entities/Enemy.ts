@@ -83,7 +83,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private pathWaypoints: { x: number; y: number }[] = []; // A* path to follow
   private pathIndex = 0; // current waypoint index
   private pathRefreshTimer = 0; // ms until next path recalculation
-  private pathRefreshInterval = 500; // recalc every 500ms (staggered per enemy)
+  private pathRefreshInterval = 400; // recalc every 400ms (staggered per enemy)
   private spriteId: string; // "creepyzombie", "zombiedog", or "scaryboi"
   private walkAnimType: string;
   private idleAnimType: string;
@@ -113,12 +113,10 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private bossRunning = false; // true when in chase speed
 
   // Mason-specific state
-  private masonPhase: "stalk" | "chase" | "rage" = "stalk";
   private masonAttackCooldowns: Record<string, number> = {};
-  masonBriefEncounter: boolean = false;
-  private castingFireBreath = false;
-  private jumpingAndLanding = false;
-  private playingBoomBox = false;
+  private masonBusy = false;
+  private masonPacing = false;
+  private masonPaceTimer = 0;
 
   constructor(
     scene: Phaser.Scene,
@@ -142,7 +140,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.health = this.maxHealth;
     if (isMason || isBoss) {
       this.speed = (baseStats as any).speed;
-      this.damage = Math.floor((baseStats as any).attacks.crossPunch.damage * waveDamageMultiplier);
+      this.damage = Math.floor((baseStats as any).attacks.leadJab.damage * waveDamageMultiplier);
     } else if (type === "basic") {
       // WaW-style speed tiers for walkers
       const bs = baseStats as typeof BALANCE.enemies.basic;
@@ -249,10 +247,6 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       const wm = (this.scene as any).waveManager;
       wm?.onBossDamaged?.(amount);
     }
-    if (this.enemyType === "mason") {
-      const wm = (this.scene as any).waveManager;
-      wm?.onMasonDamaged?.(amount);
-    }
 
     // Stun on hit — fast enemies stun longer (fragile), boss/mason resist stun
     this.stunTimer = this.enemyType === "fast" ? 400 : (this.enemyType === "boss" || this.enemyType === "mason") ? 80 : 200;
@@ -270,8 +264,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     // Mason taking-punch stagger (any hit, not during special actions)
     if (this.enemyType === "mason" && this.hasTakingPunchAnim
-        && !this.takingPunch && !this.biting && !this.castingFireBreath
-        && !this.jumpingAndLanding && !this.playingBoomBox) {
+        && !this.takingPunch && !this.biting && !this.masonBusy) {
       this.playTakingPunch();
     }
 
@@ -301,7 +294,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   }
 
   /** Play taking-punch flinch, then resume walk */
-  private playTakingPunch() {
+  playTakingPunch() {
     this.takingPunch = true;
     const key = getAnimKey(this.spriteId, "taking-punch", this.currentDir);
     if (this.scene.anims.exists(key)) {
@@ -319,6 +312,22 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
   private die(source: "melee" | "ranged" = "melee") {
     if (this.dying) return;
+
+    // Mason: fade out over 1 second instead of death animation
+    if (this.enemyType === "mason") {
+      this.dying = true;
+      this.body.setVelocity(0, 0);
+      this.body.enable = false;
+      this.healthBarGfx.destroy();
+      this.scene.tweens.add({
+        targets: this,
+        alpha: 0,
+        duration: 1000,
+        onComplete: () => this.destroy(),
+      });
+      return;
+    }
+
     this.dying = true;
 
     // Stop moving
@@ -418,9 +427,11 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     // Boss and mason use cross-punch/lead-jab, others use bite/lunge-bite
     const isBossEnemy = this.enemyType === "boss" || this.enemyType === "mason";
     const useLunge = this.hasLungeBiteAnim && Math.random() < 0.5;
-    const animType = isBossEnemy
-      ? (useLunge ? "lead-jab" : "cross-punch")
-      : (useLunge ? "lunge-bite" : "bite");
+    const animType = this.enemyType === "mason"
+      ? "lead-jab"
+      : isBossEnemy
+        ? (useLunge ? "lead-jab" : "cross-punch")
+        : (useLunge ? "lunge-bite" : "bite");
     const biteKey = getAnimKey(this.spriteId, animType, this.currentDir);
 
     if (this.scene.anims.exists(biteKey)) {
@@ -876,21 +887,19 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
   // ---- Mason AI ----
 
-  /** Set whether this is a brief encounter (wave 10 — flees after damage threshold) */
-  setMasonBriefEncounter(val: boolean) {
-    this.masonBriefEncounter = val;
-  }
-
   private canMasonAttack(attackId: string): boolean {
     return (this.masonAttackCooldowns[attackId] ?? 0) <= 0;
   }
 
-  /** Mason phase-based combat AI */
+  /** Mason 2-phase combat AI — stops when both on-screen, walks when off-screen */
   private updateMason(delta: number, player: any) {
+    if (this.masonBusy || this.biting || this.dying || this.fleeing) return;
+
     const angle = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
     const dist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
-    const hpPct = this.health / this.maxHealth;
     const masonStats = (BALANCE.enemies as any).mason;
+    const hpPct = this.health / this.maxHealth;
+    const phase2 = hpPct <= 0.5;
 
     // Tick all attack cooldowns
     for (const key of Object.keys(this.masonAttackCooldowns)) {
@@ -899,119 +908,113 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       }
     }
 
-    // Don't act while mid-animation
-    if (this.castingFireBreath || this.jumpingAndLanding || this.playingBoomBox || this.biting || this.takingPunch) return;
+    // Movement: only walk if player is off-screen
+    const cam = this.scene.cameras.main;
+    const halfW = (cam.width / cam.zoom) / 2;
+    const halfH = (cam.height / cam.zoom) / 2;
+    const camCX = cam.midPoint.x;
+    const camCY = cam.midPoint.y;
+    const margin = 40;
+    const playerOnScreen =
+      player.x > camCX - halfW + margin && player.x < camCX + halfW - margin &&
+      player.y > camCY - halfH + margin && player.y < camCY + halfH - margin;
+    const masonOnScreen =
+      this.x > camCX - halfW + margin && this.x < camCX + halfW - margin &&
+      this.y > camCY - halfH + margin && this.y < camCY + halfH - margin;
+    const bothOnScreen = playerOnScreen && masonOnScreen;
 
-    // Phase transitions based on HP
-    if (hpPct > 0.66) {
-      this.masonPhase = "stalk";
-    } else if (hpPct > 0.33) {
-      this.masonPhase = "chase";
-    } else {
-      this.masonPhase = "rage";
+    // Refresh A* path toward player
+    this.pathRefreshTimer -= delta;
+    if (this.pathRefreshTimer <= 0) {
+      this.pathRefreshTimer = this.pathRefreshInterval;
+      const pathfinder = (this.scene as any).pathfinder as Pathfinder | undefined;
+      if (pathfinder) {
+        pathfinder.findPath(this.x, this.y, player.x, player.y, (path) => {
+          if (!this.active || this.dying) return;
+          if (path && path.length > 1) {
+            this.pathWaypoints = path;
+            this.pathIndex = 1;
+          } else {
+            this.pathWaypoints = [];
+            this.pathIndex = 0;
+          }
+        });
+      }
     }
 
-    // Clamp to map bounds
-    const mapW = (this.scene as any).mapWidth ?? 1920;
-    const mapH = (this.scene as any).mapHeight ?? 1920;
-    const pad = 48;
-    if (this.x < pad || this.x > mapW - pad || this.y < pad || this.y > mapH - pad) {
-      const cx = mapW / 2;
-      const cy = mapH / 2;
-      const toCenter = Phaser.Math.Angle.Between(this.x, this.y, cx, cy);
-      this.body.setVelocity(
-        Math.cos(toCenter) * masonStats.speed,
-        Math.sin(toCenter) * masonStats.speed
-      );
+    const idleRange = 150; // start idle/pace cycle when close and both visible
+    if (bothOnScreen && dist < idleRange) {
+      // Pace cycle: walk a few steps, idle, repeat
+      if (this.masonPaceTimer <= 0) {
+        this.masonPacing = !this.masonPacing;
+        this.masonPaceTimer = this.masonPacing ? 800 + Math.random() * 600 : 1500 + Math.random() * 1000;
+      }
+      this.masonPaceTimer -= delta;
+
+      if (this.masonPacing) {
+        // When close, direct velocity is fine (no walls between them)
+        this.body.setVelocity(
+          Math.cos(angle) * masonStats.speed * 0.6,
+          Math.sin(angle) * masonStats.speed * 0.6
+        );
+      } else {
+        // Idle — breathing animation
+        this.body.setVelocity(0, 0);
+      }
+    } else {
+      // Follow A* waypoints to navigate around walls
+      this.masonPacing = true;
+      this.masonPaceTimer = 0;
+      if (this.pathWaypoints.length > 0 && this.pathIndex < this.pathWaypoints.length) {
+        const wp = this.pathWaypoints[this.pathIndex];
+        const wpDist = Phaser.Math.Distance.Between(this.x, this.y, wp.x, wp.y);
+        if (wpDist < 12) {
+          this.pathIndex++;
+          if (this.pathIndex >= this.pathWaypoints.length) {
+            this.pathWaypoints = [];
+          }
+        } else {
+          const wpAngle = Phaser.Math.Angle.Between(this.x, this.y, wp.x, wp.y);
+          this.body.setVelocity(
+            Math.cos(wpAngle) * masonStats.speed,
+            Math.sin(wpAngle) * masonStats.speed
+          );
+        }
+      } else {
+        // Fallback: direct walk if no path available yet
+        this.body.setVelocity(
+          Math.cos(angle) * masonStats.speed,
+          Math.sin(angle) * masonStats.speed
+        );
+      }
+    }
+
+    // Attacks — priority order
+    // Lead jab (melee, both phases)
+    if (dist < masonStats.attacks.leadJab.range && this.canMasonAttack("leadJab")) {
+      this.masonMeleeAttack("leadJab", "lead-jab", masonStats.attacks.leadJab.damage);
       return;
     }
 
-    // Select move speed based on phase
-    const moveSpeed =
-      this.masonPhase === "rage" ? masonStats.rageSpeed :
-      this.masonPhase === "chase" ? masonStats.runSpeed :
-      masonStats.speed;
+    // Fire breath (both phases)
+    if (dist < masonStats.attacks.fireBreath.range && this.canMasonAttack("fireBreath")) {
+      this.masonFireBreath(angle, player, masonStats.attacks.fireBreath);
+      return;
+    }
 
-    switch (this.masonPhase) {
-      case "stalk":
-        // Walk toward player slowly; use melee and throw-object
-        this.body.setVelocity(
-          Math.cos(angle) * moveSpeed,
-          Math.sin(angle) * moveSpeed
-        );
-        if (dist < masonStats.attacks.leadJab.range && this.canMasonAttack("leadJab")) {
-          this.masonMeleeAttack("leadJab", "lead-jab", masonStats.attacks.leadJab.damage);
-          return;
-        }
-        if (dist < masonStats.attacks.crossPunch.range && this.canMasonAttack("crossPunch")) {
-          this.masonMeleeAttack("crossPunch", "cross-punch", masonStats.attacks.crossPunch.damage);
-          return;
-        }
-        if (dist < masonStats.attacks.throwObject.range && dist > 100 && this.canMasonAttack("throwObject")) {
-          this.masonThrowObject(angle, masonStats.attacks.throwObject);
-          return;
-        }
-        break;
+    // Phase 2 attacks
+    if (phase2) {
+      // Jump and land
+      if (dist < masonStats.attacks.jumpAndLand.range && dist > 80 && this.canMasonAttack("jumpAndLand")) {
+        this.masonJumpAndLand(player, masonStats.attacks.jumpAndLand);
+        return;
+      }
 
-      case "chase":
-        // Faster; adds fire-breath and jump-and-land
-        this.body.setVelocity(
-          Math.cos(angle) * moveSpeed,
-          Math.sin(angle) * moveSpeed
-        );
-        if (dist < masonStats.attacks.leadJab.range && this.canMasonAttack("leadJab")) {
-          this.masonMeleeAttack("leadJab", "lead-jab", masonStats.attacks.leadJab.damage);
-          return;
-        }
-        if (dist < masonStats.attacks.crossPunch.range && this.canMasonAttack("crossPunch")) {
-          this.masonMeleeAttack("crossPunch", "cross-punch", masonStats.attacks.crossPunch.damage);
-          return;
-        }
-        if (dist < masonStats.attacks.fireBreath.range && this.canMasonAttack("fireBreath")) {
-          this.masonFireBreath(angle, player, masonStats.attacks.fireBreath);
-          return;
-        }
-        if (dist < masonStats.attacks.jumpAndLand.range && dist > 80 && this.canMasonAttack("jumpAndLand")) {
-          this.masonJumpAndLand(player, masonStats.attacks.jumpAndLand);
-          return;
-        }
-        if (dist < masonStats.attacks.throwObject.range && dist > 100 && this.canMasonAttack("throwObject")) {
-          this.masonThrowObject(angle, masonStats.attacks.throwObject);
-          return;
-        }
-        break;
-
-      case "rage":
-        // Fastest; all attacks including boom-box
-        this.body.setVelocity(
-          Math.cos(angle) * moveSpeed,
-          Math.sin(angle) * moveSpeed
-        );
-        if (dist < masonStats.attacks.leadJab.range && this.canMasonAttack("leadJab")) {
-          this.masonMeleeAttack("leadJab", "lead-jab", masonStats.attacks.leadJab.damage);
-          return;
-        }
-        if (dist < masonStats.attacks.crossPunch.range && this.canMasonAttack("crossPunch")) {
-          this.masonMeleeAttack("crossPunch", "cross-punch", masonStats.attacks.crossPunch.damage);
-          return;
-        }
-        if (dist < masonStats.attacks.fireBreath.range && this.canMasonAttack("fireBreath")) {
-          this.masonFireBreath(angle, player, masonStats.attacks.fireBreath);
-          return;
-        }
-        if (dist < masonStats.attacks.jumpAndLand.range && dist > 80 && this.canMasonAttack("jumpAndLand")) {
-          this.masonJumpAndLand(player, masonStats.attacks.jumpAndLand);
-          return;
-        }
-        if (this.canMasonAttack("boomBox")) {
-          this.masonBoomBox(masonStats.attacks.boomBox);
-          return;
-        }
-        if (dist < masonStats.attacks.throwObject.range && dist > 100 && this.canMasonAttack("throwObject")) {
-          this.masonThrowObject(angle, masonStats.attacks.throwObject);
-          return;
-        }
-        break;
+      // Boom box beats (directional)
+      if (this.canMasonAttack("boomBox")) {
+        this.masonBoomBox(masonStats.attacks.boomBox);
+        return;
+      }
     }
   }
 
@@ -1038,135 +1041,160 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
   }
 
-  /** Mason throw-object: play anim, spawn a physics projectile */
-  private masonThrowObject(
-    angle: number,
-    stats: { damage: number; projectileSpeed: number; range: number; cooldown: number }
-  ) {
-    this.biting = true;
-    this.masonAttackCooldowns["throwObject"] = stats.cooldown;
-    this.body.setVelocity(0, 0);
+  /** Check line-of-sight: returns true if no wall tiles block the line from (ax,ay) to (bx,by) */
+  private hasLineOfSight(ax: number, ay: number, bx: number, by: number): boolean {
+    const scene = this.scene as any;
+    const wallsBase = scene.wallsBaseLayer as Phaser.Tilemaps.TilemapLayer | undefined;
+    const wallsTop = scene.wallsTopLayer as Phaser.Tilemaps.TilemapLayer | undefined;
+    if (!wallsBase && !wallsTop) return true;
 
-    const key = getAnimKey(this.spriteId, "throw-object", this.currentDir);
-    if (this.scene.anims.exists(key)) {
-      this.play(key);
+    // Step along the line in 16px increments checking for wall tiles
+    const dist = Phaser.Math.Distance.Between(ax, ay, bx, by);
+    const steps = Math.ceil(dist / 16);
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const px = ax + (bx - ax) * t;
+      const py = ay + (by - ay) * t;
+      const tx = Math.floor(px / 32);
+      const ty = Math.floor(py / 32);
+      if (wallsBase?.getTileAt(tx, ty)) return false;
+      if (wallsTop?.getTileAt(tx, ty)) return false;
     }
 
-    // Spawn projectile partway through animation
-    this.scene.time.delayedCall(350, () => {
-      if (!this.active || this.dying) return;
-      this.spawnMasonProjectile(angle, stats);
-    });
-
-    this.once("animationcomplete", () => {
-      this.biting = false;
-      if (this.hasWalkAnim && !this.dying) {
-        this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
+    // Also check closed doors
+    const doors = scene.doors as { zone: Phaser.GameObjects.Zone; opened: boolean }[] | undefined;
+    if (doors) {
+      for (const door of doors) {
+        if (door.opened) continue;
+        const dz = door.zone;
+        const body = dz.body as Phaser.Physics.Arcade.StaticBody;
+        if (!body || !body.enable) continue;
+        // Check if line segment intersects door body rect
+        const rect = new Phaser.Geom.Rectangle(body.x, body.y, body.width, body.height);
+        const line = new Phaser.Geom.Line(ax, ay, bx, by);
+        if (Phaser.Geom.Intersects.LineToRectangle(line, rect)) return false;
       }
-    });
+    }
+
+    return true;
   }
 
-  /** Simple physics projectile for throw-object */
-  private spawnMasonProjectile(
-    angle: number,
-    stats: { damage: number; projectileSpeed: number; range: number }
-  ) {
-    const scene = this.scene;
-    const zone = scene.add.zone(this.x, this.y, 20, 20);
-    scene.physics.add.existing(zone, false);
-    const zBody = zone.body as Phaser.Physics.Arcade.Body;
-    zBody.setVelocity(
-      Math.cos(angle) * stats.projectileSpeed,
-      Math.sin(angle) * stats.projectileSpeed
-    );
-
-    const startX = this.x;
-    const startY = this.y;
-    const dmg = stats.damage;
-
-    const destroyProj = () => {
-      scene.events.off("update", updateHandler);
-      if (zone.active) zone.destroy();
-    };
-
-    const updateHandler = () => {
-      if (!zone.active) return;
-      const traveled = Phaser.Math.Distance.Between(startX, startY, zone.x, zone.y);
-      if (traveled > stats.range || zone.x < 0 || zone.x > 3200 || zone.y < 0 || zone.y > 1920) {
-        destroyProj();
-        return;
-      }
-      const player = (scene as any).player;
-      if ((scene as any).gameOver) { destroyProj(); return; }
-      if (player?.active && !player.invincible) {
-        const d = Phaser.Math.Distance.Between(zone.x, zone.y, player.x, player.y);
-        if (d < 28) {
-          player.stats.health -= dmg;
-          scene.cameras.main.flash(80, 255, 80, 0, false);
-          scene.cameras.main.shake(60, 0.003);
-          (scene as any).playPlayerHurt?.();
-          if (player.stats.health <= 0) {
-            player.stats.health = 0;
-            (scene as any).gameOver = true;
-            player.body.setVelocity(0, 0);
-            player.playDeath?.(() => (scene as any).triggerGameOver?.());
-          }
-          destroyProj();
-        }
-      }
-    };
-
-    scene.events.on("update", updateHandler);
-    scene.time.delayedCall(4000, destroyProj);
-  }
-
-  /** Mason fire-breath: play anim, then AoE cone damage in front */
+  /** Mason fire-breath: stop, loop anim, particle cone for 2s, tick damage */
   private masonFireBreath(
     angle: number,
     player: any,
     stats: { damage: number; range: number; cooldown: number; coneAngle: number }
   ) {
-    this.castingFireBreath = true;
+    this.masonBusy = true;
     this.masonAttackCooldowns["fireBreath"] = stats.cooldown;
     this.body.setVelocity(0, 0);
 
+    const breathDuration = 2000; // 2 seconds of fire
+    const facingAngle = angle; // lock direction at start
+
+    // Play fire-breath animation looping for the full duration
     const key = getAnimKey(this.spriteId, "fire-breath", this.currentDir);
     if (this.scene.anims.exists(key)) {
-      this.play(key);
+      this.play({ key, repeat: -1 }); // loop
     }
 
-    // Apply cone damage partway through animation (frame ~5 of 9)
-    this.scene.time.delayedCall(500, () => {
-      if (!this.active || this.dying) return;
-      const pDist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
-      if (pDist > stats.range) return;
-      if ((this.scene as any).gameOver) return;
+    const halfCone = Phaser.Math.DegToRad(stats.coneAngle / 2);
 
-      // Cone check: player must be within coneAngle/2 degrees of facing angle
-      const toPlayer = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
-      let angleDiff = Math.abs(Phaser.Math.Angle.Wrap(toPlayer - angle));
-      if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
-      const halfCone = Phaser.Math.DegToRad(stats.coneAngle / 2);
+    // Generate a soft circle texture for fire particles (once per scene)
+    const fireTexKey = "mason-fire-particle";
+    if (!this.scene.textures.exists(fireTexKey)) {
+      const gfx = this.scene.make.graphics({ x: 0, y: 0 } as any);
+      gfx.fillStyle(0xffffff, 1);
+      gfx.fillCircle(8, 8, 8);
+      gfx.generateTexture(fireTexKey, 16, 16);
+      gfx.destroy();
+    }
 
-      if (angleDiff <= halfCone && !player.invincible) {
-        player.stats.health -= stats.damage;
-        this.scene.cameras.main.flash(120, 255, 120, 0, false);
-        this.scene.cameras.main.shake(90, 0.005);
-        (this.scene as any).playPlayerHurt?.();
-        if (player.stats.health <= 0) {
-          player.stats.health = 0;
-          (this.scene as any).gameOver = true;
-          player.body.setVelocity(0, 0);
-          player.playDeath?.(() => (this.scene as any).triggerGameOver?.());
-        }
-      }
+    // Offset emitter to Mason's mouth position (head area, shifted toward facing dir)
+    const mouthForward = 18; // pixels forward in facing direction
+    const mouthUp = -14;     // pixels up from sprite center (head height)
+    const mouthOffX = Math.cos(facingAngle) * mouthForward;
+    const mouthOffY = Math.sin(facingAngle) * mouthForward + mouthUp;
+
+    // Particle emitter for the fire cone visual
+    const facingDeg = Phaser.Math.RadToDeg(facingAngle);
+    const emitter = this.scene.add.particles(this.x + mouthOffX, this.y + mouthOffY, fireTexKey, {
+      speed: { min: 100, max: 220 },
+      angle: { min: facingDeg - stats.coneAngle / 2, max: facingDeg + stats.coneAngle / 2 },
+      scale: { start: 0.5, end: 0.1 },
+      alpha: { start: 0.75, end: 0 },
+      lifespan: { min: 300, max: 500 },
+      tint: [0xff4400, 0xff8800, 0xffcc00, 0xff2200, 0xff6600],
+      frequency: 18,
+      quantity: 2,
+      blendMode: Phaser.BlendModes.ADD,
     });
+    emitter.setDepth(this.depth + 1);
 
-    this.once("animationcomplete", () => {
-      this.castingFireBreath = false;
-      if (this.hasWalkAnim && !this.dying) {
-        this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
-      }
+    // Tick damage every 300ms during the breath
+    const tickInterval = 300;
+    const dmgPerTick = Math.round(stats.damage / (breathDuration / tickInterval));
+    let elapsed = 0;
+    let tickAccum = 0;
+
+    const updateEvent = this.scene.time.addEvent({
+      delay: 16, // ~60fps update
+      loop: true,
+      callback: () => {
+        if (!this.active || this.dying) {
+          updateEvent.remove();
+          emitter.stop();
+          this.scene.time.delayedCall(700, () => emitter.destroy());
+          return;
+        }
+
+        elapsed += 16;
+        tickAccum += 16;
+
+        // Keep emitter following Mason's mouth position
+        emitter.setPosition(this.x + mouthOffX, this.y + mouthOffY);
+
+        // Damage tick
+        if (tickAccum >= tickInterval) {
+          tickAccum -= tickInterval;
+          if ((this.scene as any).gameOver) return;
+
+          const pDist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
+          if (pDist <= stats.range && !player.invincible) {
+            // Cone angle check
+            const toPlayer = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
+            let angleDiff = Math.abs(Phaser.Math.Angle.Wrap(toPlayer - facingAngle));
+            if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
+
+            if (angleDiff <= halfCone) {
+              // Line-of-sight check — fire doesn't go through walls/doors
+              if (this.hasLineOfSight(this.x, this.y, player.x, player.y)) {
+                player.stats.health -= dmgPerTick;
+                this.scene.cameras.main.flash(80, 255, 120, 0, false);
+                (this.scene as any).playPlayerHurt?.();
+                if (player.stats.health <= 0) {
+                  player.stats.health = 0;
+                  (this.scene as any).gameOver = true;
+                  player.body.setVelocity(0, 0);
+                  player.playDeath?.(() => (this.scene as any).triggerGameOver?.());
+                }
+              }
+            }
+          }
+        }
+
+        // End breath after duration
+        if (elapsed >= breathDuration) {
+          updateEvent.remove();
+          emitter.stop();
+          this.scene.time.delayedCall(700, () => emitter.destroy());
+          this.masonBusy = false;
+          this.stop(); // stop looping anim
+          if (this.hasWalkAnim && !this.dying) {
+            this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
+          }
+        }
+      },
     });
   }
 
@@ -1175,7 +1203,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     player: any,
     stats: { damage: number; landRadius: number; cooldown: number }
   ) {
-    this.jumpingAndLanding = true;
+    this.masonBusy = true;
     this.masonAttackCooldowns["jumpAndLand"] = stats.cooldown;
     this.body.setVelocity(0, 0);
 
@@ -1217,16 +1245,16 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     });
 
     this.once("animationcomplete", () => {
-      this.jumpingAndLanding = false;
+      this.masonBusy = false;
       if (this.hasWalkAnim && !this.dying) {
         this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
       }
     });
   }
 
-  /** Mason boom-box: long animation, radial shockwave on completion, speed boost to nearby enemies */
+  /** Mason boom-box: directional beat pulses */
   private masonBoomBox(stats: { damage: number; range: number; cooldown: number }) {
-    this.playingBoomBox = true;
+    this.masonBusy = true;
     this.masonAttackCooldowns["boomBox"] = stats.cooldown;
     this.body.setVelocity(0, 0);
 
@@ -1235,36 +1263,147 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.play(key);
     }
 
+    // Fire 3 directional beat pulses at BPM intervals
+    const pulseCount = 3;
+    const pulseInterval = 400; // ms between pulses
+    const facingAngle = this.directionToAngle(this.currentDir);
+
+    for (let i = 0; i < pulseCount; i++) {
+      this.scene.time.delayedCall(600 + i * pulseInterval, () => {
+        if (!this.active || this.dying) return;
+        this.spawnBeatPulse(facingAngle, stats.damage, stats.range);
+      });
+    }
+
+    // Resume after animation completes
     this.once("animationcomplete", () => {
-      this.playingBoomBox = false;
-
-      if (this.dying || !this.active) return;
-
-      // Deal radial damage to player if in range
-      const player = (this.scene as any).player as any;
-      if (player?.active && !(this.scene as any).gameOver && !player.invincible) {
-        const dist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
-        if (dist <= stats.range) {
-          player.stats.health -= stats.damage;
-          this.scene.cameras.main.flash(200, 180, 0, 255, false);
-          this.scene.cameras.main.shake(200, 0.010);
-          (this.scene as any).playPlayerHurt?.();
-          if (player.stats.health <= 0) {
-            player.stats.health = 0;
-            (this.scene as any).gameOver = true;
-            player.body.setVelocity(0, 0);
-            player.playDeath?.(() => (this.scene as any).triggerGameOver?.());
-          }
-        }
-      }
-
-      // Emit event so WaveManager can give nearby enemies a temporary speed boost
-      this.scene.events.emit("masonBoomBoxShockwave", { x: this.x, y: this.y, range: stats.range });
-
+      this.masonBusy = false;
       if (this.hasWalkAnim && !this.dying) {
         this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
       }
     });
+
+    // Safety timeout
+    this.scene.time.delayedCall(3000, () => {
+      this.masonBusy = false;
+    });
+  }
+
+  /** Spawn a visual beat pulse arc that travels in a direction */
+  private spawnBeatPulse(facingAngle: number, damage: number, maxRange: number) {
+    const scene = this.scene;
+    const startX = this.x;
+    const startY = this.y;
+    const speed = 200; // px/s
+    const arcWidth = Phaser.Math.DegToRad(60); // 60 degree spread
+    let elapsed = 0;
+    let currentRadius = 30;
+    let hasDamaged = false;
+
+    // Create graphics for the ring arc
+    const gfx = scene.add.graphics();
+    gfx.setDepth(5);
+
+    const updateEvent = scene.time.addEvent({
+      delay: 16, // ~60fps
+      loop: true,
+      callback: () => {
+        if (!this.active) {
+          gfx.destroy();
+          updateEvent.destroy();
+          return;
+        }
+
+        elapsed += 16;
+        currentRadius = 30 + (speed * elapsed / 1000);
+
+        // Check if exceeded max range
+        if (currentRadius > maxRange) {
+          gfx.destroy();
+          updateEvent.destroy();
+          return;
+        }
+
+        // Draw the arc
+        const alpha = 1 - (currentRadius / maxRange) * 0.7;
+        gfx.clear();
+        gfx.lineStyle(4, 0xcc44ff, alpha);
+        gfx.beginPath();
+        const segments = 12;
+        const halfArc = arcWidth / 2;
+        for (let i = 0; i <= segments; i++) {
+          const a = facingAngle - halfArc + (arcWidth * i / segments);
+          const px = startX + Math.cos(a) * currentRadius;
+          const py = startY + Math.sin(a) * currentRadius;
+          if (i === 0) gfx.moveTo(px, py);
+          else gfx.lineTo(px, py);
+        }
+        gfx.strokePath();
+
+        // Add inner glow line
+        gfx.lineStyle(2, 0xff66ff, alpha * 0.5);
+        gfx.beginPath();
+        for (let i = 0; i <= segments; i++) {
+          const a = facingAngle - halfArc + (arcWidth * i / segments);
+          const px = startX + Math.cos(a) * (currentRadius - 3);
+          const py = startY + Math.sin(a) * (currentRadius - 3);
+          if (i === 0) gfx.moveTo(px, py);
+          else gfx.lineTo(px, py);
+        }
+        gfx.strokePath();
+
+        // Damage check against player (once per pulse)
+        if (!hasDamaged) {
+          const player = (scene as any).player;
+          if (player) {
+            const playerDist = Phaser.Math.Distance.Between(startX, startY, player.x, player.y);
+            const playerAngle = Phaser.Math.Angle.Between(startX, startY, player.x, player.y);
+            let angleDiff = Math.abs(facingAngle - playerAngle);
+            if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
+
+            // Hit if player is within the ring's current radius band AND within the arc
+            if (Math.abs(playerDist - currentRadius) < 25 && angleDiff < halfArc) {
+              if (!player.invincible && !(scene as any).gameOver) {
+                player.stats.health -= damage;
+                scene.cameras.main.flash(200, 180, 0, 255, false);
+                scene.cameras.main.shake(200, 0.010);
+                (scene as any).playPlayerHurt?.();
+                hasDamaged = true;
+
+                // Knockback
+                const kb = 80;
+                player.body?.setVelocity(
+                  Math.cos(playerAngle) * kb,
+                  Math.sin(playerAngle) * kb
+                );
+
+                if (player.stats.health <= 0) {
+                  player.stats.health = 0;
+                  (scene as any).gameOver = true;
+                  player.body.setVelocity(0, 0);
+                  player.playDeath?.(() => (scene as any).triggerGameOver?.());
+                }
+              }
+            }
+          }
+        }
+      },
+    });
+  }
+
+  /** Convert Direction string to angle in radians */
+  private directionToAngle(dir: Direction): number {
+    switch (dir) {
+      case "south": return Math.PI / 2;
+      case "north": return -Math.PI / 2;
+      case "east": return 0;
+      case "west": return Math.PI;
+      case "south-east": return Math.PI / 4;
+      case "south-west": return Math.PI * 3 / 4;
+      case "north-east": return -Math.PI / 4;
+      case "north-west": return -Math.PI * 3 / 4;
+      default: return Math.PI / 2;
+    }
   }
 
   // ---- End mason AI ----
@@ -1432,7 +1571,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         // Use isFieldTile from scene to ensure dogs roam only on grass
         const fieldCheck = (this.scene as any).isFieldTile as ((tx: number, ty: number) => boolean) | undefined;
 
-        if (packTarget && !isExcludedZone(packTarget.x, packTarget.y)) {
+        const wmGate = (this.scene as any).waveManager;
+        if (packTarget && !isExcludedZone(packTarget.x, packTarget.y) && !(wmGate?.isGated?.(packTarget.x, packTarget.y))) {
           // Drift toward nearby dog with some randomness
           const cx = packTarget.x + (Math.random() - 0.5) * 80;
           const cy = packTarget.y + (Math.random() - 0.5) * 80;
@@ -1442,9 +1582,10 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
             this.roamTarget = { x: cx, y: cy };
           }
         } else {
-          // Random wander point — only on grass tiles (ground layer, no props/walls/roof)
+          // Random wander point — only on grass tiles, not in buildings or locked areas
           let rx: number, ry: number;
           let found = false;
+          const wmRef = (this.scene as any).waveManager;
           for (let attempts = 0; attempts < 20; attempts++) {
             const tx = 5 + Math.floor(Math.random() * 50); // tiles 5-54 (surface area with margin)
             const ty = 5 + Math.floor(Math.random() * 50);
@@ -1452,6 +1593,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
             rx = tx * 32 + 16;
             ry = ty * 32 + 16;
             if (isExcludedZone(rx!, ry!)) continue;
+            if (wmRef?.isGated?.(rx!, ry!)) continue;
             this.roamTarget = { x: rx, y: ry };
             found = true;
             break;
@@ -1567,8 +1709,10 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     const wm = (this.scene as any).waveManager;
     const remaining = wm?.getBlockingEnemies?.() ?? 99;
     const isLastStand = remaining <= 3 && (wm?.state === "active" || wm?.state === "clearing");
-    const moveSpeed = isLastStand ? this.speed * 1.15 : this.speed;
-    const refreshRate = isLastStand ? 250 : this.pathRefreshInterval;
+    // Room pressure: zombies move 40% faster when player is camping in a room
+    const roomBoost = wm?.playerInRoom ? 1.2 : 1.0;
+    const moveSpeed = (isLastStand ? this.speed * 1.15 : this.speed) * roomBoost;
+    const refreshRate = isLastStand || wm?.playerInRoom ? 250 : this.pathRefreshInterval;
 
     // Last-stand zombies switch to running animation (more aggressive)
     const hasRunning8 = hasAnimation(this.spriteId, "running-8-frames");
@@ -1621,7 +1765,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         const tpDist = 200 + Math.random() * 150;
         const tx = player.x + Math.cos(tpAngle) * tpDist;
         const ty = player.y + Math.sin(tpAngle) * tpDist;
-        if (!isExcludedZone(tx, ty)) {
+        const wm = (this.scene as any).waveManager;
+        if (!isExcludedZone(tx, ty) && !(wm?.isGated?.(tx, ty))) {
           this.setPosition(tx, ty);
           this.pathWaypoints = [];
           this.pathRefreshTimer = 0; // recalc path immediately
@@ -1683,7 +1828,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     const newDir = angleToDirection(angle) as Direction;
     if (newDir !== this.currentDir) {
       this.currentDir = newDir;
-      if (!this.biting && !this.leaping && !this.takingPunch && !this.backflipping && !this.castingFireball && !this.beingShot && !this.howling && !this.castingFireBreath && !this.jumpingAndLanding && !this.playingBoomBox) {
+      if (!this.biting && !this.leaping && !this.takingPunch && !this.backflipping && !this.castingFireball && !this.beingShot && !this.howling && !this.masonBusy) {
         if (this.hasWalkAnim) {
           this.play(getAnimKey(this.spriteId, this.walkAnimType, newDir), true);
         } else {
