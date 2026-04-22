@@ -1,5 +1,69 @@
 # RickArena Changelog
 
+## NEXT UP — Grenade System Implementation Plan
+
+**Status: PLANNED — not yet implemented. Build after context compact.**
+
+### Overview
+Universal grenade system. All characters start with 1, buy more at shop (max 3). Separate from abilities — uses G key. Two throw modes: tap for quick toss, hold for aimed throw with arc line.
+
+### Input
+- **Tap G**: Throw animation plays immediately, grenade launches toward mouse cursor position at time of press. No aiming line.
+- **Hold G**: Aiming mode — thin red parabolic arc line appears from player to landing point (capped at 250px range). Player can move (WASD) and aim (mouse) while holding. Cannot shoot. On release: throw animation plays, grenade launches toward final mouse position.
+- G does nothing if grenade count is 0.
+
+### Throw Animation
+- Always plays regardless of tap/hold.
+- Dan: use `throw-grenade` anim (4 frames, 10fps, all 8 dirs — already exists).
+- Rick, PJ, Jason: use `cross-punch` as placeholder until proper throw sprites are generated.
+- Player locked from shooting during ~400ms animation, can still move.
+
+### Aiming Line (hold G only)
+- Thin red line, 1-2px width, ~0.3-0.4 opacity.
+- Parabolic curve from player to landing point — peaks 15-20px above midpoint.
+- Small translucent red circle at landing point (~16px diameter, ~0.2 opacity).
+- If mouse beyond max range (250px), line and circle cap at max distance.
+- Line and circle disappear instantly on G release.
+
+### Grenade Projectile (in flight)
+- `grenade-spin` sprites loop (4 frames, already exist in `public/assets/sprites/projectiles/grenade-spin/`).
+- Travels from player to target over ~500ms.
+- Fake parabolic arc: sprite y-position offsets upward first half, back down second half (20-30px peak).
+- Sprite scales slightly during arc (0.8 → 1.0 → 0.8) to sell depth.
+
+### Detonation
+- 200ms fuse delay after landing (grenade sits on ground).
+- `grenade-explosion` sprites play (5 frames, already exist in `public/assets/sprites/projectiles/grenade-explosion/`).
+- AoE damage: **150** to all enemies within **100px** radius.
+- Knockback: 150 force, radiates outward from blast center.
+- Bosses (Mason, SCARYBOI) take full damage. Knockback reduced by their `knockbackResist` values.
+- Camera shake: 100ms, 0.005 intensity. Brief orange screen flash (80ms).
+
+### Inventory & Shop
+- Start with 1 grenade per game.
+- Shop item: "Grenade" — $60, buy up to max carry of 3.
+- Grenade count visible in HUD (near hotbar area).
+
+### Balance changes alongside grenade
+- Landmine radius: 100px → **80px** (ground charge = tighter blast zone).
+- Landmine damage: 80 → **200** (stronger than grenade since enemies have to walk into it).
+- Grenade damage: **150** (weaker than mine but player-aimed).
+
+### Files to modify
+1. `balance.ts` — add `grenade` config section, update `landmine.radius` 100→80, `landmine.damage` 80→200, add grenade to shop items.
+2. `GameScene.ts` — G key input binding, hold/tap detection, aiming line rendering (graphics object), throw logic, projectile arc tween, explosion + AoE damage, grenade count HUD event emission.
+3. `Player.ts` — `grenadeCount` property, `throwingGrenade` state flag, throw animation trigger method.
+4. `HUDOverlay.tsx` — grenade count display (icon + number near hotbar).
+5. `PreloadScene.ts` — verify `grenade-spin` frames 1-4 and `grenade-explosion` frames 1-5 are loaded (may need to add loading calls).
+
+### NOT doing
+- Wall collision for grenade in flight (flies over everything).
+- Friendly fire / self-damage.
+- Grenade cooking (hold to shorten fuse).
+- Unique throw sprites for Rick/PJ/Jason (placeholder with cross-punch for now).
+
+---
+
 ## 2026-04-22 — Mason Boss Polish, Fire Breath Tracking, Session Tooling
 
 **Mason boss fight overhaul — all new sprites wired, AI improvements, balance tuning.**
