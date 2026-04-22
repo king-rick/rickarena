@@ -227,6 +227,13 @@ export class PreloadScene extends Phaser.Scene {
         this.load.image(`fx-blood-${v}-${f}`, `/assets/sprites/projectiles/blood-splat-${v}/frame${f}.png`);
       }
     }
+    // Animated scaryboi fireball — 5 frames of crackling electricity orb
+    for (let f = 0; f < 5; f++) {
+      this.load.image(
+        `scaryboi-fireball-${f}`,
+        `/assets/sprites/projectiles/scaryboi-fireball/frame_${String(f).padStart(3, "0")}.png`
+      );
+    }
     this.load.spritesheet("fireball-sheet", "/assets/sprites/fireball-sheet.png", {
       frameWidth: 32,
       frameHeight: 32,
@@ -332,26 +339,26 @@ export class PreloadScene extends Phaser.Scene {
           const isLooping =
             anim.type === "walk" || anim.type === "breathing-idle"
             || anim.type === "running-6-frames" || anim.type === "running-8-frames"
-            || anim.type === "fight-stance-idle-8-frames"
+            || anim.type === "fight-stance-idle" || anim.type === "fight-stance-idle-8-frames"
             || anim.type === "walk-6-frames" || anim.type === "running"
-            || anim.type === "electrified-stun";
+            || anim.type === "electrified-stun" || anim.type === "zombie-dancing";
 
           let frameRate = 8;
           if (anim.type === "walk") frameRate = 10;
           else if (anim.type === "running-6-frames") frameRate = 14;
           else if (anim.type === "running-8-frames") frameRate = 12;
           else if (anim.type === "fight-stance-idle-8-frames") frameRate = 8;
+          else if (anim.type === "fight-stance-idle") frameRate = 8;
           else if (anim.type === "cross-punch") frameRate = 18;
           else if (anim.type === "electric-fist") frameRate = 24;
           else if (anim.type === "lead-jab") frameRate = 16;
+          else if (anim.type === "punch-combo") frameRate = 16;
           else if (anim.type === "taking-punch") frameRate = 14;
           else if (anim.type === "falling-back-death") frameRate = 10;
           else if (anim.type === "shooting-pistol") frameRate = 12;
           else if (anim.type === "shooting-shotgun") frameRate = 10;
           else if (anim.type === "shooting-smg") frameRate = 16;
           else if (anim.type === "fireball") frameRate = 12;
-          else if (anim.type === "throw-object") frameRate = 10;
-          else if (anim.type === "running-jump") frameRate = 14;
           else if (anim.type === "backflip") frameRate = 14;
           else if (anim.type === "high-kick") frameRate = 16;
           else if (anim.type === "swinging-katana") frameRate = 14;
@@ -362,6 +369,8 @@ export class PreloadScene extends Phaser.Scene {
           else if (anim.type === "lunge-bite") frameRate = 12;
           else if (anim.type === "death") frameRate = 20;
           else if (anim.type === "gunshot-death") frameRate = 16;
+          else if (anim.type === "chopped-in-half") frameRate = 14;
+          else if (anim.type === "zombie-dancing") frameRate = 8;
           else if (anim.type === "leap") frameRate = 12;
           else if (anim.type === "reloading-pistol") frameRate = 7;
           else if (anim.type === "reloading-shotgun") frameRate = 2;   // 4 frames / 2fps = 2.0s → covers 1800ms reload
@@ -370,8 +379,10 @@ export class PreloadScene extends Phaser.Scene {
           else if (anim.type === "walk-6-frames") frameRate = 10;
           else if (anim.type === "running") frameRate = 14;
           else if (anim.type === "being-shot") frameRate = 12;
+          else if (anim.type === "being-shot-death") frameRate = 10;
           else if (anim.type === "electrified-stun") frameRate = 7;
           else if (anim.type === "smoke-vanish") frameRate = 3; // slow dramatic exit (~3s)
+          else if (anim.type === "smoke-appear") frameRate = 3; // slow dramatic entrance (~3s)
           else if (anim.type === "fire-breath") frameRate = 10;
           else if (anim.type === "jump") frameRate = 10;
           else if (anim.type === "landing") frameRate = 10;
@@ -388,27 +399,15 @@ export class PreloadScene extends Phaser.Scene {
       }
     }
 
-    // SCARYBOI smoke-appear: reverse of smoke-vanish (same frames, reversed order)
-    for (const dir of DIRECTIONS) {
-      const vanishFrames: Phaser.Types.Animations.AnimationFrame[] = [];
-      let allExist = true;
-      for (let f = 0; f < 9; f++) {
-        const fk = getFrameKey("scaryboi", "smoke-vanish", dir, f);
-        if (!this.textures.exists(fk)) { allExist = false; break; }
-        vanishFrames.push({ key: fk });
-      }
-      if (allExist) {
-        this.anims.create({
-          key: getAnimKey("scaryboi", "smoke-appear", dir),
-          frames: vanishFrames.reverse(),
-          frameRate: 3, // slow dramatic entrance (~3s)
-          repeat: 0,
-        });
-      }
-    }
+    // SCARYBOI fireball animation — 5-frame crackling electricity orb from individual PNGs
+    this.anims.create({
+      key: "scaryboi-fireball-anim",
+      frames: [0, 1, 2, 3, 4].map(i => ({ key: `scaryboi-fireball-${i}` })),
+      frameRate: 10,
+      repeat: -1,
+    });
 
-    // SCARYBOI fireball animation — 5 frames at 32x32, starting at frame 134 (col14, row6)
-    // Source: all-fire-bullet-16x16.png, x=448 y=192, frameWidth=32 frameHeight=32
+    // Legacy fireball fallback (spritesheet-based)
     this.anims.create({
       key: "boss-fireball",
       frames: this.anims.generateFrameNumbers("fireball-sheet", { start: 134, end: 138 }),

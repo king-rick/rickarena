@@ -667,13 +667,12 @@ export class GameScene extends Phaser.Scene {
         this.cycleSlot(1);
       });
 
-      // Q: cycle backward through hotbar
+      // Q: ability
       const qKey = this.input.keyboard.addKey(
         Phaser.Input.Keyboard.KeyCodes.Q
       );
       qKey.on("down", () => {
-        if (this.gameOver || this.paused || this.shopOpen) return;
-        this.cycleSlot(-1);
+        if (!this.gameOver && !this.paused && !this.shopOpen) this.useAbility();
       });
 
       // 1-4: direct slot select
@@ -691,12 +690,12 @@ export class GameScene extends Phaser.Scene {
         });
       });
 
-      // R: ability
+      // R: reload
       const rKey = this.input.keyboard.addKey(
         Phaser.Input.Keyboard.KeyCodes.R
       );
       rKey.on("down", () => {
-        if (!this.gameOver && !this.paused && !this.shopOpen) this.useAbility();
+        if (!this.gameOver && !this.paused && !this.shopOpen) this.startReload();
       });
 
       // G: grenade (hold for aim, release to throw)
@@ -1185,8 +1184,8 @@ export class GameScene extends Phaser.Scene {
       if (!this.scaryboiSouthTriggered && ptx >= 2 && ptx <= 16 && pty >= 37 && pty <= 46) {
         this.waveManager.triggerEncounter("southBuilding");
       }
-      // Estate final stand: player enters estate interior (entrance at tile 33,26)
-      if (!this.scaryboiEstateTriggered && ptx >= 30 && ptx <= 45 && pty >= 18 && pty <= 24) {
+      // Estate final stand: only triggers once both other encounters are done
+      if (!this.scaryboiEstateTriggered && !this.waveManager.isEstateLocked() && ptx >= 30 && ptx <= 45 && pty >= 18 && pty <= 24) {
         this.waveManager.triggerEncounter("estate");
       }
     }
@@ -2299,7 +2298,7 @@ export class GameScene extends Phaser.Scene {
       while (diff < -Math.PI) diff += Math.PI * 2;
       if (Math.abs(diff) > arc / 2) return;
 
-      const killed = enemy.takeDamage(damage);
+      const killed = enemy.takeDamage(damage, "katana");
       if (killed) {
         this.onEnemyKilled(enemy, "melee");
       } else {
@@ -3936,8 +3935,8 @@ export class GameScene extends Phaser.Scene {
 
   /** Spawn SCARYBOI for a specific encounter */
   private spawnScaryboiEncounter(enc: "zone2" | "southBuilding" | "estate") {
-    const encConfig = (BALANCE.waves as any).bossEncounters[enc];
-    const maxHp = (BALANCE.enemies.boss as any).hp as number;
+    // Use encounter ORDER config, not location-based
+    const encConfig = this.waveManager.getCurrentEncounterConfig();
 
     // Mark location triggers so they don't re-fire
     if (enc === "southBuilding") this.scaryboiSouthTriggered = true;

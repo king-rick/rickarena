@@ -69,6 +69,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private hasTakingPunchAnim: boolean;
   private hasFallingBackDeath: boolean;
   private hasGunshotDeath: boolean;
+  private hasChoppedInHalf: boolean = false;
+  private hasBeingShotDeath: boolean = false;
   private biting = false;
   private leaping = false;
   dying = false;
@@ -145,7 +147,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.health = this.maxHealth;
     if (isMason || isBoss) {
       this.speed = (baseStats as any).speed;
-      this.damage = Math.floor((baseStats as any).attacks.leadJab.damage * waveDamageMultiplier);
+      const firstAttack = (baseStats as any).attacks.punchCombo ?? (baseStats as any).attacks.leadJab;
+      this.damage = Math.floor(firstAttack.damage * waveDamageMultiplier);
     } else if (type === "basic") {
       // WaW-style speed tiers for walkers
       const bs = baseStats as typeof BALANCE.enemies.basic;
@@ -185,22 +188,24 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
 
     // Boss and mason use different anim names
-    const walkAnim = isMason ? "walk" : isBoss ? "running-8-frames" : "walk";
-    const idleAnim = isMason ? "breathing-idle" : isBoss ? "fight-stance-idle-8-frames" : "walk";
+    const walkAnim = isMason ? "walk" : isBoss ? "running" : "walk";
+    const idleAnim = isMason ? "breathing-idle" : isBoss ? "fight-stance-idle" : "walk";
     this.walkAnimType = walkAnim;
     this.idleAnimType = idleAnim;
 
     this.hasWalkAnim = hasAnimation(spriteId, walkAnim);
-    this.hasBiteAnim = hasAnimation(spriteId, "bite") || hasAnimation(spriteId, "cross-punch");
+    this.hasBiteAnim = hasAnimation(spriteId, "bite") || hasAnimation(spriteId, "cross-punch") || hasAnimation(spriteId, "punch-combo");
     this.hasLungeBiteAnim = hasAnimation(spriteId, "lunge-bite") || hasAnimation(spriteId, "lead-jab");
     this.hasDeathAnim = hasAnimation(spriteId, "death");
-    this.hasLeapAnim = hasAnimation(spriteId, "leap") || hasAnimation(spriteId, "running-jump");
+    this.hasLeapAnim = hasAnimation(spriteId, "leap");
     this.hasTakingPunchAnim = hasAnimation(spriteId, "taking-punch");
     this.hasFallingBackDeath = hasAnimation(spriteId, "falling-back-death");
     this.hasGunshotDeath = hasAnimation(spriteId, "gunshot-death");
     this.hasRunningAnim = hasAnimation(spriteId, "running");
     this.hasHowlAnim = hasAnimation(spriteId, "howl");
     this.hasBeingShotAnim = hasAnimation(spriteId, "being-shot");
+    this.hasChoppedInHalf = hasAnimation(spriteId, "chopped-in-half");
+    this.hasBeingShotDeath = hasAnimation(spriteId, "being-shot-death");
     this.leapCooldown = 2000 + Math.random() * 2000; // stagger initial leap timing
     this.lastX = x;
     this.lastY = y;
@@ -246,7 +251,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
    * @param amount damage to deal
    * @param source "melee" for punches, "ranged" for bullets/projectiles
    */
-  takeDamage(amount: number, source: "melee" | "ranged" = "melee"): boolean {
+  takeDamage(amount: number, source: "melee" | "ranged" | "katana" = "melee"): boolean {
     if (this.dying || this.fleeing) return false; // already dead or fleeing — don't process
     this.health -= amount;
     this.hitFlashTimer = 100;
@@ -304,8 +309,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   applyElectricDamage(amount: number, stunMs: number, onKill: () => void): boolean {
     if (this.dying || this.fleeing) return false;
 
-    // Dogs just take normal damage — no electrified stun
-    if (this.enemyType === "fast") {
+    // Dogs without electrified-stun anim fall back to normal damage
+    if (this.enemyType === "fast" && !hasAnimation(this.spriteId, "electrified-stun")) {
       const killed = this.takeDamage(amount);
       if (killed) onKill();
       return true;
@@ -404,7 +409,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
   }
 
-  private die(source: "melee" | "ranged" = "melee") {
+  private die(source: "melee" | "ranged" | "katana" = "melee") {
     if (this.dying) return;
 
     this.dying = true;
@@ -477,11 +482,23 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   }
 
   /** Choose the best death animation for the damage source */
-  private pickDeathAnim(source: "melee" | "ranged"): string | null {
+  private pickDeathAnim(source: "melee" | "ranged" | "katana"): string | null {
     const dir = this.currentDir;
 
-    if (source === "melee") {
-      // Punch kill: falling-back-death only
+    // Boss (SCARYBOI): always uses being-shot-death for final kill
+    if (this.enemyType === "boss" && this.hasBeingShotDeath) {
+      const key = getAnimKey(this.spriteId, "being-shot-death", dir);
+      if (this.scene.anims.exists(key)) return key;
+    }
+
+    // Katana kill: chopped-in-half animation
+    if (source === "katana" && this.hasChoppedInHalf) {
+      const key = getAnimKey(this.spriteId, "chopped-in-half", dir);
+      if (this.scene.anims.exists(key)) return key;
+    }
+
+    if (source === "melee" || source === "katana") {
+      // Melee kill: falling-back-death
       if (this.hasFallingBackDeath) {
         const key = getAnimKey(this.spriteId, "falling-back-death", dir);
         if (this.scene.anims.exists(key)) return key;
@@ -526,13 +543,13 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     this.biting = true;
 
-    // Boss and mason use cross-punch/lead-jab, others use bite/lunge-bite
+    // Boss uses punch-combo, mason uses lead-jab, others use bite/lunge-bite
     const isBossEnemy = this.enemyType === "boss" || this.enemyType === "mason";
     const useLunge = this.hasLungeBiteAnim && Math.random() < 0.5;
-    const animType = this.enemyType === "mason"
-      ? "lead-jab"
-      : isBossEnemy
-        ? (useLunge ? "lead-jab" : "cross-punch")
+    const animType = this.enemyType === "boss"
+      ? "punch-combo"
+      : this.enemyType === "mason"
+        ? "lead-jab"
         : (useLunge ? "lunge-bite" : "bite");
     const biteKey = getAnimKey(this.spriteId, animType, this.currentDir);
 
@@ -541,8 +558,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.play(biteKey);
       this.once("animationcomplete", this.handleBiteComplete, this);
     } else {
-      // Fallback to regular bite/cross-punch
-      const fallbackType = isBossEnemy ? "cross-punch" : "bite";
+      // Fallback to regular bite/punch-combo
+      const fallbackType = isBossEnemy ? "punch-combo" : "bite";
       const fallbackKey = getAnimKey(this.spriteId, fallbackType, this.currentDir);
       if (this.scene.anims.exists(fallbackKey)) {
         this.off("animationcomplete", this.handleBiteComplete, this);
@@ -594,8 +611,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     const comboChance = dist < 80 ? 0.6 : 0.3;
     const willCombo = Math.random() < comboChance;
 
-    // Play leap animation (boss uses running-jump)
-    const leapAnimType = this.enemyType === "boss" ? "running-jump" : "leap";
+    // Play leap animation (dogs use leap)
+    const leapAnimType = "leap";
     const leapKey = getAnimKey(this.spriteId, leapAnimType, this.currentDir);
     if (this.scene.anims.exists(leapKey)) {
       this.play(leapKey);
@@ -681,7 +698,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
 
     // Low HP: prefer retreating/circling with ranged attacks
-    if (hpPct <= bossStats.backflipThreshold) {
+    if (hpPct <= 0.25) {
       if (this.bossMovementState !== "circling" && this.bossMovementState !== "retreating") {
         this.bossMovementState = dist < 120 ? "retreating" : "circling";
         if (this.bossMovementState === "circling") {
@@ -773,53 +790,29 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       }
     }
 
-    // ─── Attack selection by range bracket ───
-    if (hpPct <= bossStats.backflipThreshold) {
-      // Low HP: backflip if close, fireball at range, melee only if cornered
-      if (dist < 100 && this.canBossAttack("backflip")) {
+    // ─── Attack pattern: sprint → punch-combo → backflip(s) → fireball → repeat ───
+    if (dist < bossStats.attacks.punchCombo.range) {
+      // Close range: punch-combo, then backflip to disengage
+      if (this.canBossAttack("punchCombo")) {
+        this.bossMeleeAttack("punchCombo", "punch-combo", bossStats.attacks.punchCombo.damage);
+        return;
+      }
+      // After punching, backflip away to create space
+      if (this.canBossAttack("backflip")) {
         this.bossBackflip(angle);
         return;
       }
-      if (dist > 80 && this.canBossAttack("fireball")) {
-        this.bossFireball(angle, player);
-        return;
-      }
-      if (dist < bossStats.attacks.leadJab.range && this.canBossAttack("leadJab")) {
-        this.bossMeleeAttack("leadJab", "lead-jab", bossStats.attacks.leadJab.damage);
-        return;
-      }
-    } else if (dist < 70) {
-      // Close range: melee priority
-      if (this.canBossAttack("leadJab")) {
-        this.bossMeleeAttack("leadJab", "lead-jab", bossStats.attacks.leadJab.damage);
-        return;
-      }
-      if (this.canBossAttack("crossPunch")) {
-        this.bossMeleeAttack("crossPunch", "cross-punch", bossStats.attacks.crossPunch.damage);
-        return;
-      }
     } else if (dist < 200) {
-      // Medium range: mix of fireball, leap, melee
-      if (this.canBossAttack("fireball") && Math.random() < 0.5) {
+      // Medium range: fireball or sprint in for melee
+      if (this.canBossAttack("fireball") && Math.random() < 0.6) {
         this.bossFireball(angle, player);
         return;
       }
-      if (dist > 100 && this.canBossAttack("leapAttack")) {
-        this.bossLeapAttack(angle);
-        return;
-      }
-      if (dist < bossStats.attacks.crossPunch.range && this.canBossAttack("crossPunch")) {
-        this.bossMeleeAttack("crossPunch", "cross-punch", bossStats.attacks.crossPunch.damage);
-        return;
-      }
+      // Otherwise sprint toward player (handled by movement below)
     } else {
-      // Long range: fireball or leap to close
+      // Long range: fireball to pressure, then sprint in
       if (this.canBossAttack("fireball")) {
         this.bossFireball(angle, player);
-        return;
-      }
-      if (this.canBossAttack("leapAttack")) {
-        this.bossLeapAttack(angle);
         return;
       }
     }
@@ -874,15 +867,13 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         this.biting = false;
         this.bossBusy = false;
 
-        // Combo: jab → cross punch (50% chance if in range)
-        if (attackId === "leadJab" && !this.dying && this.canBossAttack("crossPunch")) {
+        // After punch-combo, backflip away to create distance
+        if (attackId === "punchCombo" && !this.dying && this.canBossAttack("backflip")) {
           const player = (this.scene as any).player;
-          if (player?.active && Math.random() < 0.5) {
-            const d = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
-            if (d < bossStats.attacks.crossPunch.range) {
-              this.bossMeleeAttack("crossPunch", "cross-punch", bossStats.attacks.crossPunch.damage);
-              return;
-            }
+          if (player?.active) {
+            const a = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
+            this.bossBackflip(a);
+            return;
           }
         }
 
@@ -903,46 +894,11 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
   }
 
-  /** Boss leap attack: lunge forward at burst speed */
-  private bossLeapAttack(angle: number) {
-    if (this.leaping || this.dying) return;
-    this.leaping = true;
-    const bossStats = BALANCE.enemies.boss;
-    this.bossAttackCooldowns["leapAttack"] = bossStats.attacks.leapAttack.cooldown;
-    this.damage = bossStats.attacks.leapAttack.damage;
-
-    const leapKey = getAnimKey(this.spriteId, "running-jump", this.currentDir);
-    if (this.scene.anims.exists(leapKey)) {
-      this.play(leapKey);
-    }
-
-    this.body.setVelocity(
-      Math.cos(angle) * bossStats.leapSpeed,
-      Math.sin(angle) * bossStats.leapSpeed
-    );
-
-    this.scene.time.delayedCall(400, () => {
-      if (!this.active) return;
-      this.leaping = false;
-      // Chain into cross punch if close enough
-      const player = (this.scene as any).player;
-      if (player?.active) {
-        const d = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
-        if (d < 100 && !this.dying) {
-          this.bossMeleeAttack("crossPunch", "cross-punch", bossStats.attacks.crossPunch.damage);
-          return;
-        }
-      }
-      if (this.hasWalkAnim && !this.dying) {
-        this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
-      }
-    });
-  }
-
-  /** Boss backflip: leap backward, invulnerable during flip */
+  /** Boss backflip: leap backward to disengage, chains into fireball */
   private bossBackflip(angle: number) {
     this.backflipping = true;
-    this.bossAttackCooldowns["backflip"] = 5000;
+    const bossStats = BALANCE.enemies.boss;
+    this.bossAttackCooldowns["backflip"] = bossStats.backflipCooldown;
 
     const retreatAngle = angle + Math.PI;
     // Backflip has limited directions — pick closest available
@@ -1033,12 +989,15 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     stats: { damage: number; projectileSpeed: number; range: number }
   ) {
     const scene = this.scene;
-    // Animated fireball sprite — sprite faces right (0 rad), rotate to match travel angle
-    const fb = scene.add.sprite(this.x, this.y, "fireball-sheet")
+    // SCARYBOI fireball — animated crackling electricity orb, rotate to match travel angle
+    const hasAnimated = scene.anims.exists("scaryboi-fireball-anim");
+    const fb = scene.add.sprite(this.x, this.y, hasAnimated ? "scaryboi-fireball-0" : "fireball-sheet")
       .setDepth(10)
-      .setScale(2)
+      .setScale(hasAnimated ? 0.5 : 2)
       .setRotation(angle);
-    if (scene.anims.exists("boss-fireball")) {
+    if (hasAnimated) {
+      fb.play("scaryboi-fireball-anim");
+    } else if (scene.anims.exists("boss-fireball")) {
       fb.play("boss-fireball");
     }
 

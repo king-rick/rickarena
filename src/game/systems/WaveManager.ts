@@ -106,7 +106,7 @@ export class WaveManager {
   private readyUp = false;
   private readyCountdown = 0;
 
-  // SCARYBOI encounter system — 3 fixed location-based encounters
+  // SCARYBOI encounter system — HP/flee tied to encounter ORDER, not location
   private bossActive = false;
   bossEnemy: Enemy | null = null;
   private scaryboiEncounters = { zone2: false, southBuilding: false, estate: false };
@@ -114,6 +114,7 @@ export class WaveManager {
   private scaryboiFirstSeen = false;
   private gateOpenedWave: number | null = null;
   private activeEncounter: "zone2" | "southBuilding" | "estate" = "zone2";
+  private scaryboiEncounterCount = 0; // how many encounters have been completed (0, 1, 2)
 
 
   // Persistent dog pack system
@@ -232,27 +233,33 @@ export class WaveManager {
     }
   }
 
-  /** Check if SCARYBOI should flee this encounter (HP-percentage based) */
+  /** Check if SCARYBOI should flee this encounter (HP-percentage based by encounter order) */
   private checkBossFlee() {
     if (!this.bossEnemy || !this.bossActive) return;
 
-    const maxHp = (BALANCE.enemies.boss as any).hp as number;
-    const hpPct = this.bossEnemy.health / maxHp;
-    const encConfig = (BALANCE.waves as any).bossEncounters[this.activeEncounter];
-    const fleeThreshold = encConfig?.fleeThreshold ?? 0;
+    const encConfigs = (BALANCE.waves as any).bossEncountersByOrder;
+    const encIndex = this.scaryboiEncounterCount; // current encounter (0-based)
+    const encConfig = encConfigs[encIndex] ?? encConfigs[encConfigs.length - 1];
+    const fleeThreshold = encConfig.fleeThreshold ?? 0;
 
-    // Flee if HP drops below encounter threshold (estate = 0, no flee)
+    const maxHp = (BALANCE.enemies.boss as any).hp as number;
+    const spawnHp = Math.round(maxHp * encConfig.hpPercent);
+    const hpPct = this.bossEnemy.health / spawnHp;
+
+    // Flee if HP drops below encounter threshold (encounter 3 = 0, no flee)
     if (fleeThreshold > 0 && hpPct <= fleeThreshold) {
+      this.scaryboiEncounterCount++;
       this.makeBossFlee();
       return;
     }
 
-    // Boss actually died (estate final stand or overkill)
+    // Boss actually died (encounter 3 final stand or overkill)
     if (this.bossEnemy.dying || !this.bossEnemy.active) {
       this.bossActive = false;
-      const isEstate = this.activeEncounter === "estate";
+      const isFinalEncounter = this.activeEncounter === "estate";
       this.bossEnemy = null;
-      if (isEstate) {
+      if (isFinalEncounter) {
+        this.scaryboiEncounterCount++;
         this.scaryboiDefeated = true;
         this.onBossKilled?.();
       }
@@ -469,6 +476,15 @@ export class WaveManager {
   isScaryboiDefeated(): boolean { return this.scaryboiDefeated; }
   hasSeenScaryboi(): boolean { return this.scaryboiFirstSeen; }
   markScaryboiSeen() { this.scaryboiFirstSeen = true; }
+  /** Estate is locked until both other encounters (zone2 + southBuilding) are completed */
+  isEstateLocked(): boolean {
+    return !this.scaryboiEncounters.zone2 || !this.scaryboiEncounters.southBuilding;
+  }
+  /** Get the encounter config for the current encounter order (0-based index) */
+  getCurrentEncounterConfig(): { hpPercent: number; fleeThreshold: number; gracePeriodMs: number } {
+    const configs = (BALANCE.waves as any).bossEncountersByOrder;
+    return configs[this.scaryboiEncounterCount] ?? configs[configs.length - 1];
+  }
 
   private beginIntermission() {
     // If SCARYBOI is still active at wave end, make him flee

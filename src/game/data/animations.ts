@@ -97,6 +97,8 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "gunshot-death", frames: 17 },
     { type: "running-8-frames", frames: 8 },
     { type: "electrified-stun", frames: 9 },
+    { type: "chopped-in-half", frames: 9 },
+    { type: "zombie-dancing", frames: 16 },
   ],
   zombiedog: [
     { type: "walk", frames: 8 },
@@ -107,19 +109,18 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "howl", frames: 4 },
     { type: "running", frames: 9 },
     { type: "being-shot", frames: 9 },
+    { type: "electrified-stun", frames: 9 },
   ],
   scaryboi: [
-    { type: "fight-stance-idle-8-frames", frames: 8 },
-    { type: "running-8-frames", frames: 8 },
-    { type: "running-jump", frames: 8 },
-    { type: "cross-punch", frames: 6 },
-    { type: "lead-jab", frames: 3 },
-    { type: "fireball", frames: 6 },
-    { type: "backflip", frames: 10 },
-    { type: "falling-back-death", frames: 7 },
+    { type: "fight-stance-idle", frames: 9 },
+    { type: "running", frames: 9 },
+    { type: "punch-combo", frames: 9 },
+    { type: "fireball", frames: 9 },
+    { type: "backflip", frames: 9 },
     { type: "being-shot", frames: 9 },
+    { type: "being-shot-death", frames: 9 },
     { type: "smoke-vanish", frames: 9 },
-    { type: "smoke-appear", frames: 9 },  // reverse of smoke-vanish
+    { type: "smoke-appear", frames: 9 },
   ],
 };
 

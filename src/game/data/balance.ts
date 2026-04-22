@@ -51,12 +51,12 @@ export const BALANCE = {
     },
     bossVariantWave: 7,
     spawnStaggerMs: 600,
-    // SCARYBOI — 3 fixed location-based encounters (replaces random spawn)
-    bossEncounters: {
-      zone2:          { hpPercent: 1.0,  fleeThreshold: 0.5,  gracePeriodMs: 2000 },
-      southBuilding:  { hpPercent: 0.75, fleeThreshold: 0.25, gracePeriodMs: 2000 },
-      estate:         { hpPercent: 0.5,  fleeThreshold: 0,    gracePeriodMs: 2000 },
-    },
+    // SCARYBOI — 3 encounters, HP/flee tied to encounter ORDER (not location)
+    bossEncountersByOrder: [
+      { hpPercent: 1.0,  fleeThreshold: 0.5,  gracePeriodMs: 3000 },  // 1st encounter: full HP, flee at 50%
+      { hpPercent: 0.75, fleeThreshold: 0.25, gracePeriodMs: 3000 },  // 2nd encounter: 75% HP, flee at 25%
+      { hpPercent: 1.0,  fleeThreshold: 0,    gracePeriodMs: 3000 },  // 3rd encounter (estate): full HP, fight to death
+    ],
   },
 
   // Economy — tight early, loosens slightly mid-game
@@ -301,16 +301,13 @@ export const BALANCE = {
     boss:  {
       hp: 1300,
       speed: 40,           // stalking walk
-      runSpeed: 90,        // chasing
-      leapSpeed: 150,      // burst leap
+      runSpeed: 90,        // chasing / sprinting at player
       knockbackResist: 0.8,
       attacks: {
-        leadJab:    { damage: 15, range: 60,  cooldown: 800  },  // quick hit
-        crossPunch: { damage: 35, range: 70,  cooldown: 2000, knockback: 120 }, // heavy hit
+        punchCombo: { damage: 40, range: 70,  cooldown: 1500, knockback: 120 }, // left-right brawler combo
         fireball:   { damage: 15, range: 400, cooldown: 3000, projectileSpeed: 300 }, // ranged
-        leapAttack: { damage: 30, range: 250, cooldown: 4000 }, // gap closer
       },
-      backflipThreshold: 0.25, // backflips away below 25% HP
+      backflipCooldown: 3000, // cooldown between backflips
     },
     mason: {
       hp: 2000,
