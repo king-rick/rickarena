@@ -116,6 +116,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   // Mason-specific state
   private masonAttackCooldowns: Record<string, number> = {};
   private masonBusy = false;
+  private masonIntroPlayed = false;
+  private masonPhase2Triggered = false;
 
   constructor(
     scene: Phaser.Scene,
@@ -388,21 +390,6 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private die(source: "melee" | "ranged" = "melee") {
     if (this.dying) return;
 
-    // Mason: fade out over 1 second instead of death animation
-    if (this.enemyType === "mason") {
-      this.dying = true;
-      this.body.setVelocity(0, 0);
-      this.body.enable = false;
-      this.healthBarGfx.destroy();
-      this.scene.tweens.add({
-        targets: this,
-        alpha: 0,
-        duration: 1000,
-        onComplete: () => this.destroy(),
-      });
-      return;
-    }
-
     this.dying = true;
 
     // Stop moving
@@ -410,6 +397,49 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.body.enable = false;
 
     this.healthBarGfx.destroy();
+
+    // Mason: dramatic slow death with staggered blood splatters
+    if (this.enemyType === "mason") {
+      const deathKey = getAnimKey(this.spriteId, "death", this.currentDir);
+      if (deathKey && this.scene.anims.exists(deathKey)) {
+        // Slow down the death animation for dramatic effect
+        this.play(deathKey);
+        this.anims.msPerFrame = 250; // ~4fps — slow dramatic death
+
+        // Staggered blood splatters during the death animation
+        const scene = this.scene as any;
+        const spawnBlood = () => {
+          if (!this.active || !scene.spawnBloodSplat) return;
+          const ox = (Math.random() - 0.5) * 30;
+          const oy = (Math.random() - 0.5) * 20;
+          scene.spawnBloodSplat(this.x + ox, this.y + oy, "kill", this.enemyType);
+        };
+        // Blood bursts at key frames during the fall
+        this.scene.time.delayedCall(200, spawnBlood);
+        this.scene.time.delayedCall(500, spawnBlood);
+        this.scene.time.delayedCall(900, spawnBlood);
+        this.scene.time.delayedCall(1200, spawnBlood);
+
+        this.once("animationcomplete", () => {
+          // Final large blood pool
+          spawnBlood();
+          // Hold on last frame, then slow fade
+          this.scene.tweens.add({
+            targets: this,
+            alpha: 0,
+            duration: 1500,
+            delay: 800,
+            onComplete: () => this.destroy(),
+          });
+        });
+      } else {
+        this.scene.tweens.add({
+          targets: this, alpha: 0, duration: 1000,
+          onComplete: () => this.destroy(),
+        });
+      }
+      return;
+    }
 
     // Pick death animation based on damage source
     const deathAnim = this.pickDeathAnim(source);
@@ -948,7 +978,11 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
   /** Mason 2-phase combat AI — stops when both on-screen, walks when off-screen */
   private updateMason(delta: number, player: any) {
-    if (this.masonBusy || this.biting || this.dying || this.fleeing) return;
+    if (this.masonBusy || this.biting || this.dying || this.fleeing) {
+      // Lock position during attacks — prevents knockback skating
+      if (this.masonBusy) this.body.setVelocity(0, 0);
+      return;
+    }
 
     const angle = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
     const dist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
@@ -977,6 +1011,46 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.x > camCX - halfW + margin && this.x < camCX + halfW - margin &&
       this.y > camCY - halfH + margin && this.y < camCY + halfH - margin;
     const bothOnScreen = playerOnScreen && masonOnScreen;
+
+    // Intro angry: plays once when the player first discovers Mason
+    if (bothOnScreen && !this.masonIntroPlayed) {
+      this.masonIntroPlayed = true;
+      this.masonBusy = true;
+      this.body.setVelocity(0, 0);
+      this.currentDir = angleToDirection(angle) as Direction;
+      const angryKey = getAnimKey(this.spriteId, "angry", this.currentDir);
+      if (this.scene.anims.exists(angryKey)) {
+        this.play(angryKey);
+        this.once("animationcomplete", () => {
+          this.masonBusy = false;
+          const idleKey = getAnimKey(this.spriteId, this.idleAnimType, this.currentDir);
+          if (this.scene.anims.exists(idleKey) && !this.dying) this.play(idleKey, true);
+        });
+      } else {
+        this.masonBusy = false;
+      }
+      return;
+    }
+
+    // Phase 2 angry: plays once when Mason drops below 50% HP
+    if (phase2 && !this.masonPhase2Triggered) {
+      this.masonPhase2Triggered = true;
+      this.masonBusy = true;
+      this.body.setVelocity(0, 0);
+      this.currentDir = angleToDirection(angle) as Direction;
+      const angryKey = getAnimKey(this.spriteId, "angry", this.currentDir);
+      if (this.scene.anims.exists(angryKey)) {
+        this.play(angryKey);
+        this.once("animationcomplete", () => {
+          this.masonBusy = false;
+          const idleKey = getAnimKey(this.spriteId, this.idleAnimType, this.currentDir);
+          if (this.scene.anims.exists(idleKey) && !this.dying) this.play(idleKey, true);
+        });
+      } else {
+        this.masonBusy = false;
+      }
+      return;
+    }
 
     // Refresh A* path toward player
     this.pathRefreshTimer -= delta;
@@ -1179,14 +1253,19 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         this.setTexture(freezeKey);
       }
 
+      // Tracking state — fire sweeps to follow the player
+      let currentAngle = facingAngle;
+      let currentDir = dir;
+      const turnSpeed = 2.5; // radians per second — smooth sweep, not instant snap
+
       // Offset fire sprite to Mason's mouth position
       const mouthForward = 18;
       const mouthUp = -14;
-      const mouthOffX = Math.cos(facingAngle) * mouthForward;
-      const mouthOffY = Math.sin(facingAngle) * mouthForward + mouthUp;
+      let mouthOffX = Math.cos(currentAngle) * mouthForward;
+      let mouthOffY = Math.sin(currentAngle) * mouthForward + mouthUp;
 
       // Determine if facing left-ish (cone needs to flip)
-      const facingLeft = Math.abs(facingAngle) > Math.PI / 2;
+      let facingLeft = Math.abs(currentAngle) > Math.PI / 2;
 
       const hasFireSprites = this.scene.textures.exists("fx-fire-breath-1");
       const fireSprite = hasFireSprites
@@ -1259,17 +1338,53 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
           elapsed += 16;
           tickAccum += 16;
 
-          // Animate fire sprite: hold frame 1, subtle scale/alpha pulse for fire flicker
+          // --- Track player: sweep fire toward their position ---
+          const targetAngle = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
+          let angleDelta = Phaser.Math.Angle.Wrap(targetAngle - currentAngle);
+          const maxStep = turnSpeed * 0.016; // per-frame turn limit
+          if (Math.abs(angleDelta) > maxStep) {
+            angleDelta = Math.sign(angleDelta) * maxStep;
+          }
+          currentAngle = Phaser.Math.Angle.Wrap(currentAngle + angleDelta);
+
+          // Update direction + Mason texture if direction changed
+          const newDir = angleToDirection(currentAngle) as Direction;
+          if (newDir !== currentDir) {
+            currentDir = newDir;
+            this.currentDir = newDir;
+            const newFrameKey = getFrameKey(this.spriteId, "fire-breath", newDir, 2);
+            if (this.scene.textures.exists(newFrameKey)) {
+              this.setTexture(newFrameKey);
+            }
+          }
+
+          // Recalculate mouth offset + facing for fire sprite
+          mouthOffX = Math.cos(currentAngle) * mouthForward;
+          mouthOffY = Math.sin(currentAngle) * mouthForward + mouthUp;
+          facingLeft = Math.abs(currentAngle) > Math.PI / 2;
+
+          // Animate fire sprite: flicker + reposition + re-aim
           if (fireSprite?.active) {
             if (elapsed % 80 < 16) {
               fireSprite.setAlpha(0.75 + Math.random() * 0.15);
               fireSprite.setScale(0.58 + Math.random() * 0.06);
             }
             fireSprite.setPosition(this.x + mouthOffX, this.y + mouthOffY);
+            if (facingLeft) {
+              fireSprite.setOrigin(1, 0.5);
+              fireSprite.setFlipX(true);
+              fireSprite.setRotation(currentAngle + Math.PI);
+            } else {
+              fireSprite.setOrigin(0, 0.5);
+              fireSprite.setFlipX(false);
+              fireSprite.setRotation(currentAngle);
+            }
           }
 
           if (emitter) {
             emitter.setPosition(this.x + mouthOffX, this.y + mouthOffY);
+            const facingDeg = Phaser.Math.RadToDeg(currentAngle);
+            (emitter as any).particleAngle = { min: facingDeg - stats.coneAngle / 2, max: facingDeg + stats.coneAngle / 2 };
           }
 
           // Damage tick
@@ -1280,7 +1395,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
             const pDist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
             if (pDist <= stats.range && !player.invincible) {
               const toPlayer = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
-              let angleDiff = Math.abs(Phaser.Math.Angle.Wrap(toPlayer - facingAngle));
+              let angleDiff = Math.abs(Phaser.Math.Angle.Wrap(toPlayer - currentAngle));
               if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
 
               if (angleDiff <= halfCone) {
@@ -1314,7 +1429,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
               delay: 150,
               repeat: coolDownFrames.length - 1,
               callback: () => {
-                const cfk = getFrameKey(this.spriteId, "fire-breath", dir, coolDownFrames[cdIdx]);
+                const cfk = getFrameKey(this.spriteId, "fire-breath", currentDir, coolDownFrames[cdIdx]);
                 if (this.scene.textures.exists(cfk) && this.active) this.setTexture(cfk);
                 cdIdx++;
               },
@@ -1344,74 +1459,78 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.masonAttackCooldowns["jumpAndLand"] = stats.cooldown;
     this.body.setVelocity(0, 0);
 
+    // Snapshot target near player's current position
     const targetX = player.x + (Math.random() - 0.5) * 40;
     const targetY = player.y + (Math.random() - 0.5) * 40;
 
-    // Play jump animation (crouch → launch off screen)
+    // Phase 1: Jump animation (crouch → launch → off-screen)
     const jumpKey = getAnimKey(this.spriteId, "jump", this.currentDir);
     if (this.scene.anims.exists(jumpKey)) {
       this.play(jumpKey);
     }
 
-    // Jump phase: 400ms crouch + launch, then landing phase
-    const landDelay = 400; // jump anim is 4 frames at 10fps = 400ms
+    // Fade out as he launches (4 frames at 10fps = 400ms)
     this.scene.tweens.add({
       targets: this,
-      x: targetX,
-      y: targetY,
-      duration: landDelay,
+      alpha: 0,
+      duration: 350,
+      ease: "Quad.easeIn",
+    });
+
+    // Shadow indicator at landing zone — light dynamic shadow
+    const shadow = this.scene.add.graphics();
+    shadow.setDepth(1);
+    shadow.fillStyle(0x000000, 0.12);
+    shadow.fillEllipse(targetX, targetY, 28, 14);
+    shadow.setAlpha(0);
+
+    // Fade shadow in gently over the airborne period
+    this.scene.tweens.add({
+      targets: shadow,
+      alpha: 1,
+      duration: 800,
       ease: "Sine.easeIn",
     });
 
-    // AoE stun on landing (no damage — sets up follow-up jab)
-    this.scene.time.delayedCall(landDelay, () => {
-      if (!this.active || this.dying) return;
-      if ((this.scene as any).gameOver) return;
+    // Phase 2: Airborne pause — invisible, then teleport + land
+    const airborneDelay = 1100; // 400ms jump anim + 700ms hang time
+    this.scene.time.delayedCall(airborneDelay, () => {
+      if (!this.active || this.dying) {
+        shadow.destroy();
+        return;
+      }
+      if ((this.scene as any).gameOver) {
+        shadow.destroy();
+        return;
+      }
 
-      // Play landing animation
+      // Remove shadow
+      shadow.destroy();
+
+      // Teleport to target position
+      this.setPosition(targetX, targetY);
+      this.setAlpha(1);
+
+      // Face toward the player on landing
+      const angle = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
+      this.currentDir = angleToDirection(angle) as Direction;
+
+      // Phase 3: Landing animation (slam down from above)
       const landKey = getAnimKey(this.spriteId, "landing", this.currentDir);
       if (this.scene.anims.exists(landKey)) {
         this.play(landKey);
       }
 
-      // Dust ring VFX on landing
-      const hasDustSprites = this.scene.textures.exists("fx-dust-burst-1");
-      if (hasDustSprites) {
-        const dust = this.scene.add.sprite(this.x, this.y, "fx-dust-burst-1");
-        dust.setDepth(1);
-        dust.setScale(0.5);
-        dust.setAlpha(0.7);
-        let dustFrame = 0;
-        const dustTimer = this.scene.time.addEvent({
-          delay: 80, repeat: 3,
-          callback: () => {
-            dustFrame++;
-            if (!dust.active) return;
-            dust.setTexture(`fx-dust-burst-${Math.min(dustFrame + 1, 4)}`);
-            dust.setScale(0.5 + dustFrame * 0.25);
-            dust.setAlpha(0.7 - dustFrame * 0.15);
-          },
-        });
-        this.scene.time.delayedCall(400, () => {
-          dustTimer.destroy();
-          if (dust.active) {
-            this.scene.tweens.add({ targets: dust, alpha: 0, duration: 200, onComplete: () => dust.destroy() });
-          }
-        });
-      }
+      // Camera shake on impact
+      this.scene.cameras.main.shake(80, 0.004);
 
-      this.scene.cameras.main.shake(120, 0.008);
-
+      // AoE stun check (no damage — sets up follow-up jab)
       const pDist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
       if (pDist <= stats.landRadius && !player.invincible) {
-        // Stun the player: freeze movement for stunDuration
         const prevSpeed = player.stats.speed;
         player.stats.speed = 0;
         player.body.setVelocity(0, 0);
         (player as any).stunned = true;
-
-        // Visual feedback: flash + tint
-        this.scene.cameras.main.flash(100, 255, 255, 100, false);
         player.setTint(0xffff88);
 
         this.scene.time.delayedCall(stats.stunDuration, () => {
@@ -1420,14 +1539,16 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
           player.clearTint();
         });
       }
-    });
 
-    this.once("animationcomplete", () => {
-      this.masonBusy = false;
-      const idleKey = getAnimKey(this.spriteId, this.idleAnimType, this.currentDir);
-      if (this.scene.anims.exists(idleKey) && !this.dying) {
-        this.play(idleKey, true);
-      }
+      // Return to idle after landing anim completes (4 frames at 10fps = 400ms)
+      this.scene.time.delayedCall(400, () => {
+        this.masonBusy = false;
+        if (!this.active || this.dying) return;
+        const idleKey = getAnimKey(this.spriteId, this.idleAnimType, this.currentDir);
+        if (this.scene.anims.exists(idleKey)) {
+          this.play(idleKey, true);
+        }
+      });
     });
   }
 
@@ -1443,14 +1564,18 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
 
     // Fire 3 directional beat pulses at BPM intervals
+    // Each pulse aims at the player's position at fire time (leads the target slightly)
     const pulseCount = 3;
     const pulseInterval = 400; // ms between pulses
-    const facingAngle = this.directionToAngle(this.currentDir);
 
     for (let i = 0; i < pulseCount; i++) {
       this.scene.time.delayedCall(600 + i * pulseInterval, () => {
         if (!this.active || this.dying) return;
-        this.spawnBeatPulse(facingAngle, stats.damage, stats.range);
+        const player = (this.scene as any).player;
+        if (!player) return;
+        // Aim directly at the player's current position each pulse
+        const aimAngle = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
+        this.spawnBeatPulse(aimAngle, stats.damage, stats.range);
       });
     }
 

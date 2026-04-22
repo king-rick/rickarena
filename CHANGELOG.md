@@ -1,5 +1,45 @@
 # RickArena Changelog
 
+## 2026-04-22 — Mason Boss Polish, Fire Breath Tracking, Session Tooling
+
+**Mason boss fight overhaul — all new sprites wired, AI improvements, balance tuning.**
+
+**New animations wired:**
+- `angry` (8 dirs x 4 frames) — plays on first discovery (player sees Mason) and phase 2 transition (50% HP)
+- `death` (7 dirs x 9 frames) — dramatic slow death at ~4fps with 4 staggered blood splatter bursts, 800ms hold on final frame, 1.5s fade-out
+- `jump` (8 dirs x 4 frames) — launch-off-screen animation for leap attack
+- `landing` (8 dirs x 4 frames) — slam-down-from-above with dust/shockwave
+- `soundwave` projectile (4 frames) — already wired from previous session
+
+**Jump attack rework:**
+- Mason now fades out during jump (launching off-screen), hangs in the air for 700ms, then teleports to player's position and plays landing slam
+- Subtle ground shadow (28x14 translucent black ellipse at 12% opacity) fades in at landing zone during hang time as a dodge telegraph
+- Replaced old tween-slide-across-ground behavior that didn't match the sprites
+
+**Fire breath tracking:**
+- Fire breath now sweeps to follow the player during the 2s breath phase at 2.5 rad/s (~143 deg/s)
+- Mason's sprite swaps between 8-direction fire-breath textures as he rotates
+- Fire cone sprite repositions and re-rotates each frame
+- Wind-up (360ms) and cool-down phases remain direction-locked — player gets a brief read window before tracking kicks in
+
+**Skating fix:**
+- Mason no longer slides backward during fire breath or other attacks
+- Root cause: punch/bullet knockback applied velocity via direct `setVelocity()` calls, bypassing `setImmovable()`
+- Fix: `updateMason()` now zeros velocity every frame while `masonBusy` is true
+
+**Soundwave aiming fix:**
+- Each of the 3 boom-box pulses now aims at the player's actual position at fire time instead of using the 8-direction facing angle
+- Pulses recalculate per-fire, so they fan slightly if the player moves between beats
+
+**Balance:**
+- Mason HP 2400 → 2000
+- Mason death animation slowed to ~4fps (250ms per frame) for dramatic effect
+
+**Project tooling:**
+- Added `CLAUDE.md` with full project context (architecture, patterns, things to avoid)
+- Set up persistent memory system (`memory/MEMORY.md` + user, project, feedback memories)
+- Created `/closeout` skill for end-of-session changelog + commit workflow
+
 ## 2026-04-22 — Concept Art V3/V4 Generation (Animated Cel-Shaded)
 
 **Full concept art regeneration session using ComfyUI (Flux Dev + RealESRGAN 4x upscale).**

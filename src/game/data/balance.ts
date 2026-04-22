@@ -257,7 +257,7 @@ export const BALANCE = {
       backflipThreshold: 0.25, // backflips away below 25% HP
     },
     mason: {
-      hp: 2400,
+      hp: 2000,
       speed: 35,           // slow menacing walk (only moves when player is off-screen)
       knockbackResist: 0.98,
       attacks: {
