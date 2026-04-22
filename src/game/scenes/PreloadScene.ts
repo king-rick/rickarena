@@ -175,6 +175,36 @@ export class PreloadScene extends Phaser.Scene {
     this.load.image("fx-explosion", "/assets/sprites/items/explosion.png");
     this.load.image("fx-smoke", "/assets/sprites/items/smoke-puff.png");
     this.load.image("fx-spark", "/assets/sprites/items/spark.png");
+
+    // Lightning chain VFX (Electric Fist ability)
+    for (let i = 1; i <= 4; i++) {
+      this.load.image(`fx-lightning-orb-${i}`, `/assets/sprites/projectiles/lightning-orb-anim/frame${i}.png`);
+    }
+    for (let i = 1; i <= 5; i++) {
+      this.load.image(`fx-lightning-bolt-${i}`, `/assets/sprites/projectiles/lightning-bolt-anim/frame${i}.png`);
+    }
+
+    // Dust burst VFX (Sledgehammer Slam)
+    for (let i = 1; i <= 4; i++) {
+      this.load.image(`fx-dust-burst-${i}`, `/assets/sprites/projectiles/dust-burst/frame${i}.png`);
+    }
+
+    // Slam ember ring VFX (Jason Sledgehammer, 4 frames, 96x96)
+    for (let i = 1; i <= 4; i++) {
+      this.load.image(`fx-slam-ember-${i}`, `/assets/sprites/projectiles/slam-ember/frame${i}.png`);
+    }
+
+    // Mason fire breath VFX (3 frames, 128x48 cone)
+    for (let i = 1; i <= 3; i++) {
+      this.load.image(`fx-fire-breath-${i}`, `/assets/sprites/projectiles/fire-breath/frame${i}.png`);
+    }
+
+    // Blood splatter VFX (4 variants x 3 frames)
+    for (let v = 1; v <= 4; v++) {
+      for (let f = 1; f <= 3; f++) {
+        this.load.image(`fx-blood-${v}-${f}`, `/assets/sprites/projectiles/blood-splat-${v}/frame${f}.png`);
+      }
+    }
     this.load.spritesheet("fireball-sheet", "/assets/sprites/fireball-sheet.png", {
       frameWidth: 32,
       frameHeight: 32,
@@ -281,7 +311,8 @@ export class PreloadScene extends Phaser.Scene {
             anim.type === "walk" || anim.type === "breathing-idle"
             || anim.type === "running-6-frames" || anim.type === "running-8-frames"
             || anim.type === "fight-stance-idle-8-frames"
-            || anim.type === "walk-6-frames" || anim.type === "running";
+            || anim.type === "walk-6-frames" || anim.type === "running"
+            || anim.type === "electrified-stun";
 
           let frameRate = 8;
           if (anim.type === "walk") frameRate = 10;
@@ -316,6 +347,8 @@ export class PreloadScene extends Phaser.Scene {
           else if (anim.type === "walk-6-frames") frameRate = 10;
           else if (anim.type === "running") frameRate = 14;
           else if (anim.type === "being-shot") frameRate = 12;
+          else if (anim.type === "electrified-stun") frameRate = 7;
+          else if (anim.type === "smoke-vanish") frameRate = 4;
           else if (anim.type === "fire-breath") frameRate = 10;
           else if (anim.type === "jump-and-land") frameRate = 10;
           else if (anim.type === "boom-box") frameRate = 10;

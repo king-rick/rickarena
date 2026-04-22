@@ -77,6 +77,7 @@ interface WaveManagerConfig {
   getPlayerPos: () => { x: number; y: number };
   isFieldTile?: (tileX: number, tileY: number) => boolean; // true if tile is open field (ground only, no buildings/props)
   isDoorOpen?: (label: string) => boolean; // true if the named door has been opened or broken
+  isCollisionFree?: (wx: number, wy: number) => boolean; // true if world position doesn't overlap a collision object
 }
 
 export class WaveManager {
@@ -119,6 +120,7 @@ export class WaveManager {
   private dogRespawnQueue: number[] = []; // timestamps when each dead dog can respawn
   private isFieldTile: (tileX: number, tileY: number) => boolean;
   private isDoorOpen: (label: string) => boolean;
+  private isCollisionFree: (wx: number, wy: number) => boolean;
 
   // Room pressure — flanking spawns when player camps in a room
   playerInRoom = false;
@@ -144,6 +146,7 @@ export class WaveManager {
     this.getPlayerPos = config.getPlayerPos;
     this.isFieldTile = config.isFieldTile ?? (() => true);
     this.isDoorOpen = config.isDoorOpen ?? (() => true);
+    this.isCollisionFree = config.isCollisionFree ?? (() => true);
   }
 
   update(delta: number) {
@@ -263,31 +266,9 @@ export class WaveManager {
     this.bossTotalHp = Math.max(1, this.bossEnemy.health);
 
     const boss = this.bossEnemy;
-    const playerPos = this.getPlayerPos();
 
     // Mark as fleeing so it doesn't block wave progression
     boss.fleeing = true;
-
-    // Let the boss run off the map edge
-    boss.body.setCollideWorldBounds(false);
-
-    // Flee straight to the nearest map edge
-    const distToLeft = boss.x;
-    const distToRight = SURFACE_WIDTH - boss.x;
-    const distToTop = boss.y;
-    const distToBottom = MAP_HEIGHT - boss.y;
-    const minEdgeDist = Math.min(distToLeft, distToRight, distToTop, distToBottom);
-    let fleeAngle: number;
-    if (minEdgeDist === distToLeft) fleeAngle = Math.PI;           // left
-    else if (minEdgeDist === distToRight) fleeAngle = 0;           // right
-    else if (minEdgeDist === distToTop) fleeAngle = -Math.PI / 2;  // up
-    else fleeAngle = Math.PI / 2;                                   // down
-
-    const fleeSpeed = 400;
-    boss.body.setVelocity(
-      Math.cos(fleeAngle) * fleeSpeed,
-      Math.sin(fleeAngle) * fleeSpeed
-    );
 
     this.bossActive = false;
     this.bossEnemy = null;
@@ -295,41 +276,16 @@ export class WaveManager {
     // Show flee message
     this.onBossFlee?.();
 
-    // Poll every 100ms: destroy the boss once it's off the player's visible screen
-    const checkOffscreen = this.scene.time.addEvent({
-      delay: 100,
-      loop: true,
-      callback: () => {
-        if (!boss.active) {
-          checkOffscreen.destroy();
-          return;
-        }
-        const cam = this.scene.cameras.main;
-        const halfW = (cam.width / cam.zoom) / 2;
-        const halfH = (cam.height / cam.zoom) / 2;
-        // Camera midpoint follows the player
-        const mx = cam.midPoint.x;
-        const my = cam.midPoint.y;
-        const margin = 60; // extra buffer so the boss fully exits the screen
-        const offscreen =
-          boss.x < mx - halfW - margin ||
-          boss.x > mx + halfW + margin ||
-          boss.y < my - halfH - margin ||
-          boss.y > my + halfH + margin;
-        if (offscreen) {
-          checkOffscreen.destroy();
-          boss.destroy();
-        }
-      },
-    });
-
-    // Safety net: destroy after 8 seconds regardless (e.g. if stuck on geometry)
-    this.scene.time.delayedCall(8000, () => {
-      if (boss.active) {
-        checkOffscreen.destroy();
-        boss.destroy();
-      }
-    });
+    // Smoke vanish animation — poof and disappear
+    if (!boss.playSmokeVanish()) {
+      // Fallback: no smoke-vanish anim, just destroy immediately
+      boss.destroy();
+    } else {
+      // Safety net: destroy after 3 seconds if animation hangs
+      this.scene.time.delayedCall(3000, () => {
+        if (boss.active) boss.destroy();
+      });
+    }
   }
 
 
@@ -741,6 +697,8 @@ export class WaveManager {
 
       // Must be on open field (ground-only tile)
       if (!this.isFieldTile(tx, ty)) continue;
+      // Must not overlap a collision object (bushes, trees, etc.)
+      if (!this.isCollisionFree(sx, sy)) continue;
       // Must not be in exclusion zone or gated area
       if (isExcluded(sx, sy)) continue;
       if (this.isGated(sx, sy)) continue;

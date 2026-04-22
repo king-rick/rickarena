@@ -15,6 +15,8 @@ export const IntermissionOverlay = memo(function IntermissionOverlay() {
   if (waveState !== "intermission" || shopOpen) return null;
 
   const secs = Math.max(0, Math.ceil(countdown));
+  // Hide the small countdown when the big Countdown component is showing (<=5s)
+  const showTimer = secs > 5;
 
   return (
     <div
@@ -29,30 +31,29 @@ export const IntermissionOverlay = memo(function IntermissionOverlay() {
       <span
         style={{
           fontFamily: DISPLAY,
-          fontSize: 32,
-          color: "#ffffff",
+          fontSize: 28,
+          color: "#ccccdd",
           letterSpacing: "0.15em",
           textShadow: "0 2px 8px rgba(0, 0, 0, 0.9), 0 0 16px rgba(0, 0, 0, 0.7)",
         }}
       >
-        WAVE {wave + 1} IN
+        NEXT WAVE IN
       </span>
 
-      {/* Timer */}
-      <span
-        style={{
-          fontFamily: DISPLAY,
-          fontSize: 56,
-          color: secs <= 5 ? "#ff2244" : "#ffffff",
-          textShadow: secs <= 5
-            ? "0 0 20px rgba(255, 34, 68, 0.6)"
-            : "0 0 12px rgba(255, 255, 255, 0.15)",
-          lineHeight: 1,
-          transition: "color 300ms ease",
-        }}
-      >
-        {secs}
-      </span>
+      {/* Timer — only when > 5s (big Countdown handles <=5) */}
+      {showTimer && (
+        <span
+          style={{
+            fontFamily: DISPLAY,
+            fontSize: 48,
+            color: "#ffffff",
+            textShadow: "0 0 12px rgba(255, 255, 255, 0.15)",
+            lineHeight: 1,
+          }}
+        >
+          {secs}
+        </span>
+      )}
 
       {/* Divider */}
       <div
@@ -69,7 +70,7 @@ export const IntermissionOverlay = memo(function IntermissionOverlay() {
         <span
           style={{
             fontFamily: DISPLAY,
-            fontSize: 22,
+            fontSize: 20,
             color: "#ff4466",
             textShadow: "0 0 12px rgba(255, 34, 68, 0.6), 0 2px 6px rgba(0, 0, 0, 0.9)",
             animation: "pulse-glow 2s ease-in-out infinite",
@@ -80,8 +81,8 @@ export const IntermissionOverlay = memo(function IntermissionOverlay() {
         <span
           style={{
             fontFamily: DISPLAY,
-            fontSize: 18,
-            color: "#ccccdd",
+            fontSize: 16,
+            color: "#999",
             textShadow: "0 2px 6px rgba(0, 0, 0, 0.9), 0 0 10px rgba(0, 0, 0, 0.7)",
           }}
         >

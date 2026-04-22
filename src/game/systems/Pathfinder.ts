@@ -3,7 +3,7 @@ import EasyStar from "easystarjs";
 const TILE_SIZE = 32;
 
 /** Point-in-polygon test (ray casting algorithm) */
-function pointInPolygon(px: number, py: number, polygon: { x: number; y: number }[]): boolean {
+export function pointInPolygon(px: number, py: number, polygon: { x: number; y: number }[]): boolean {
   let inside = false;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
     const xi = polygon[i].x, yi = polygon[i].y;

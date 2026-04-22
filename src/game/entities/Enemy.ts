@@ -104,6 +104,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private howling = false;                  // true during howl animation
   private hasBeingShotAnim: boolean = false; // boss "being-shot" stagger
   private beingShot = false;                // true during being-shot animation
+  private electrocuting = false;             // true during electric fist deferred death
 
   // Boss-specific state
   private bossPhase: "stalk" | "chase" | "retreat" = "stalk";
@@ -256,9 +257,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       return true;
     }
 
-    // Boss being-shot stagger (ranged hits only, not during other actions)
-    if (this.enemyType === "boss" && source === "ranged" && this.hasBeingShotAnim
-        && !this.beingShot && !this.biting && !this.leaping && !this.backflipping && !this.castingFireball) {
+    // Being-shot stagger (boss + dog, ranged hits only, not during other actions)
+    if ((this.enemyType === "boss" || this.enemyType === "fast") && source === "ranged" && this.hasBeingShotAnim
+        && !this.beingShot && !this.biting && !this.leaping && !this.backflipping && !this.castingFireball && !this.howling) {
       this.playBeingShot();
     }
 
@@ -276,7 +277,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     return false;
   }
 
-  /** Play being-shot stagger animation (boss only), then resume walk */
+  /** Play being-shot stagger animation (boss + dog), then resume walk */
   private playBeingShot() {
     this.beingShot = true;
     const key = getAnimKey(this.spriteId, "being-shot", this.currentDir);
@@ -291,6 +292,62 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     } else {
       this.beingShot = false;
     }
+  }
+
+  /** Apply electric fist damage with deferred death: stun + electrified animation for duration, then die if lethal */
+  /** Apply electric fist damage with deferred death.
+   *  Dogs bypass this and die normally (no electrified-stun anim).
+   *  Returns true if handled here (caller should skip normal damage). */
+  applyElectricDamage(amount: number, stunMs: number, onKill: () => void): boolean {
+    if (this.dying || this.fleeing) return false;
+
+    // Dogs just take normal damage — no electrified stun
+    if (this.enemyType === "fast") {
+      const killed = this.takeDamage(amount);
+      if (killed) onKill();
+      return true;
+    }
+
+    this.health -= amount;
+    this.hitFlashTimer = 100;
+    this.setTint(0xffffff);
+    this.body.setVelocity(0, 0);
+
+    // Lock the zombie in place — prevent all AI movement during electrocution
+    this.electrocuting = true;
+    this.stunTimer = stunMs + 500; // extra buffer so AI never resumes before death
+
+    // Play electrified-stun animation
+    const key = getAnimKey(this.spriteId, "electrified-stun", this.currentDir);
+    if (this.scene.anims.exists(key)) {
+      this.play(key);
+    }
+
+    // After stun duration, die if lethal, otherwise release
+    this.scene.time.delayedCall(stunMs, () => {
+      if (!this.active || this.dying) return;
+      this.electrocuting = false;
+      if (this.health <= 0) {
+        onKill();
+        this.die("melee");
+      }
+    });
+
+    return true;
+  }
+
+  /** Play smoke-vanish animation, then destroy. Returns true if anim exists. */
+  playSmokeVanish(): boolean {
+    const key = getAnimKey(this.spriteId, "smoke-vanish", this.currentDir);
+    if (this.scene.anims.exists(key)) {
+      this.body.setVelocity(0, 0);
+      this.play(key);
+      this.once("animationcomplete", () => {
+        this.destroy();
+      });
+      return true;
+    }
+    return false;
   }
 
   /** Play taking-punch flinch, then resume walk */
@@ -333,26 +390,6 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     // Stop moving
     this.body.setVelocity(0, 0);
     this.body.enable = false;
-
-    // Blood splat — stays on the ground
-    const blood = this.scene.add.graphics();
-    blood.setDepth(0.5);
-    for (let i = 0; i < 4; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const dist = 4 + Math.random() * 12;
-      const px = this.x + Math.cos(angle) * dist;
-      const py = this.y + Math.sin(angle) * dist;
-      const size = 1.5 + Math.random() * 2;
-      blood.fillStyle(0x880000, 0.35 + Math.random() * 0.15);
-      blood.fillCircle(px, py, size);
-    }
-    blood.fillStyle(0x660000, 0.3);
-    blood.fillCircle(this.x, this.y, 3 + Math.random() * 2);
-
-    const gameScene = this.scene as any;
-    if (gameScene.bloodSplats) {
-      gameScene.bloodSplats.push({ gfx: blood, spawnWave: gameScene.waveManager?.wave ?? 1 });
-    }
 
     this.healthBarGfx.destroy();
 
@@ -1100,42 +1137,59 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     const halfCone = Phaser.Math.DegToRad(stats.coneAngle / 2);
 
-    // Generate a soft circle texture for fire particles (once per scene)
-    const fireTexKey = "mason-fire-particle";
-    if (!this.scene.textures.exists(fireTexKey)) {
-      const gfx = this.scene.make.graphics({ x: 0, y: 0 } as any);
-      gfx.fillStyle(0xffffff, 1);
-      gfx.fillCircle(8, 8, 8);
-      gfx.generateTexture(fireTexKey, 16, 16);
-      gfx.destroy();
-    }
-
-    // Offset emitter to Mason's mouth position (head area, shifted toward facing dir)
-    const mouthForward = 18; // pixels forward in facing direction
-    const mouthUp = -14;     // pixels up from sprite center (head height)
+    // Offset fire sprite to Mason's mouth position (head area, shifted toward facing dir)
+    const mouthForward = 18;
+    const mouthUp = -14;
     const mouthOffX = Math.cos(facingAngle) * mouthForward;
     const mouthOffY = Math.sin(facingAngle) * mouthForward + mouthUp;
 
-    // Particle emitter for the fire cone visual
-    const facingDeg = Phaser.Math.RadToDeg(facingAngle);
-    const emitter = this.scene.add.particles(this.x + mouthOffX, this.y + mouthOffY, fireTexKey, {
-      speed: { min: 100, max: 220 },
-      angle: { min: facingDeg - stats.coneAngle / 2, max: facingDeg + stats.coneAngle / 2 },
-      scale: { start: 0.5, end: 0.1 },
-      alpha: { start: 0.75, end: 0 },
-      lifespan: { min: 300, max: 500 },
-      tint: [0xff4400, 0xff8800, 0xffcc00, 0xff2200, 0xff6600],
-      frequency: 18,
-      quantity: 2,
-      blendMode: Phaser.BlendModes.ADD,
-    });
-    emitter.setDepth(this.depth + 1);
+    // Sprite-based fire breath (6 frames, 128x64, drawn pointing right)
+    const hasFireSprites = this.scene.textures.exists("fx-fire-breath-1");
+    const fireSprite = hasFireSprites
+      ? this.scene.add.sprite(this.x + mouthOffX, this.y + mouthOffY, "fx-fire-breath-1")
+      : null;
+
+    // Fallback particle emitter if sprites aren't loaded
+    let emitter: Phaser.GameObjects.Particles.ParticleEmitter | null = null;
+    if (!hasFireSprites) {
+      const fireTexKey = "mason-fire-particle";
+      if (!this.scene.textures.exists(fireTexKey)) {
+        const gfx = this.scene.make.graphics({ x: 0, y: 0 } as any);
+        gfx.fillStyle(0xffffff, 1);
+        gfx.fillCircle(8, 8, 8);
+        gfx.generateTexture(fireTexKey, 16, 16);
+        gfx.destroy();
+      }
+      const facingDeg = Phaser.Math.RadToDeg(facingAngle);
+      emitter = this.scene.add.particles(this.x + mouthOffX, this.y + mouthOffY, fireTexKey, {
+        speed: { min: 100, max: 220 },
+        angle: { min: facingDeg - stats.coneAngle / 2, max: facingDeg + stats.coneAngle / 2 },
+        scale: { start: 0.5, end: 0.1 },
+        alpha: { start: 0.75, end: 0 },
+        lifespan: { min: 300, max: 500 },
+        tint: [0xff4400, 0xff8800, 0xffcc00, 0xff2200, 0xff6600],
+        frequency: 18,
+        quantity: 2,
+        blendMode: Phaser.BlendModes.ADD,
+      });
+      emitter.setDepth(this.depth + 1);
+    }
+
+    if (fireSprite) {
+      fireSprite.setDepth(this.depth + 1);
+      fireSprite.setOrigin(0, 0.5); // anchor at left edge (mouth), extends right
+      fireSprite.setRotation(facingAngle); // rotate to match facing
+      fireSprite.setScale(0.6);
+      fireSprite.setAlpha(0.9);
+      fireSprite.setBlendMode(Phaser.BlendModes.ADD);
+    }
 
     // Tick damage every 300ms during the breath
     const tickInterval = 300;
     const dmgPerTick = Math.round(stats.damage / (breathDuration / tickInterval));
     let elapsed = 0;
     let tickAccum = 0;
+    let fireFrame = 0;
 
     const updateEvent = this.scene.time.addEvent({
       delay: 16, // ~60fps update
@@ -1143,16 +1197,31 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       callback: () => {
         if (!this.active || this.dying) {
           updateEvent.remove();
-          emitter.stop();
-          this.scene.time.delayedCall(700, () => emitter.destroy());
+          if (fireSprite?.active) {
+            this.scene.tweens.add({ targets: fireSprite, alpha: 0, duration: 200, onComplete: () => fireSprite.destroy() });
+          }
+          if (emitter) { emitter.stop(); this.scene.time.delayedCall(700, () => emitter!.destroy()); }
           return;
         }
 
         elapsed += 16;
         tickAccum += 16;
 
-        // Keep emitter following Mason's mouth position
-        emitter.setPosition(this.x + mouthOffX, this.y + mouthOffY);
+        // Animate fire sprite: cycle through 3 frames with subtle flicker
+        if (fireSprite?.active) {
+          if (elapsed % 150 < 16) { // swap frame every ~150ms for steady burn
+            fireFrame = (fireFrame + 1) % 3;
+            fireSprite.setTexture(`fx-fire-breath-${fireFrame + 1}`);
+            fireSprite.setAlpha(0.75 + Math.random() * 0.15);
+            fireSprite.setScale(0.6 + Math.random() * 0.05); // subtle size variation
+          }
+          fireSprite.setPosition(this.x + mouthOffX, this.y + mouthOffY);
+        }
+
+        // Keep emitter following Mason's mouth position (fallback)
+        if (emitter) {
+          emitter.setPosition(this.x + mouthOffX, this.y + mouthOffY);
+        }
 
         // Damage tick
         if (tickAccum >= tickInterval) {
@@ -1186,10 +1255,12 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         // End breath after duration
         if (elapsed >= breathDuration) {
           updateEvent.remove();
-          emitter.stop();
-          this.scene.time.delayedCall(700, () => emitter.destroy());
+          if (fireSprite?.active) {
+            this.scene.tweens.add({ targets: fireSprite, alpha: 0, duration: 300, onComplete: () => fireSprite.destroy() });
+          }
+          if (emitter) { emitter.stop(); this.scene.time.delayedCall(700, () => emitter!.destroy()); }
           this.masonBusy = false;
-          this.stop(); // stop looping anim
+          this.stop();
           if (this.hasWalkAnim && !this.dying) {
             this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
           }
@@ -1412,7 +1483,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
   /** Dog AI: roam freely, aggro when player is spotted, pack with nearby dogs */
   private updateDog(delta: number, player: Phaser.Physics.Arcade.Sprite) {
-    if (this.stunTimer > 0 || this.leaping || this.biting || this.howling) {
+    if (this.stunTimer > 0 || this.leaping || this.biting || this.howling || this.beingShot) {
       this.updateDirection(player);
       return;
     }
@@ -1662,6 +1733,13 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   update(_time: number, delta: number) {
     if (!this.active || !this.body || this.dying || this.fleeing) return;
 
+    // Electrocuting — frozen in place, no AI, just visuals
+    if (this.electrocuting) {
+      this.body.setVelocity(0, 0);
+      this.updateVisuals(delta);
+      return;
+    }
+
     // Get player reference from scene
     const player = (this.scene as any).player as
       | Phaser.Physics.Arcade.Sprite
@@ -1824,7 +1902,13 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
   /** Update sprite facing direction */
   private updateDirection(player: Phaser.Physics.Arcade.Sprite) {
-    const angle = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
+    const vx = this.body.velocity.x;
+    const vy = this.body.velocity.y;
+    // Face movement direction when moving (pathfinding around obstacles);
+    // fall back to facing player when stationary (biting, stunned, idle)
+    const angle = (Math.abs(vx) > 5 || Math.abs(vy) > 5)
+      ? Math.atan2(vy, vx)
+      : Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
     const newDir = angleToDirection(angle) as Direction;
     if (newDir !== this.currentDir) {
       this.currentDir = newDir;
@@ -1855,9 +1939,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       }
     }
 
-    // Health bar (only when damaged)
+    // Health bar (only when damaged and alive)
     this.healthBarGfx.clear();
-    if (this.health < this.maxHealth) {
+    if (this.health > 0 && this.health < this.maxHealth) {
       const isBoss = this.enemyType === "boss" || this.enemyType === "mason";
       const barW = isBoss ? 40 : 24;
       const barH = isBoss ? 4 : 2;

@@ -32,6 +32,7 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "shooting-shotgun", frames: 4 },
     { type: "shooting-smg", frames: 9 },
     { type: "throw-grenade", frames: 4 },
+    { type: "electric-fist", frames: 9 },
     { type: "reloading-pistol", frames: 9 },
     { type: "reloading-shotgun", frames: 4 },
     { type: "reloading-smg", frames: 4 },
@@ -73,6 +74,7 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "shooting-shotgun", frames: 4 },
     { type: "shooting-smg", frames: 9 },
     { type: "light-cigarette", frames: 4 },
+    { type: "swinging-sledgehammer", frames: 9 },
     { type: "reloading-pistol", frames: 9 },
     { type: "reloading-shotgun", frames: 4 },
     { type: "reloading-smg", frames: 4 },
@@ -86,6 +88,7 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "falling-back-death", frames: 7 },
     { type: "gunshot-death", frames: 17 },
     { type: "running-8-frames", frames: 8 },
+    { type: "electrified-stun", frames: 9 },
   ],
   zombiedog: [
     { type: "walk", frames: 8 },
@@ -95,6 +98,7 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "walk-6-frames", frames: 6 },
     { type: "howl", frames: 4 },
     { type: "running", frames: 9 },
+    { type: "being-shot", frames: 9 },
   ],
   scaryboi: [
     { type: "fight-stance-idle-8-frames", frames: 8 },
@@ -107,6 +111,7 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "backflip", frames: 10 },
     { type: "falling-back-death", frames: 7 },
     { type: "being-shot", frames: 9 },
+    { type: "smoke-vanish", frames: 9 },
   ],
 };
 

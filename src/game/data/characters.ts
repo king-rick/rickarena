@@ -46,7 +46,7 @@ export const CHARACTERS: CharacterDef[] = [
     weaponSpecialty: "None",
     specialtyDesc: "",
     stats: { ...BASE_STATS },
-    ability: { name: "Superkick", desc: "Devastating superkick with massive knockback and damage", cooldown: 15 },
+    ability: { name: "Superkick", desc: "Devastating kick that deals massive damage to a single target", cooldown: 20 },
     pixelLabId: "d24fa173-9c58-4df6-bdba-40b883b1e59a",
   },
   {
@@ -57,7 +57,7 @@ export const CHARACTERS: CharacterDef[] = [
     weaponSpecialty: "None",
     specialtyDesc: "",
     stats: { ...BASE_STATS },
-    ability: { name: "EMP Grenade", desc: "Throws a grenade that stuns all enemies in the blast radius", cooldown: 18 },
+    ability: { name: "Electric Fist", desc: "Electrified punch that chains lightning to nearby enemies", cooldown: 14 },
     pixelLabId: "26a5c8a9-c68d-4a4b-9466-8fa705300d06",
   },
   // Mason Costa — removed from playable roster temporarily (sprite rework in progress)
@@ -70,7 +70,7 @@ export const CHARACTERS: CharacterDef[] = [
     weaponSpecialty: "None",
     specialtyDesc: "",
     stats: { ...BASE_STATS },
-    ability: { name: "Katana Slash", desc: "Wide devastating katana swing that cleaves everything in front", cooldown: 12 },
+    ability: { name: "Katana Slash", desc: "Wide arc katana swing that cleaves everything in front", cooldown: 12 },
     pixelLabId: "4a24fc8a-3427-4fd5-88ad-90bdcb6bb051",
   },
   {
@@ -81,7 +81,7 @@ export const CHARACTERS: CharacterDef[] = [
     weaponSpecialty: "None",
     specialtyDesc: "",
     stats: { ...BASE_STATS },
-    ability: { name: "Smokescreen", desc: "Smoke cloud that boosts damage and stamina regen for 9s", cooldown: 20 },
+    ability: { name: "Sledgehammer Slam", desc: "Ground slam that hits everything around you", cooldown: 16 },
     pixelLabId: "5cc951c4-ef30-49a1-8136-8b2fdb3baec0",
   },
 ];

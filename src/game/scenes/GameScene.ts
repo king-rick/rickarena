@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import { Player } from "../entities/Player";
-import { Enemy } from "../entities/Enemy";
+import { Enemy, EnemyType } from "../entities/Enemy";
 import { Projectile, ensureBulletTexture } from "../entities/Projectile";
 import { Trap, TrapType, ensureTrapTextures } from "../entities/Trap";
 import { CHARACTERS, CharacterDef, BASE_STATS } from "../data/characters";
@@ -10,7 +10,7 @@ import { LevelingSystem, BuffOption } from "../systems/LevelingSystem";
 import { hasAnimation, getAnimKey } from "../data/animations";
 import { hudState } from "../HUDState";
 import { isPublicBuild, PUBLIC_BUILD_UNLOCKABLE_DOOR_LABEL } from "../publicBuild";
-import { Pathfinder } from "../systems/Pathfinder";
+import { Pathfinder, pointInPolygon } from "../systems/Pathfinder";
 // Village map constants
 const VILLAGE_MAP_W = 80 * 16;  // 1280px
 const VILLAGE_MAP_H = 65 * 16;  // 1040px
@@ -26,7 +26,8 @@ export class GameScene extends Phaser.Scene {
   private enemies!: Phaser.Physics.Arcade.Group;
 
   // Blood splats (tracked for wave-based cleanup)
-  bloodSplats: { gfx: Phaser.GameObjects.Graphics; spawnWave: number }[] = [];
+  bloodSplats: { obj: Phaser.GameObjects.Sprite | Phaser.GameObjects.Graphics; spawnWave: number }[] = [];
+  private currentWave = 1;
 
   // Combat state
   private lastDamageTime = 0;
@@ -79,20 +80,6 @@ export class GameScene extends Phaser.Scene {
   // Ability state (Q)
   private abilityCooldownTimer = 0; // ms remaining
   private abilityActive = false;
-  // Smokescreen state (Jason)
-  private smokeCloud: Phaser.GameObjects.Graphics | null = null;
-  private smokeX = 0;
-  private smokeY = 0;
-  private smokeTimer = 0; // ms remaining
-  private smokeDrainAccum = 0; // unused, kept for destroySmokescreen reset
-  private readonly smokeDuration = 5000;
-  private readonly smokeRadius = 128; // 8x8 tiles = 256px diameter = 128px radius
-  // Smokescreen buff (Jason) — lingers after smoke dissipates
-  private smokeBuffTimer = 0; // ms remaining on damage+stamina buff
-  private smokeBuffDamageBonus = 40; // flat damage bonus while buff active (one-shots walkers)
-  private smokeBuffRegenBonus = 5; // extra stamina regen/sec while buff active
-  private readonly smokeBuffDuration = 9000; // 9 seconds
-
   // Power + Machines (CoD Zombies perk system)
   private powerOn = false;
   private generator: {
@@ -901,12 +888,24 @@ export class GameScene extends Phaser.Scene {
     };
     (this as any).isFieldTile = isFieldTile;
 
+    // Check if a world position overlaps any collision object (bushes, trees, buildings)
+    const isCollisionFree = (wx: number, wy: number): boolean => {
+      for (const r of collisionRects) {
+        if (wx >= r.x && wx <= r.x + r.w && wy >= r.y && wy <= r.y + r.h) return false;
+      }
+      for (const p of collisionPolygons) {
+        if (pointInPolygon(wx, wy, p.points)) return false;
+      }
+      return true;
+    };
+
     this.waveManager = new WaveManager({
       scene: this,
       enemies: this.enemies,
       playerCount: 1,
       getPlayerPos: () => ({ x: this.player.x, y: this.player.y }),
       isFieldTile,
+      isCollisionFree,
       isDoorOpen: (label: string) => {
         const door = this.doors.find((d) => d.label === label);
         // Public demo: missing door data = treat as closed so spawns never leak into locked map areas.
@@ -925,6 +924,7 @@ export class GameScene extends Phaser.Scene {
     } catch { /* AudioContext may be closed during HMR */ }
 
     this.waveManager.onWaveStart = (wave) => {
+      this.currentWave = wave;
       this.closeShop();
       // Church bell toll on wave start
       this.playSound("sfx-church-bell", 0.6);
@@ -943,10 +943,10 @@ export class GameScene extends Phaser.Scene {
       this.bloodSplats = this.bloodSplats.filter((b) => {
         if (wave - b.spawnWave >= 3) {
           this.tweens.add({
-            targets: b.gfx,
+            targets: b.obj,
             alpha: 0,
             duration: 1000,
-            onComplete: () => b.gfx.destroy(),
+            onComplete: () => b.obj.destroy(),
           });
           return false;
         }
@@ -1124,27 +1124,6 @@ export class GameScene extends Phaser.Scene {
       this.abilityCooldownTimer -= delta;
     }
 
-    // Smokescreen tick (Jason)
-    if (this.smokeTimer > 0) {
-      this.smokeTimer -= delta;
-      this.updateSmokescreen(delta);
-      if (this.smokeTimer <= 0) {
-        this.destroySmokescreen();
-      }
-    }
-
-    // Smokescreen buff tick (Jason) — damage + stamina regen bonus
-    if (this.smokeBuffTimer > 0) {
-      this.smokeBuffTimer -= delta;
-      // Extra stamina regen
-      this.player.stats.stamina = Math.min(
-        this.player.stats.maxStamina,
-        this.player.stats.stamina + this.smokeBuffRegenBonus * (delta / 1000)
-      );
-      if (this.smokeBuffTimer <= 0) {
-        this.smokeBuffTimer = 0;
-      }
-    }
 
     // Panting — play once on burnout start
     if (this.player.burnedOut && !this.wasBurnedOut) {
@@ -1323,7 +1302,7 @@ export class GameScene extends Phaser.Scene {
       const range = this.characterDef.stats.punchRange;
       const arcHalf = Phaser.Math.DegToRad(this.characterDef.stats.punchArc / 2);
       const attackAngle = this.getFacingAngle();
-      const baseDmg = this.player.stats.damage + (this.smokeBuffTimer > 0 ? this.smokeBuffDamageBonus : 0);
+      const baseDmg = this.player.stats.damage;
       const damage = this.player.burnedOut
         ? Math.floor(baseDmg * BALANCE.burnout.damageMultiplier)
         : baseDmg;
@@ -1362,6 +1341,13 @@ export class GameScene extends Phaser.Scene {
         const killed = enemy.takeDamage(finalDmg);
         if (killed) {
           this.onEnemyKilled(enemy, "melee");
+        } else {
+          // Hit splat on melee: 30% for zombies, 20% for dogs, skip bosses
+          const isBoss = enemy.enemyType === "boss" || enemy.enemyType === "mason";
+          const hitChance = enemy.enemyType === "fast" ? 0.2 : 0.3;
+          if (!isBoss && Math.random() < hitChance) {
+            this.spawnBloodSplat(enemy.x, enemy.y, "hit", enemy.enemyType);
+          }
         }
 
         let kb = this.player.burnedOut
@@ -1411,6 +1397,11 @@ export class GameScene extends Phaser.Scene {
     this.waveManager.onEnemyKilled();
     this.playRandomEnemyDeath();
 
+    // Blood splat on melee/ability/trap kills (ranged kills handled in handleProjectileHit)
+    if (source === "melee" || source === "trap") {
+      this.spawnBloodSplat(enemy.x, enemy.y, "kill", enemy.enemyType);
+    }
+
     // RPG XP
     const xpReward = BALANCE.economy.xpPerKill[enemy.enemyType];
     this.levelingSystem.addXP(xpReward);
@@ -1424,9 +1415,9 @@ export class GameScene extends Phaser.Scene {
     const charId = this.characterDef.id;
     switch (charId) {
       case "rick": this.abilitySuperkick(); break;
-      case "dan": this.abilityEMPGrenade(); break;
+      case "dan": this.abilityElectricFist(); break;
       case "pj": this.abilityBladeDash(); break;
-      case "jason": this.abilitySmokescreen(); break;
+      case "jason": this.abilitySledgehammerSlam(); break;
     }
 
     this.abilityCooldownTimer = this.characterDef.ability.cooldown * 1000;
@@ -1447,10 +1438,10 @@ export class GameScene extends Phaser.Scene {
     }
 
     const angle = this.getFacingAngle();
-    const range = 140; // big reach
-    const arc = Phaser.Math.DegToRad(130); // wide sweep
-    const damage = this.characterDef.stats.damage * 8; // 200 dmg — devastating
-    const knockback = 350;
+    const range = 120;
+    const arc = Phaser.Math.DegToRad(90); // focused cone — boss killer, not crowd clearer
+    const damage = 300;
+    const knockback = 200;
     let hits = 0;
 
     // Screen shake for impact feel
@@ -1473,12 +1464,13 @@ export class GameScene extends Phaser.Scene {
       if (killed) {
         this.onEnemyKilled(enemy, "melee");
       } else {
-        // Massive knockback
         enemy.body.setVelocity(
           Math.cos(enemyAngle) * knockback,
           Math.sin(enemyAngle) * knockback
         );
-        enemy.applyKnockbackStun(800);
+        enemy.applyKnockbackStun(600);
+        // Ability always spawns blood spray (even on bosses)
+        this.spawnBloodSplat(enemy.x, enemy.y, "hit", enemy.enemyType);
       }
       hits++;
     });
@@ -1500,134 +1492,288 @@ export class GameScene extends Phaser.Scene {
     if (hits > 0) this.playSound("sfx-whoosh", 0.3);
   }
 
-  /** Dan — EMP Grenade: throw in character's facing direction */
-  private abilityEMPGrenade() {
-    const angle = this.getFacingAngle();
-    const throwDist = 160; // ~5 tiles away
-    const gx = this.player.x + Math.cos(angle) * throwDist;
-    const gy = this.player.y + Math.sin(angle) * throwDist;
-
-    // Draw projected landing line + target circle
-    const landingGfx = this.add.graphics().setDepth(5);
-    const drawLanding = () => {
-      landingGfx.clear();
-      // Dashed line from player to landing point
-      landingGfx.lineStyle(1, 0x44aaff, 0.4);
-      const steps = 12;
-      for (let i = 0; i < steps; i += 2) {
-        const t0 = i / steps;
-        const t1 = (i + 1) / steps;
-        landingGfx.lineBetween(
-          this.player.x + (gx - this.player.x) * t0,
-          this.player.y + (gy - this.player.y) * t0,
-          this.player.x + (gx - this.player.x) * t1,
-          this.player.y + (gy - this.player.y) * t1,
-        );
-      }
-      // Target circle at landing point
-      landingGfx.lineStyle(1, 0x44aaff, 0.5);
-      landingGfx.strokeCircle(gx, gy, 16);
-      landingGfx.lineStyle(1, 0x44aaff, 0.25);
-      landingGfx.strokeCircle(gx, gy, 160); // blast radius preview
-    };
-    drawLanding();
-
-    const launchGrenade = () => {
-      landingGfx.destroy();
-
-      // Create visible grenade projectile (small)
-      const grenade = this.add.image(this.player.x, this.player.y, "item-grenade")
-        .setScale(0.4)
-        .setDepth(6);
-
-      // Grenade flies in an arc to landing point
-      this.tweens.add({
-        targets: grenade,
-        x: gx,
-        y: gy,
-        duration: 450,
-        ease: "Sine.easeOut",
+  /** Dan — Electric Fist: electrified punch that chains lightning to nearby enemies */
+  private abilityElectricFist() {
+    // Play electric fist animation
+    const efAnimType = hasAnimation(this.characterDef.id, "electric-fist") ? "electric-fist" : "cross-punch";
+    const punchKey = getAnimKey(this.characterDef.id, efAnimType, this.player["currentDir"]);
+    if (this.anims.exists(punchKey)) {
+      this.player.play(punchKey);
+      this.player.once("animationcomplete", () => {
+        const idleKey = getAnimKey(this.characterDef.id, "breathing-idle", this.player["currentDir"]);
+        if (this.anims.exists(idleKey)) this.player.play(idleKey, true);
       });
-      // Vertical arc (scale to simulate arc height)
-      this.tweens.add({
-        targets: grenade,
-        scaleX: 0.6,
-        scaleY: 0.6,
-        duration: 225,
-        yoyo: true,
-        ease: "Sine.easeOut",
-        onComplete: () => {
-          grenade.destroy();
-          this.detonateEMP(gx, gy);
-        },
-      });
-    };
-
-    if (hasAnimation(this.characterDef.id, "throw-grenade")) {
-      const throwKey = getAnimKey(this.characterDef.id, "throw-grenade", this.player["currentDir"]);
-      if (this.anims.exists(throwKey)) {
-        this.player.play(throwKey);
-        this.player.once("animationcomplete", () => {
-          const idleKey = getAnimKey(this.characterDef.id, "breathing-idle", this.player["currentDir"]);
-          if (this.anims.exists(idleKey)) this.player.play(idleKey, true);
-          launchGrenade();
-        });
-      } else {
-        launchGrenade();
-      }
-    } else {
-      launchGrenade();
     }
-  }
 
-  /** Detonates the EMP at a world position */
-  private detonateEMP(gx: number, gy: number) {
-    const blastRadius = 160;
-    const stunDuration = 3000;
+    const angle = this.getFacingAngle();
+    const punchRange = 60;
+    const punchArc = Phaser.Math.DegToRad(90);
+    const damage = 150;
+    const knockback = 50;
+    const stunDuration = 2000;
+    const chainRadius = 80; // ~2.5 tiles — tight chain range
+    const maxChainTargets = 6;
 
-    // Screen shake
-    this.cameras.main.shake(150, 0.006);
+    this.cameras.main.shake(100, 0.004);
 
-    // Visual: EMP blast with spark sprite + expanding ring
-    const empFlash = this.add.image(gx, gy, "fx-spark").setDepth(5);
-    empFlash.setScale(blastRadius / 8);
-    empFlash.setAlpha(0.9);
-    empFlash.setTint(0x44aaff);
+    // Find the primary target (closest enemy in punch cone)
+    let primaryTarget: Enemy | null = null;
+    let primaryDist = Infinity;
 
-    const ring = this.add.graphics().setDepth(5);
-    ring.lineStyle(3, 0x88ccff, 0.6);
-    ring.strokeCircle(gx, gy, blastRadius);
-
-    this.tweens.add({
-      targets: [empFlash, ring],
-      alpha: 0,
-      duration: 500,
-      onComplete: () => { empFlash.destroy(); ring.destroy(); },
-    });
-
-    let stunCount = 0;
     this.enemies.getChildren().forEach((obj) => {
       const enemy = obj as Enemy;
       if (!enemy.active) return;
 
-      const dist = Phaser.Math.Distance.Between(gx, gy, enemy.x, enemy.y);
-      if (dist <= blastRadius) {
-        // EMP does moderate damage in addition to stun
-        const empDamage = Math.floor(this.characterDef.stats.damage * 3);
-        const killed = enemy.takeDamage(empDamage);
-        if (killed) {
-          this.onEnemyKilled(enemy);
-        } else {
-          enemy.applyKnockbackStun(stunDuration);
-          enemy.body.setVelocity(0, 0);
-          // Play idle texture so stunned enemies stop walking
-          enemy.stopAndIdle();
-        }
-        stunCount++;
+      const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, enemy.x, enemy.y);
+      if (dist > punchRange) return;
+
+      const enemyAngle = Phaser.Math.Angle.Between(this.player.x, this.player.y, enemy.x, enemy.y);
+      let diff = enemyAngle - angle;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      if (Math.abs(diff) > punchArc / 2) return;
+
+      if (dist < primaryDist) {
+        primaryDist = dist;
+        primaryTarget = enemy;
       }
     });
 
-    this.playSound("sfx-explosion", 0.4);
+    if (!primaryTarget) {
+      this.playSound("sfx-whoosh", 0.3);
+      return;
+    }
+
+    const electrocuteDelay = 1000; // stun + electrified animation before death
+
+    // Hit primary target immediately — knockback + electrocute
+    const pa = Phaser.Math.Angle.Between(this.player.x, this.player.y, (primaryTarget as Enemy).x, (primaryTarget as Enemy).y);
+    (primaryTarget as Enemy).body.setVelocity(Math.cos(pa) * knockback, Math.sin(pa) * knockback);
+    (primaryTarget as Enemy).applyElectricDamage(damage, electrocuteDelay, () => {
+      this.onEnemyKilled(primaryTarget!, "melee");
+    });
+
+    // Spawn orb flash on primary target
+    this.spawnLightningOrb(primaryTarget as Enemy);
+
+    // Build chain target list (don't apply damage yet — bolt must reach them first)
+    const chainedEnemies: Enemy[] = [primaryTarget];
+    let chainSource = primaryTarget as Enemy;
+
+    const chainTargets: Enemy[] = [];
+    for (let c = 0; c < maxChainTargets; c++) {
+      let closest: Enemy | null = null;
+      let closestDist = Infinity;
+
+      this.enemies.getChildren().forEach((obj) => {
+        const enemy = obj as Enemy;
+        if (!enemy.active || chainedEnemies.includes(enemy)) return;
+
+        const dist = Phaser.Math.Distance.Between(chainSource.x, chainSource.y, enemy.x, enemy.y);
+        if (dist <= chainRadius && dist < closestDist) {
+          closestDist = dist;
+          closest = enemy;
+        }
+      });
+
+      if (!closest) break;
+
+      chainTargets.push(closest);
+      chainedEnemies.push(closest);
+      chainSource = closest;
+    }
+
+    // Sequential chain: bolt travels from target to target, applying damage on arrival
+    this.chainLightningSequential(primaryTarget as Enemy, chainTargets, damage, electrocuteDelay);
+
+    this.playSound("sfx-punch1", 0.4);
+    this.playSound("sfx-hit-classic", 0.35);
+  }
+
+  // ------- Blood Splatter VFX -------
+
+  /**
+   * Spawn a blood splat VFX at the given position.
+   * - "hit": momentary spray (variants 2/4), plays 3 frames then disappears
+   * - "kill": ground pool (variants 1/3), plays 3 frames then persists as a stain
+   */
+  private spawnBloodSplat(x: number, y: number, type: "hit" | "kill", enemyType: EnemyType) {
+    // Check if blood textures are loaded
+    if (!this.textures.exists("fx-blood-1-1")) return;
+
+    // Dogs: smaller splats, lower chance on hits
+    // Bosses: only bleed on ability kills (handled by caller)
+    const isDog = enemyType === "fast";
+
+    if (type === "hit") {
+      // Momentary spray — pick variant 2 (spray burst) or 4 (blood mist)
+      const variant = isDog ? 4 : (Math.random() < 0.5 ? 2 : 4);
+      const splat = this.add.sprite(x, y - 4, `fx-blood-${variant}-1`);
+      splat.setDepth(1);
+      splat.setScale(isDog ? 0.3 : 0.45);
+      splat.setAlpha(0.85);
+      // Slight random rotation for variety
+      splat.setRotation(Math.random() * Math.PI * 2);
+
+      let frame = 0;
+      const animTimer = this.time.addEvent({
+        delay: 80,
+        repeat: 2,
+        callback: () => {
+          frame++;
+          if (!splat.active) return;
+          splat.setTexture(`fx-blood-${variant}-${Math.min(frame + 1, 3)}`);
+          splat.setAlpha(0.85 - frame * 0.2);
+        },
+      });
+      this.time.delayedCall(350, () => {
+        animTimer.destroy();
+        if (splat.active) {
+          this.tweens.add({ targets: splat, alpha: 0, duration: 150, onComplete: () => splat.destroy() });
+        }
+      });
+    } else {
+      // Kill splat — ground pool that persists
+      const variant = isDog ? 1 : (Math.random() < 0.5 ? 1 : 3);
+      const splat = this.add.sprite(x, y, `fx-blood-${variant}-1`);
+      splat.setDepth(1);
+      splat.setScale(isDog ? 0.2 : (variant === 3 ? 0.35 : 0.3));
+      splat.setAlpha(0.9);
+      splat.setRotation(Math.random() * Math.PI * 2);
+
+      let frame = 0;
+      const animTimer = this.time.addEvent({
+        delay: 100,
+        repeat: 2,
+        callback: () => {
+          frame++;
+          if (!splat.active) return;
+          splat.setTexture(`fx-blood-${variant}-${Math.min(frame + 1, 3)}`);
+        },
+      });
+      // After animation, fade to stain opacity and persist
+      this.time.delayedCall(400, () => {
+        animTimer.destroy();
+        if (splat.active) {
+          this.tweens.add({
+            targets: splat,
+            alpha: 0.45,
+            duration: 8000,
+          });
+        }
+      });
+      // Track for wave-based cleanup
+      this.bloodSplats.push({ obj: splat, spawnWave: this.currentWave });
+    }
+  }
+
+  /** Flash an orb at an enemy's position for ~400ms then fade out */
+  private spawnLightningOrb(enemy: Enemy) {
+    const orb = this.add.sprite(enemy.x, enemy.y - 4, "fx-lightning-orb-1");
+    orb.setDepth(enemy.depth + 1);
+    orb.setScale(0.5);
+    orb.setAlpha(0.9);
+
+    let frame = 0;
+    const flickerTimer = this.time.addEvent({
+      delay: 80,
+      repeat: 4, // 5 ticks = 400ms
+      callback: () => {
+        if (!orb.active) return;
+        frame = (frame + 1) % 4;
+        orb.setTexture(`fx-lightning-orb-${frame + 1}`);
+        if (enemy.active) orb.setPosition(enemy.x, enemy.y - 4);
+        orb.setAlpha(0.7 + Math.random() * 0.3);
+        orb.setScale(0.4 + Math.random() * 0.2);
+      },
+    });
+
+    // Fade out and destroy
+    this.time.delayedCall(400, () => {
+      flickerTimer.destroy();
+      if (orb.active) {
+        this.tweens.add({
+          targets: orb,
+          alpha: 0,
+          duration: 150,
+          onComplete: () => orb.destroy(),
+        });
+      }
+    });
+  }
+
+  /** Sequential chain lightning: bolt travels from source to each target in order */
+  private chainLightningSequential(
+    source: Enemy,
+    targets: Enemy[],
+    damage: number,
+    electrocuteDelay: number,
+  ) {
+    if (targets.length === 0) return;
+
+    const boltTravelMs = 120; // how fast the bolt travels between each pair
+    let currentSource = source;
+
+    targets.forEach((target, index) => {
+      const delay = index * boltTravelMs;
+
+      this.time.delayedCall(delay, () => {
+        if (!target.active) return;
+
+        // Spawn bolt from currentSource to target
+        const src = index === 0 ? source : targets[index - 1];
+        this.spawnLightningBolt(src, target, boltTravelMs);
+
+        // Apply damage + stun when bolt arrives
+        target.applyElectricDamage(damage, electrocuteDelay, () => {
+          this.onEnemyKilled(target, "melee");
+        });
+
+        // Flash orb at contact point
+        this.spawnLightningOrb(target);
+      });
+    });
+  }
+
+  /** Spawn a bolt between two enemies that appears briefly then fades */
+  private spawnLightningBolt(src: Enemy, tgt: Enemy, durationMs: number) {
+    const mx = (src.x + tgt.x) / 2;
+    const my = (src.y + tgt.y) / 2;
+    const dist = Phaser.Math.Distance.Between(src.x, src.y, tgt.x, tgt.y);
+    const ang = Phaser.Math.Angle.Between(src.x, src.y, tgt.x, tgt.y);
+
+    const bolt = this.add.sprite(mx, my, "fx-lightning-bolt-1");
+    bolt.setDepth(src.depth + 1);
+    bolt.setRotation(ang);
+    // Scale bolt to span distance; Y scale keeps it thin
+    bolt.setScale(dist / 128, 0.35);
+    bolt.setAlpha(0.9);
+
+    // Flicker through frames while visible
+    let frame = 0;
+    const flickerTimer = this.time.addEvent({
+      delay: 60,
+      repeat: 5,
+      callback: () => {
+        if (!bolt.active) return;
+        frame = (frame + 1) % 5;
+        bolt.setTexture(`fx-lightning-bolt-${frame + 1}`);
+        bolt.setAlpha(0.6 + Math.random() * 0.4);
+      },
+    });
+
+    // Fade out quickly — lightning is fast
+    this.time.delayedCall(durationMs + 200, () => {
+      flickerTimer.destroy();
+      if (bolt.active) {
+        this.tweens.add({
+          targets: bolt,
+          alpha: 0,
+          duration: 100,
+          onComplete: () => bolt.destroy(),
+        });
+      }
+    });
   }
 
   /** PJ — Katana Slash: wide arc swing in facing direction, high damage */
@@ -1645,10 +1791,10 @@ export class GameScene extends Phaser.Scene {
     }
 
     const angle = this.getFacingAngle();
-    const range = 110; // katana reach
-    const arc = Phaser.Math.DegToRad(140); // wide slash arc
-    const damage = this.characterDef.stats.damage * 14; // 196 dmg — devastating
-    const knockback = 180;
+    const range = 120;
+    const arc = Phaser.Math.DegToRad(140); // wide slash arc — cleave identity
+    const damage = 200;
+    const knockback = 100;
     let hits = 0;
 
     this.cameras.main.shake(80, 0.003);
@@ -1674,7 +1820,9 @@ export class GameScene extends Phaser.Scene {
           Math.cos(enemyAngle) * knockback,
           Math.sin(enemyAngle) * knockback
         );
-        enemy.applyKnockbackStun(500);
+        enemy.applyKnockbackStun(300);
+        // Ability always spawns blood spray (even on bosses)
+        this.spawnBloodSplat(enemy.x, enemy.y, "hit", enemy.enemyType);
       }
       hits++;
     });
@@ -1700,55 +1848,135 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** Jason — Smokescreen: smoke cloud that heals player and confuses enemies */
-  private abilitySmokescreen() {
-    // Play cigarette animation with hold, then cleanly restore state
-    this.player.playAbilityAnimation("light-cigarette", 1500);
+  /** Jason — Sledgehammer Slam: 360° ground pound that hits everything around you */
+  private abilitySledgehammerSlam() {
+    // Invincible + no knockback during slam
+    this.abilityActive = true;
 
-    // Destroy any existing smoke
-    this.destroySmokescreen();
-
-    // Place smoke at player position
-    this.smokeX = this.player.x;
-    this.smokeY = this.player.y;
-    this.smokeTimer = this.smokeDuration;
-
-    // Draw smoke cloud
-    this.smokeCloud = this.add.graphics();
-    this.smokeCloud.setDepth(3);
-    this.smokeCloud.setAlpha(0.5);
-    this.drawSmokeCloud();
-
-    // Activate damage + stamina buff (lasts longer than smoke)
-    this.smokeBuffTimer = this.smokeBuffDuration;
-  }
-
-  private drawSmokeCloud() {
-    if (!this.smokeCloud) return;
-    this.smokeCloud.clear();
-    const alpha = Math.min(1, this.smokeTimer / 1000) * 0.5;
-    this.smokeCloud.setAlpha(alpha);
-    // Multiple overlapping circles for organic smoke look
-    for (let i = 0; i < 8; i++) {
-      const ox = Math.sin(i * 0.8 + this.smokeTimer * 0.001) * this.smokeRadius * 0.3;
-      const oy = Math.cos(i * 1.1 + this.smokeTimer * 0.0015) * this.smokeRadius * 0.3;
-      const r = this.smokeRadius * (0.5 + Math.sin(i * 2.3) * 0.2);
-      this.smokeCloud.fillStyle(0x556655, 0.15 + Math.sin(i) * 0.05);
-      this.smokeCloud.fillCircle(this.smokeX + ox, this.smokeY + oy, r);
+    // Play sledgehammer slam animation
+    const shAnimType = hasAnimation(this.characterDef.id, "swinging-sledgehammer") ? "swinging-sledgehammer" : "cross-punch";
+    const slamKey = getAnimKey(this.characterDef.id, shAnimType, this.player["currentDir"]);
+    if (this.anims.exists(slamKey)) {
+      this.player.play(slamKey);
+      this.player.once("animationcomplete", () => {
+        this.abilityActive = false;
+        const idleKey = getAnimKey(this.characterDef.id, "breathing-idle", this.player["currentDir"]);
+        if (this.anims.exists(idleKey)) this.player.play(idleKey, true);
+      });
+    } else {
+      // No animation — clear flag after expected duration
+      this.time.delayedCall(650, () => { this.abilityActive = false; });
     }
+
+    const radius = 100; // full 360° circle
+    const damage = 200;
+    const knockback = 150;
+    const stunDuration = 500;
+
+    // Delay damage to sync with hammer impact frame (~300ms into 9-frame anim at 14fps)
+    this.time.delayedCall(300, () => {
+      let hits = 0;
+
+      // Strong screen shake — ground slam on impact
+      this.cameras.main.shake(180, 0.008);
+
+      this.enemies.getChildren().forEach((obj) => {
+        const enemy = obj as Enemy;
+        if (!enemy.active) return;
+
+        const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, enemy.x, enemy.y);
+        if (dist > radius) return;
+
+        const enemyAngle = Phaser.Math.Angle.Between(this.player.x, this.player.y, enemy.x, enemy.y);
+        const killed = enemy.takeDamage(damage);
+        if (killed) {
+          this.onEnemyKilled(enemy, "melee");
+        } else {
+          enemy.body.setVelocity(
+            Math.cos(enemyAngle) * knockback,
+            Math.sin(enemyAngle) * knockback
+          );
+          enemy.applyKnockbackStun(stunDuration);
+          // Ability always spawns blood spray (even on bosses)
+          this.spawnBloodSplat(enemy.x, enemy.y, "hit", enemy.enemyType);
+        }
+        hits++;
+      });
+
+      // Shockwave VFX at impact
+      this.spawnSledgehammerVFX();
+
+      this.playSound("sfx-explosion", 0.4);
+      if (hits > 0) this.playSound("sfx-hit-classic", 0.35);
+    });
   }
 
-  private updateSmokescreen(_delta: number) {
-    this.drawSmokeCloud();
-    // Smoke is purely visual now — buff (damage + stamina) is applied in the main update loop
-  }
+  /** Spawn dust burst VFX for sledgehammer slam */
+  private spawnSledgehammerVFX() {
+    const px = this.player.x;
+    const py = this.player.y;
 
-  private destroySmokescreen() {
-    if (this.smokeCloud) {
-      this.smokeCloud.destroy();
-      this.smokeCloud = null;
+    const hasEmberSprites = this.textures.exists("fx-slam-ember-1");
+
+    // Dust burst at hammer impact point (small, centered)
+    const hasDustSprites = this.textures.exists("fx-dust-burst-1");
+    if (hasDustSprites) {
+      const dust = this.add.sprite(px, py, "fx-dust-burst-1");
+      dust.setDepth(3);
+      dust.setScale(0.4);
+      dust.setAlpha(0.8);
+      let dustFrame = 0;
+      const dustTimer = this.time.addEvent({
+        delay: 80, repeat: 3,
+        callback: () => {
+          dustFrame++;
+          if (!dust.active) return;
+          dust.setTexture(`fx-dust-burst-${Math.min(dustFrame + 1, 4)}`);
+          dust.setScale(0.4 + dustFrame * 0.2);
+          dust.setAlpha(0.8 - dustFrame * 0.15);
+        },
+      });
+      this.time.delayedCall(400, () => {
+        dustTimer.destroy();
+        if (dust.active) {
+          this.tweens.add({ targets: dust, alpha: 0, duration: 200, onComplete: () => dust.destroy() });
+        }
+      });
     }
-    this.smokeTimer = 0;
-    this.smokeDrainAccum = 0;
+
+    // Ember ring AOE — expands outward showing damage radius
+    if (hasEmberSprites) {
+      const ember = this.add.sprite(px, py, "fx-slam-ember-1");
+      ember.setDepth(2);
+      ember.setScale(0.3);
+      ember.setAlpha(0.5);
+      ember.setBlendMode(Phaser.BlendModes.ADD);
+
+      let emberFrame = 0;
+      const emberTimer = this.time.addEvent({
+        delay: 80,
+        repeat: 3,
+        callback: () => {
+          emberFrame++;
+          if (!ember.active) return;
+          ember.setTexture(`fx-slam-ember-${Math.min(emberFrame + 1, 4)}`);
+          ember.setScale(0.3 + emberFrame * 0.25);
+          ember.setAlpha(0.5 - emberFrame * 0.1);
+        },
+      });
+
+      this.time.delayedCall(400, () => {
+        emberTimer.destroy();
+        if (ember.active) {
+          this.tweens.add({
+            targets: ember,
+            alpha: 0,
+            duration: 200,
+            onComplete: () => ember.destroy(),
+          });
+        }
+      });
+    }
   }
 
   /** Get current weapon's ammo object */
@@ -1779,7 +2007,7 @@ export class GameScene extends Phaser.Scene {
 
     const angle = this.getFacingAngle();
     const dmgMult = 1;
-    const smokeBonus = this.smokeBuffTimer > 0 ? this.smokeBuffDamageBonus : 0;
+    const bonusDmg = 0; // placeholder for future damage buff systems
 
     // Point-blank hit check
     const pbRange = 30;
@@ -1789,7 +2017,7 @@ export class GameScene extends Phaser.Scene {
       const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, enemy.x, enemy.y);
       if (dist > pbRange) return;
       for (let p = 0; p < weaponDef.pellets; p++) {
-        let damage = Math.floor((weaponDef.damage + smokeBonus) * dmgMult);
+        let damage = Math.floor((weaponDef.damage + bonusDmg) * dmgMult);
         if ("closeRangeBonus" in weaponDef) {
           damage = Math.floor(damage * (weaponDef as any).closeRangeBonus);
         }
@@ -1798,7 +2026,11 @@ export class GameScene extends Phaser.Scene {
           this.showCritEffect(enemy.x, enemy.y, "ranged");
         }
         const killed = enemy.takeDamage(damage, "ranged");
-        if (killed) { this.onEnemyKilled(enemy); break; }
+        if (killed) {
+          this.onEnemyKilled(enemy);
+          this.spawnBloodSplat(enemy.x, enemy.y, "kill", enemy.enemyType);
+          break;
+        }
       }
     });
 
@@ -1817,7 +2049,7 @@ export class GameScene extends Phaser.Scene {
         spawnY,
         pelletAngle,
         weaponDef.speed,
-        Math.floor((weaponDef.damage + smokeBonus) * dmgMult),
+        Math.floor((weaponDef.damage + bonusDmg) * dmgMult),
         weaponDef.range,
         weaponDef.dropoff,
         this.activeWeapon
@@ -2134,6 +2366,14 @@ export class GameScene extends Phaser.Scene {
       const killed = enemy.takeDamage(damage, "ranged");
       if (killed) {
         this.onEnemyKilled(enemy);
+        this.spawnBloodSplat(enemy.x, enemy.y, "kill", enemy.enemyType);
+      } else {
+        // Hit splat: 30% for zombies, 20% for dogs, skip bosses
+        const isBoss = enemy.enemyType === "boss" || enemy.enemyType === "mason";
+        const hitChance = enemy.enemyType === "fast" ? 0.2 : 0.3;
+        if (!isBoss && Math.random() < hitChance) {
+          this.spawnBloodSplat(enemy.x, enemy.y, "hit", enemy.enemyType);
+        }
       }
 
       // Knockback from bullet — shotgun pellets stack knockback for big pushes
@@ -2187,6 +2427,7 @@ export class GameScene extends Phaser.Scene {
       if (this.gameOver) return;
       if (this.player.invincible) return; // dev god mode
       if (this.player.isPunching) return; // i-frames during punch
+      if (this.abilityActive) return; // invincible during ability (e.g. Jason slam)
 
       const now = this.time.now;
       if (now - this.lastDamageTime < 500) return;
