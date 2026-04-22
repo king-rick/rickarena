@@ -77,6 +77,14 @@ export class GameScene extends Phaser.Scene {
   private activeSlot = 0;
   private readonly slotCount = 5;
 
+  // Grenade system
+  private grenadeCount = 0;
+  private grenadeKeyDown = false;
+  private grenadeKeyDownTime = 0;
+  private grenadeAiming = false;
+  private grenadeAimLine!: Phaser.GameObjects.Graphics;
+  private grenadeThrowing = false; // true during throw animation lock
+
   // Ability state (Q)
   private abilityCooldownTimer = 0; // ms remaining
   private abilityActive = false;
@@ -206,6 +214,10 @@ export class GameScene extends Phaser.Scene {
     this.machines = [];
     this.reloadSpeedMultiplier = 1;
     this.armor = 0;
+    this.grenadeCount = 0; // set properly after player creation
+    this.grenadeKeyDown = false;
+    this.grenadeAiming = false;
+    this.grenadeThrowing = false;
 
     // Slow gameplay by 25%
     this.time.timeScale = 0.75;
@@ -577,6 +589,12 @@ export class GameScene extends Phaser.Scene {
     this.barricadeGhost.setDepth(3);
     this.barricadeGhost.setVisible(false);
 
+    // Grenade aiming line (drawn each frame while G is held)
+    this.grenadeAimLine = this.add.graphics();
+    this.grenadeAimLine.setDepth(8);
+    this.grenadeCount = BALANCE.grenade.startCount;
+    this.player.grenadeCount = this.grenadeCount;
+
     // --- Hotbar input: Q/E cycle, 1-4 direct select, SPACE/F use active slot ---
     if (this.input.keyboard) {
       // SPACE: use active slot OR ready-up during intermission
@@ -649,12 +667,25 @@ export class GameScene extends Phaser.Scene {
         if (!this.gameOver && !this.paused && !this.shopOpen) this.useAbility();
       });
 
-      // G: manual reload
+      // G: grenade (hold for aim, release to throw)
       const gKey = this.input.keyboard.addKey(
         Phaser.Input.Keyboard.KeyCodes.G
       );
       gKey.on("down", () => {
-        if (!this.gameOver && !this.paused && !this.shopOpen) this.startReload();
+        if (this.gameOver || this.paused || this.shopOpen || this.grenadeThrowing) return;
+        if (this.grenadeCount <= 0) return;
+        this.grenadeKeyDown = true;
+        this.grenadeKeyDownTime = this.time.now;
+        this.grenadeAiming = false;
+      });
+      gKey.on("up", () => {
+        if (!this.grenadeKeyDown) return;
+        this.grenadeKeyDown = false;
+        this.grenadeAiming = false;
+        this.grenadeAimLine?.clear();
+        if (this.grenadeCount > 0 && !this.grenadeThrowing) {
+          this.throwGrenade();
+        }
       });
     }
     // Left click = melee punch, Right click = use active item slot
@@ -860,6 +891,7 @@ export class GameScene extends Phaser.Scene {
     this.hudContainer.setDepth(250);
     this.minimap.ignore(this.hudContainer);
     this.minimap.ignore(this.barricadeGhost);
+    this.minimap.ignore(this.grenadeAimLine);
 
     // Health/stamina bars are rendered in React (HUDOverlay)
 
@@ -1104,6 +1136,17 @@ export class GameScene extends Phaser.Scene {
       this.barricadeGhost.setVisible(false);
     }
 
+    // Grenade aiming line (while G held)
+    if (this.grenadeKeyDown && !this.grenadeThrowing) {
+      const holdTime = this.time.now - this.grenadeKeyDownTime;
+      if (holdTime >= BALANCE.grenade.aimThresholdMs) {
+        this.grenadeAiming = true;
+        this.drawGrenadeAimLine();
+      }
+    } else {
+      this.grenadeAimLine?.clear();
+    }
+
     // Footsteps while player is moving
     const vel = this.player.body?.velocity;
     if (vel && (Math.abs(vel.x) > 10 || Math.abs(vel.y) > 10)) {
@@ -1114,7 +1157,7 @@ export class GameScene extends Phaser.Scene {
     this.tryPlayZombieGroan();
 
     // Hold-to-fire: only for auto weapons (SMG) when weapon slot is active.
-    if (this.fireHeld && !this.shopOpen && (this.activeSlot === 1 || this.activeSlot === 2)) {
+    if (this.fireHeld && !this.shopOpen && !this.grenadeAiming && !this.grenadeThrowing && (this.activeSlot === 1 || this.activeSlot === 2)) {
       const wDef = BALANCE.weapons[this.activeWeapon as keyof typeof BALANCE.weapons];
       if (wDef?.auto) this.fireWeapon();
     }
@@ -1206,6 +1249,221 @@ export class GameScene extends Phaser.Scene {
   /** Play player damage grunt */
   private playPlayerHurt() {
     this.playSound("sfx-player-grunt", 0.35);
+  }
+
+  // ------- Grenades -------
+
+  /** Draw razor-thin parabolic aiming line from player to landing point */
+  private drawGrenadeAimLine() {
+    this.grenadeAimLine.clear();
+    const pointer = this.input.activePointer;
+    const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const dx = worldPoint.x - this.player.x;
+    const dy = worldPoint.y - this.player.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const maxRange = BALANCE.grenade.maxRange;
+    const clampedDist = Math.min(dist, maxRange);
+    const angle = Math.atan2(dy, dx);
+
+    const targetX = this.player.x + Math.cos(angle) * clampedDist;
+    const targetY = this.player.y + Math.sin(angle) * clampedDist;
+    const peakHeight = BALANCE.grenade.arcPeakPx;
+
+    const segments = 32;
+
+    // Glow pass — faint wide halo (2px, very low alpha)
+    this.grenadeAimLine.lineStyle(2, 0xff2222, 0.1);
+    this.grenadeAimLine.beginPath();
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments;
+      const x = this.player.x + (targetX - this.player.x) * t;
+      const y = this.player.y + (targetY - this.player.y) * t;
+      const arcOffset = -peakHeight * 4 * t * (1 - t);
+      if (i === 0) this.grenadeAimLine.moveTo(x, y + arcOffset);
+      else this.grenadeAimLine.lineTo(x, y + arcOffset);
+    }
+    this.grenadeAimLine.strokePath();
+
+    // Core pass — razor thin bright line (1px, crisp)
+    this.grenadeAimLine.lineStyle(1, 0xff4455, 0.55);
+    this.grenadeAimLine.beginPath();
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments;
+      const x = this.player.x + (targetX - this.player.x) * t;
+      const y = this.player.y + (targetY - this.player.y) * t;
+      const arcOffset = -peakHeight * 4 * t * (1 - t);
+      if (i === 0) this.grenadeAimLine.moveTo(x, y + arcOffset);
+      else this.grenadeAimLine.lineTo(x, y + arcOffset);
+    }
+    this.grenadeAimLine.strokePath();
+
+    // Landing indicator — thin ring, not a filled blob
+    this.grenadeAimLine.lineStyle(1, 0xff4455, 0.4);
+    this.grenadeAimLine.strokeCircle(targetX, targetY, 6);
+    // Tiny center dot
+    this.grenadeAimLine.fillStyle(0xff4455, 0.3);
+    this.grenadeAimLine.fillCircle(targetX, targetY, 1.5);
+  }
+
+  /** Throw a grenade toward the mouse cursor */
+  private throwGrenade() {
+    if (this.grenadeCount <= 0 || this.grenadeThrowing) return;
+
+    this.grenadeCount--;
+    this.player.grenadeCount = this.grenadeCount;
+    this.grenadeThrowing = true;
+
+    // Get target position
+    const pointer = this.input.activePointer;
+    const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const dx = worldPoint.x - this.player.x;
+    const dy = worldPoint.y - this.player.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const maxRange = BALANCE.grenade.maxRange;
+    const clampedDist = Math.min(dist, maxRange);
+    const angle = Math.atan2(dy, dx);
+    const targetX = this.player.x + Math.cos(angle) * clampedDist;
+    const targetY = this.player.y + Math.sin(angle) * clampedDist;
+
+    const startX = this.player.x;
+    const startY = this.player.y;
+
+    // Play throw animation (locks shooting for ~400ms but player can move)
+    this.player.playThrowGrenade(() => {
+      this.grenadeThrowing = false;
+    });
+
+    // Create grenade projectile sprite (tiny — player is 0.25 scale)
+    const grenadeTexture = this.textures.exists("fx-grenade-spin-1") ? "fx-grenade-spin-1" : "item-grenade";
+    const grenade = this.add.sprite(startX, startY, grenadeTexture);
+    grenade.setDepth(7);
+    grenade.setScale(0.18);
+
+    // Clear aim line immediately on throw
+    this.grenadeAimLine?.clear();
+
+    // Animate grenade flight
+    const flightMs = BALANCE.grenade.flightMs;
+    const peakHeight = BALANCE.grenade.arcPeakPx;
+    let elapsed = 0;
+    let spinFrame = 1;
+    const spinInterval = 80; // ms between spin frames
+    let lastSpinTime = 0;
+
+    const flightUpdate = this.time.addEvent({
+      delay: 16,
+      repeat: Math.ceil(flightMs / 16),
+      callback: () => {
+        elapsed += 16;
+        const t = Math.min(elapsed / flightMs, 1);
+
+        // Position along straight line
+        const x = startX + (targetX - startX) * t;
+        const y = startY + (targetY - startY) * t;
+
+        // Parabolic arc offset (peaks at midpoint)
+        const arcOffset = -peakHeight * 4 * t * (1 - t);
+        grenade.setPosition(x, y + arcOffset);
+
+        // Subtle scale for depth (0.18 → 0.22 → 0.18)
+        const scaleT = 0.18 + 0.04 * Math.sin(t * Math.PI);
+        grenade.setScale(scaleT);
+
+        // Spin animation
+        lastSpinTime += 16;
+        if (lastSpinTime >= spinInterval) {
+          lastSpinTime = 0;
+          spinFrame = (spinFrame % 4) + 1;
+          const spinKey = `fx-grenade-spin-${spinFrame}`;
+          if (this.textures.exists(spinKey)) {
+            grenade.setTexture(spinKey);
+          }
+        }
+
+        // Flight complete
+        if (t >= 1) {
+          flightUpdate.destroy();
+          grenade.setPosition(targetX, targetY);
+          grenade.setScale(0.18);
+
+          // Fuse delay then detonate
+          this.time.delayedCall(BALANCE.grenade.fuseMs, () => {
+            this.detonateGrenade(targetX, targetY);
+            grenade.destroy();
+          });
+        }
+      },
+    });
+  }
+
+  /** Grenade explosion — AoE damage, knockback, VFX */
+  private detonateGrenade(x: number, y: number) {
+    const { damage, radius, knockback } = BALANCE.grenade;
+
+    // Damage all enemies in radius
+    this.enemies.getChildren().forEach((obj) => {
+      const enemy = obj as Enemy;
+      if (!enemy.active || enemy.dying) return;
+      const dist = Phaser.Math.Distance.Between(x, y, enemy.x, enemy.y);
+      if (dist <= radius) {
+        const dmgMult = 1 - (dist / radius) * 0.5; // damage falloff
+        const finalDmg = Math.floor(damage * dmgMult);
+        enemy.takeDamage(finalDmg);
+
+        // Knockback from blast center
+        const kbAngle = Phaser.Math.Angle.Between(x, y, enemy.x, enemy.y);
+        const resist = enemy.enemyType === "boss"
+          ? (BALANCE.enemies.boss.knockbackResist ?? 0.8)
+          : enemy.enemyType === "mason"
+          ? (BALANCE.enemies.mason.knockbackResist ?? 0.98)
+          : 1;
+        const kbForce = knockback * resist;
+        enemy.body?.setVelocity(
+          Math.cos(kbAngle) * kbForce,
+          Math.sin(kbAngle) * kbForce
+        );
+
+        // Track kills from grenades
+        if (enemy.dying) {
+          this.onEnemyKilled(enemy, "trap");
+        }
+      }
+    });
+
+    // Explosion VFX — play grenade-explosion frames
+    const explosionSprite = this.add.sprite(x, y, "fx-grenade-explosion-1");
+    explosionSprite.setDepth(8);
+    explosionSprite.setScale(1.5); // explosion sprite is ~64px, scale to ~96px — fits 100px radius
+    explosionSprite.setAlpha(0.85);
+
+    let expFrame = 1;
+    const expTimer = this.time.addEvent({
+      delay: 60,
+      repeat: 4,
+      callback: () => {
+        expFrame++;
+        const expKey = `fx-grenade-explosion-${expFrame}`;
+        if (this.textures.exists(expKey)) {
+          explosionSprite.setTexture(expKey);
+        }
+        if (expFrame >= 5) {
+          expTimer.destroy();
+          this.tweens.add({
+            targets: explosionSprite,
+            alpha: 0,
+            duration: 200,
+            onComplete: () => explosionSprite.destroy(),
+          });
+        }
+      },
+    });
+
+    // Camera shake + orange flash
+    this.cameras.main.shake(100, 0.005);
+    this.cameras.main.flash(80, 255, 150, 0, false);
+
+    // Sound
+    this.playSound("sfx-explosion", 0.5);
   }
 
   // ------- Hotbar -------
@@ -1512,7 +1770,7 @@ export class GameScene extends Phaser.Scene {
     const knockback = 50;
     const stunDuration = 2000;
     const chainRadius = 80; // ~2.5 tiles — tight chain range
-    const maxChainTargets = 6;
+    const maxChainTargets = 12;
 
     this.cameras.main.shake(100, 0.004);
 
@@ -2852,6 +3110,7 @@ export class GameScene extends Phaser.Scene {
     ammo_shotgun: "/assets/sprites/items/ammo.png",
     barricade: "/assets/sprites/items/trap-barricade.png",
     landmine: "/assets/sprites/items/landmine.png",
+    grenade: "/assets/sprites/items/grenade.png",
     heal: "/assets/sprites/items/bandage.png",
     dmgBoost: "/assets/sprites/items/syringe.png",
   };
@@ -2923,7 +3182,7 @@ export class GameScene extends Phaser.Scene {
       const id = item.id;
       let category: "supplies" | "weapons" | "traps" = "supplies";
       if (["shotgun", "smg", "ammo_light", "ammo_shotgun"].includes(id)) category = "weapons";
-      else if (["barricade", "landmine"].includes(id)) category = "traps";
+      else if (["barricade", "landmine", "grenade"].includes(id)) category = "traps";
 
       return {
         id: item.id,
@@ -3754,6 +4013,13 @@ export class GameScene extends Phaser.Scene {
         this.trapInventory.set(trapType, current + 1);
         break;
       }
+      case "grenade": {
+        if (this.grenadeCount >= BALANCE.grenade.maxCount) return;
+        this.currency -= price;
+        this.grenadeCount++;
+        this.player.grenadeCount = this.grenadeCount;
+        break;
+      }
     }
 
     this.playSound("sfx-buy", 0.4);
@@ -3837,6 +4103,7 @@ export class GameScene extends Phaser.Scene {
       reloading: this.reloading,
       barricadeCount: this.trapInventory.get("barricade" as TrapType) ?? 0,
       mineCount: this.trapInventory.get("landmine" as TrapType) ?? 0,
+      grenadeCount: this.grenadeCount,
       abilityName: this.characterDef.ability.name,
       abilityCooldown: this.abilityCooldownTimer > 0 ? this.abilityCooldownTimer / 1000 : 0,
       abilityMaxCooldown: this.characterDef.ability.cooldown,

@@ -82,6 +82,7 @@ export const BALANCE = {
       { id: "ammo_shotgun", name: "Shotgun Shells", desc: "+2 shotgun clips", basePrice: 80, unlockWave: 4 },
       { id: "barricade", name: "Barricade", desc: "Blocks enemies, 300 HP", basePrice: 30 },
       { id: "landmine", name: "Landmine", desc: "AoE explosion on contact", basePrice: 40 },
+      { id: "grenade", name: "Grenade", desc: "Throwable explosive (max 3)", basePrice: 60 },
     ],
   },
 
@@ -178,12 +179,28 @@ export const BALANCE = {
     },
     landmine: {
       name: "Landmine",
-      damage: 80,
-      radius: 100,
+      damage: 200,
+      radius: 80,
       price: 40,
     },
     maxPerType: 5,
     placementRange: 60,
+  },
+
+  // Grenades
+  grenade: {
+    damage: 150,
+    radius: 100,           // px AoE
+    knockback: 150,
+    maxRange: 250,         // px max throw distance
+    flightMs: 500,         // travel time
+    fuseMs: 200,           // delay after landing before detonation
+    arcPeakPx: 25,         // fake parabolic height offset
+    throwLockMs: 400,      // player locked from shooting during throw animation
+    startCount: 1,         // grenades at game start
+    maxCount: 3,           // max carry
+    shopPrice: 60,
+    aimThresholdMs: 150,   // hold time before aiming line appears
   },
 
   // Speed cap

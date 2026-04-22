@@ -48,6 +48,7 @@ export interface HUDData {
   reloading: boolean;
   barricadeCount: number;
   mineCount: number;
+  grenadeCount: number;
 
   // Ability
   abilityName: string;
@@ -172,6 +173,7 @@ const DEFAULT_STATE: HUDData = {
   reloading: false,
   barricadeCount: 0,
   mineCount: 0,
+  grenadeCount: 0,
   abilityName: "",
   abilityCooldown: 0,
   abilityMaxCooldown: 0,

@@ -41,6 +41,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   facing: Facing = "down";
   burnedOut = false;
   invincible = false;
+  grenadeCount = 0;
+  throwingGrenade = false;
 
   private currentDir: Direction = "south";
   private currentAnim: PlayerAnim = "idle";
@@ -303,6 +305,51 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       this.currentAnim = "idle";
       onImpact?.();
     }
+  }
+
+  /** Play throw grenade animation. Uses throw-grenade if available, cross-punch as fallback. */
+  playThrowGrenade(onComplete?: () => void) {
+    if (this.locked) {
+      onComplete?.();
+      return;
+    }
+
+    this.throwingGrenade = true;
+    this.shooting = true;
+
+    // Try throw-grenade first (Dan has it), fall back to cross-punch
+    const throwAnimType = hasAnimation(this.characterId, "throw-grenade") ? "throw-grenade" : "cross-punch";
+    const throwKey = getAnimKey(this.characterId, throwAnimType, this.currentDir);
+
+    if (!this.scene.anims.exists(throwKey)) {
+      this.throwingGrenade = false;
+      this.shooting = false;
+      onComplete?.();
+      return;
+    }
+
+    this.currentAnim = throwAnimType as PlayerAnim;
+    this.off("animationcomplete", this.handleAnimComplete, this);
+    this.off("animationcomplete", this.handleShootComplete, this);
+
+    try {
+      this.play(throwKey);
+    } catch {
+      this.throwingGrenade = false;
+      this.shooting = false;
+      onComplete?.();
+      return;
+    }
+
+    this.once("animationcomplete", () => {
+      this.throwingGrenade = false;
+      this.shooting = false;
+      this.currentAnim = "idle";
+      if (this.hasIdleAnim) {
+        this.play(getAnimKey(this.characterId, "breathing-idle", this.currentDir), true);
+      }
+      onComplete?.();
+    });
   }
 
   /** Play hurt flinch animation. Brief lock, then returns to normal. */

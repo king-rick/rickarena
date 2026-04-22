@@ -39,6 +39,7 @@ export const Hotbar = memo(function Hotbar() {
   const reloading = useSyncExternalStore(hudState.subscribe, () => hudState.getField("reloading"));
   const barricadeCount = useSyncExternalStore(hudState.subscribe, () => hudState.getField("barricadeCount"));
   const mineCount = useSyncExternalStore(hudState.subscribe, () => hudState.getField("mineCount"));
+  const grenadeCount = useSyncExternalStore(hudState.subscribe, () => hudState.getField("grenadeCount"));
 
   const { icon, label } = getActiveIcon(activeSlot, equippedWeapon);
   const { count, danger } = getActiveCount(activeSlot, ammo, maxAmmo, reserveAmmo, reloading, barricadeCount, mineCount);
@@ -47,36 +48,67 @@ export const Hotbar = memo(function Hotbar() {
   if (!icon) return null;
 
   return (
-    <div className="relative flex flex-col items-center">
-      {/* Item icon */}
-      <img
-        src={icon}
-        alt={label}
-        style={{
-          width: 64,
-          height: 64,
-          imageRendering: "pixelated",
-          filter: "drop-shadow(0 0 6px rgba(255, 34, 68, 0.5)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.8))",
-        }}
-        draggable={false}
-      />
-
-      {/* Ammo / count */}
-      {count && (
-        <span
+    <div className="relative flex items-end gap-3">
+      <div className="flex flex-col items-center">
+        {/* Item icon */}
+        <img
+          src={icon}
+          alt={label}
           style={{
-            marginTop: 2,
-            fontSize: 16,
-            fontWeight: 700,
-            fontFamily: BODY,
-            color: danger ? "#ff0000" : "#ffffff",
-            textShadow: danger
-              ? "0 0 6px rgba(255, 0, 0, 0.5)"
-              : "0 0 6px rgba(255, 34, 68, 0.4), 0 1px 2px rgba(0, 0, 0, 0.9)",
+            width: 64,
+            height: 64,
+            imageRendering: "pixelated",
+            filter: "drop-shadow(0 0 6px rgba(255, 34, 68, 0.5)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.8))",
           }}
-        >
-          {count}
-        </span>
+          draggable={false}
+        />
+
+        {/* Ammo / count */}
+        {count && (
+          <span
+            style={{
+              marginTop: 2,
+              fontSize: 16,
+              fontWeight: 700,
+              fontFamily: BODY,
+              color: danger ? "#ff0000" : "#ffffff",
+              textShadow: danger
+                ? "0 0 6px rgba(255, 0, 0, 0.5)"
+                : "0 0 6px rgba(255, 34, 68, 0.4), 0 1px 2px rgba(0, 0, 0, 0.9)",
+            }}
+          >
+            {count}
+          </span>
+        )}
+      </div>
+
+      {/* Grenade counter */}
+      {grenadeCount > 0 && (
+        <div className="flex flex-col items-center" style={{ opacity: 0.85 }}>
+          <img
+            src="/assets/sprites/items/grenade.png"
+            alt="Grenade"
+            style={{
+              width: 32,
+              height: 32,
+              imageRendering: "pixelated",
+              filter: "drop-shadow(0 0 4px rgba(255, 150, 0, 0.5)) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8))",
+            }}
+            draggable={false}
+          />
+          <span
+            style={{
+              marginTop: 1,
+              fontSize: 12,
+              fontWeight: 700,
+              fontFamily: BODY,
+              color: "#ffcc44",
+              textShadow: "0 0 4px rgba(255, 150, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.9)",
+            }}
+          >
+            G x{grenadeCount}
+          </span>
+        </div>
       )}
     </div>
   );

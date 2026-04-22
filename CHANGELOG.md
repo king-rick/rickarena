@@ -1,8 +1,28 @@
 # RickArena Changelog
 
-## NEXT UP — Grenade System Implementation Plan
+## NEXT UP — Grenade System: Aim Line Sprite Wiring
 
-**Status: PLANNED — not yet implemented. Build after context compact.**
+**Status: IN PROGRESS — core grenade system built, aim line sprites generated but not wired in yet.**
+
+### What's done
+- **Full grenade system implemented** across balance.ts, GameScene.ts, Player.ts, HUDState.ts, Hotbar.tsx, PreloadScene.ts
+- **Input**: G key rebound from reload → grenade. Tap G = quick throw on release. Hold G >150ms = aim line appears, release to throw. Both use identical throw logic (no accuracy difference).
+- **Throw animation**: Uses `throw-grenade` (Dan) or `cross-punch` fallback (Rick/PJ/Jason). Player locked from shooting ~400ms, can still move.
+- **Projectile flight**: grenade-spin sprites loop during 500ms flight with fake parabolic arc (25px peak). Scale 0.18 (was 0.8 — way too big before).
+- **Detonation**: 200ms fuse, 150 damage AoE in 100px radius with distance falloff, 150 knockback (reduced by boss knockbackResist), explosion sprite at 1.5x scale, camera shake + orange flash.
+- **Shop**: Grenade added as $60 item in traps category, max carry 3.
+- **HUD**: Grenade count displayed in Hotbar (icon + "G x{count}") when grenades > 0.
+- **Balance**: Landmine damage 80→200, radius 100→80. Grenade damage 150, radius 100px.
+- **Manual reload removed from G key** — auto-reload on empty mag still works.
+
+### What needs to be done next
+- **Wire in PixelLab aim line sprites** — Generated via PixelLab API, sitting at `public/assets/sprites/projectiles/grenade-aim/aim-line.png` (64x16) and `aim-circle.png` (32x32). Both have black backgrounds — use Phaser `BlendModes.ADD` (black = invisible, red/white glows). Currently using Phaser Graphics placeholder (razor-thin 1px red line + ring).
+- **Replace Graphics with sprite-based aim rendering**: Tile aim-line sprite segments along arc path (each rotated to follow curve tangent), place aim-circle at landing point.
+- **Load sprites in PreloadScene**: `fx-grenade-aim-line` and `fx-grenade-aim-circle`.
+- **Consider**: Landing circle could use 2-3 frame pulse animation for better readability.
+- **Test in-game**: Verify throw distance feels right (250px max range), grenade scale looks correct, explosion isn't too big/small.
+
+### Grenade system spec (unchanged)
 
 ### Overview
 Universal grenade system. All characters start with 1, buy more at shop (max 3). Separate from abilities — uses G key. Two throw modes: tap for quick toss, hold for aimed throw with arc line.

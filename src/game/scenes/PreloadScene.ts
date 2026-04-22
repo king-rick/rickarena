@@ -204,6 +204,15 @@ export class PreloadScene extends Phaser.Scene {
       this.load.image(`fx-soundwave-${i}`, `/assets/sprites/projectiles/soundwave/frame${i}.png`);
     }
 
+    // Grenade spin VFX (4 frames)
+    for (let i = 1; i <= 4; i++) {
+      this.load.image(`fx-grenade-spin-${i}`, `/assets/sprites/projectiles/grenade-spin/frame${i}.png`);
+    }
+    // Grenade explosion VFX (5 frames)
+    for (let i = 1; i <= 5; i++) {
+      this.load.image(`fx-grenade-explosion-${i}`, `/assets/sprites/projectiles/grenade-explosion/frame${i}.png`);
+    }
+
     // Blood splatter VFX (4 variants x 3 frames)
     for (let v = 1; v <= 4; v++) {
       for (let f = 1; f <= 3; f++) {
