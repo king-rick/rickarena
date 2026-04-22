@@ -44,7 +44,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   grenadeCount = 0;
   throwingGrenade = false;
 
-  private currentDir: Direction = "south";
+  currentDir: Direction = "south";
   private currentAnim: PlayerAnim = "idle";
   private lastStaminaUse = 0;
   private burnoutTimer = 0;
@@ -419,9 +419,11 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       pistol: "shooting-pistol",
       shotgun: "shooting-shotgun",
       smg: "shooting-smg",
+      rpg: "shooting-rpg",
+      assault_rifle: "shooting-assault-rifle",
     };
 
-    const isAuto = weaponType === "smg";
+    const isAuto = weaponType === "smg" || weaponType === "assault_rifle";
     let animType = animMap[weaponType];
     if (!animType || !hasAnimation(this.characterId, animType)) return;
 
@@ -505,6 +507,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       pistol: "reloading-pistol",
       shotgun: "reloading-shotgun",
       smg: "reloading-smg",
+      rpg: "reloading-shotgun",          // placeholder — reuse shotgun reload
+      assault_rifle: "reloading-smg",     // placeholder — reuse SMG reload
     };
     const animType = animMap[weaponType];
     if (!animType || !hasAnimation(this.characterId, animType)) return;

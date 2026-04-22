@@ -112,6 +112,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private backflipping = false;
   private castingFireball = false;
   private bossRunning = false; // true when in chase speed
+  private bossBusy = false;    // true during boss attacks — zeroes velocity every frame to prevent knockback skating
 
   // Mason-specific state
   private masonAttackCooldowns: Record<string, number> = {};
@@ -222,6 +223,11 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
   }
 
+  /** Whether this enemy is stunned and unable to attack */
+  isStunned(): boolean {
+    return this.electrocuting || this.stunTimer > 0;
+  }
+
   /** Apply extra stun time for heavy knockback (e.g. shotgun blasts) */
   applyKnockbackStun(ms: number) {
     this.stunTimer = Math.max(this.stunTimer, ms);
@@ -315,7 +321,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     // Lock the zombie in place — prevent all AI movement during electrocution
     this.electrocuting = true;
-    this.stunTimer = stunMs + 500; // extra buffer so AI never resumes before death
+    this.stunTimer = stunMs;
 
     // Play electrified-stun animation
     const key = getAnimKey(this.spriteId, "electrified-stun", this.currentDir);
@@ -326,10 +332,12 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     // After stun duration, die if lethal, otherwise release
     this.scene.time.delayedCall(stunMs, () => {
       if (!this.active || this.dying) return;
-      this.electrocuting = false;
       if (this.health <= 0) {
+        // Go straight from stun into death — no frame gap
         onKill();
         this.die("melee");
+      } else {
+        this.electrocuting = false;
       }
     });
 
@@ -622,8 +630,11 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       }
     }
 
-    // Don't act while mid-animation
-    if (this.backflipping || this.castingFireball || this.biting || this.leaping || this.beingShot) return;
+    // Don't act while mid-animation — zero velocity every frame to prevent knockback skating
+    if (this.bossBusy || this.backflipping || this.castingFireball || this.biting || this.leaping || this.beingShot) {
+      if (this.bossBusy) this.body.setVelocity(0, 0);
+      return;
+    }
 
     // Phase selection based on HP — low HP = cautious, not fleeing
     if (hpPct <= bossStats.backflipThreshold) {
@@ -679,6 +690,11 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
           // Sweet spot — stop and use ranged attacks
           this.body.setVelocity(0, 0);
           this.bossRunning = false;
+          // Play idle anim so boss doesn't walk in place
+          const idleKey = getAnimKey(this.spriteId, this.idleAnimType, this.currentDir);
+          if (this.scene.anims.exists(idleKey) && this.anims.currentAnim?.key !== idleKey) {
+            this.play(idleKey, true);
+          }
         }
         // Fireball when at range
         if (dist > 100 && this.canBossAttack("fireball")) {
@@ -746,6 +762,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   /** Boss melee: play anim, deal damage on hit frame, set cooldown */
   private bossMeleeAttack(attackId: string, animType: string, dmg: number) {
     this.biting = true;
+    this.bossBusy = true;
     const bossStats = BALANCE.enemies.boss;
     const cd = (bossStats.attacks as any)[attackId]?.cooldown ?? 2000;
     this.bossAttackCooldowns[attackId] = cd;
@@ -759,12 +776,14 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.play(key);
       this.once("animationcomplete", () => {
         this.biting = false;
+        this.bossBusy = false;
         if (this.hasWalkAnim && !this.dying) {
           this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
         }
       });
     } else {
       this.biting = false;
+      this.bossBusy = false;
     }
   }
 
@@ -856,6 +875,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     const distToPlayer = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
     if (distToPlayer > 500) return;
     this.castingFireball = true;
+    this.bossBusy = true;
     const bossStats = BALANCE.enemies.boss;
     this.bossAttackCooldowns["fireball"] = bossStats.attacks.fireball.cooldown;
 
@@ -873,6 +893,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     this.once("animationcomplete", () => {
       this.castingFireball = false;
+      this.bossBusy = false;
       if (this.hasWalkAnim && !this.dying) {
         this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
       }
@@ -944,7 +965,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         destroyFireball();
         return;
       }
-      if (player?.active && !player.invincible) {
+      if (player?.active && !player.invincible && !(scene as any).shopOpen && !(scene as any).levelUpActive) {
         const d = Phaser.Math.Distance.Between(zone.x, zone.y, player.x, player.y);
         if (d < 30) {
           player.stats.health -= dmg;
@@ -1393,7 +1414,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
             if ((this.scene as any).gameOver) return;
 
             const pDist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
-            if (pDist <= stats.range && !player.invincible) {
+            if (pDist <= stats.range && !player.invincible && !(this.scene as any).shopOpen && !(this.scene as any).levelUpActive) {
               const toPlayer = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
               let angleDiff = Math.abs(Phaser.Math.Angle.Wrap(toPlayer - currentAngle));
               if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
@@ -1715,7 +1736,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
           const player = (scene as any).player;
           if (player) {
             const playerDist = Phaser.Math.Distance.Between(px, py, player.x, player.y);
-            if (playerDist < 35 && !player.invincible && !(scene as any).gameOver) {
+            if (playerDist < 35 && !player.invincible && !(scene as any).gameOver && !(scene as any).shopOpen && !(scene as any).levelUpActive && this.hasLineOfSight(startX, startY, player.x, player.y)) {
               player.stats.health -= damage;
               // Brief purple flash — subtle, not seizure-inducing
               scene.cameras.main.flash(80, 120, 0, 200, false);
@@ -2194,9 +2215,13 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     const newDir = angleToDirection(angle) as Direction;
     if (newDir !== this.currentDir) {
       this.currentDir = newDir;
-      if (!this.biting && !this.leaping && !this.takingPunch && !this.backflipping && !this.castingFireball && !this.beingShot && !this.howling && !this.masonBusy) {
+      if (!this.biting && !this.leaping && !this.takingPunch && !this.backflipping && !this.castingFireball && !this.beingShot && !this.howling && !this.masonBusy && !this.bossBusy) {
+        // Boss/mason: play idle anim when stationary, walk anim when moving
+        const isStationary = Math.abs(vx) < 5 && Math.abs(vy) < 5;
+        const isBossOrMason = this.enemyType === "boss" || this.enemyType === "mason";
         if (this.hasWalkAnim) {
-          this.play(getAnimKey(this.spriteId, this.walkAnimType, newDir), true);
+          const animType = (isBossOrMason && isStationary) ? this.idleAnimType : this.walkAnimType;
+          this.play(getAnimKey(this.spriteId, animType, newDir), true);
         } else {
           this.setTexture(`${this.spriteId}-${newDir}`);
         }

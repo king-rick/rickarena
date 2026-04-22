@@ -182,6 +182,9 @@ export class PreloadScene extends Phaser.Scene {
     }
     for (let i = 1; i <= 5; i++) {
       this.load.image(`fx-lightning-bolt-${i}`, `/assets/sprites/projectiles/lightning-bolt-anim/frame${i}.png`);
+      this.load.image(`fx-lightning-bolt-red-${i}`, `/assets/sprites/projectiles/lightning-bolt-red/frame${i}.png`);
+      this.load.image(`fx-lightning-bolt-green-${i}`, `/assets/sprites/projectiles/lightning-bolt-green/frame${i}.png`);
+      this.load.image(`fx-lightning-bolt-orange-${i}`, `/assets/sprites/projectiles/lightning-bolt-orange/frame${i}.png`);
     }
 
     // Dust burst VFX (Sledgehammer Slam)
@@ -203,6 +206,10 @@ export class PreloadScene extends Phaser.Scene {
     for (let i = 1; i <= 4; i++) {
       this.load.image(`fx-soundwave-${i}`, `/assets/sprites/projectiles/soundwave/frame${i}.png`);
     }
+
+    // Grenade aim sprites
+    this.load.image("grenade-aim-line", "/assets/sprites/projectiles/grenade-aim/aim-line.png");
+    this.load.image("grenade-aim-reticle", "/assets/sprites/projectiles/grenade-aim/aim-reticle.png");
 
     // Grenade spin VFX (4 frames)
     for (let i = 1; i <= 4; i++) {
@@ -334,6 +341,7 @@ export class PreloadScene extends Phaser.Scene {
           else if (anim.type === "running-8-frames") frameRate = 12;
           else if (anim.type === "fight-stance-idle-8-frames") frameRate = 8;
           else if (anim.type === "cross-punch") frameRate = 18;
+          else if (anim.type === "electric-fist") frameRate = 24;
           else if (anim.type === "lead-jab") frameRate = 16;
           else if (anim.type === "taking-punch") frameRate = 14;
           else if (anim.type === "falling-back-death") frameRate = 10;

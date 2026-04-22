@@ -37,9 +37,10 @@ export class Projectile extends Phaser.Physics.Arcade.Image {
     dropoff: number = 0,
     weaponType: string = "pistol"
   ) {
-    // Use fire bullet sprite for guns, fallback to runtime texture for others
-    const isGun = weaponType === "pistol" || weaponType === "shotgun" || weaponType === "smg";
-    super(scene, x, y, isGun ? "bullet-fire" : "bullet-small");
+    // Use fire bullet sprite for guns, RPG sprite for rockets, fallback for others
+    const isGun = weaponType === "pistol" || weaponType === "shotgun" || weaponType === "smg" || weaponType === "assault_rifle";
+    const textureKey = weaponType === "rpg" ? "rpg-projectile" : (isGun ? "bullet-fire" : "bullet-small");
+    super(scene, x, y, textureKey);
 
     this.baseDamage = damage;
     this.damage = damage;
@@ -53,7 +54,9 @@ export class Projectile extends Phaser.Physics.Arcade.Image {
 
     this.setDepth(50);
     this.setRotation(angle);
-    if (isGun) {
+    if (weaponType === "rpg") {
+      this.setScale(0.15);
+    } else if (isGun) {
       this.setScale(0.1);
     }
   }

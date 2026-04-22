@@ -20,6 +20,8 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "reloading-pistol", frames: 9 },
     { type: "reloading-shotgun", frames: 4 },
     { type: "reloading-smg", frames: 4 },
+    { type: "shooting-rpg", frames: 9 },
+    { type: "shooting-assault-rifle", frames: 4 },
   ],
   dan: [
     { type: "walk", frames: 6 },
@@ -36,6 +38,8 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "reloading-pistol", frames: 9 },
     { type: "reloading-shotgun", frames: 4 },
     { type: "reloading-smg", frames: 4 },
+    { type: "shooting-rpg", frames: 9 },
+    { type: "shooting-assault-rifle", frames: 4 },
   ],
   mason: [
     { type: "breathing-idle", frames: 4 },
@@ -62,6 +66,8 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "reloading-pistol", frames: 9 },
     { type: "reloading-shotgun", frames: 4 },
     { type: "reloading-smg", frames: 4 },
+    { type: "shooting-rpg", frames: 9 },
+    { type: "shooting-assault-rifle", frames: 4 },
   ],
   jason: [
     { type: "walk", frames: 6 },
@@ -78,6 +84,8 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "reloading-pistol", frames: 9 },
     { type: "reloading-shotgun", frames: 4 },
     { type: "reloading-smg", frames: 4 },
+    { type: "shooting-rpg", frames: 9 },
+    { type: "shooting-assault-rifle", frames: 4 },
   ],
   creepyzombie: [
     { type: "walk", frames: 8 },

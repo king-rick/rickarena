@@ -11,6 +11,8 @@ const WEAPON_ICONS: Record<string, string> = {
   pistol: "/assets/sprites/items/pistol.png",
   shotgun: "/assets/sprites/items/shotgun.png",
   smg: "/assets/sprites/items/smg.png",
+  rpg: "/assets/sprites/items/rpg.png",
+  assault_rifle: "/assets/sprites/items/assault-rifle.png",
 };
 
 export const ShopOverlay = memo(function ShopOverlay() {

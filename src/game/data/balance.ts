@@ -83,6 +83,8 @@ export const BALANCE = {
       { id: "barricade", name: "Barricade", desc: "Blocks enemies, 300 HP", basePrice: 30 },
       { id: "landmine", name: "Landmine", desc: "AoE explosion on contact", basePrice: 40 },
       { id: "grenade", name: "Grenade", desc: "Throwable explosive (max 3)", basePrice: 60 },
+      { id: "rpg", name: "RPG", desc: "2 rockets, massive AoE", basePrice: 800, devOnly: true },
+      { id: "assault_rifle", name: "AK-47", desc: "2x50rd mags, high damage", basePrice: 650, devOnly: true },
     ],
   },
 
@@ -140,6 +142,43 @@ export const BALANCE = {
       auto: true,
       knockback: 20,
     },
+    rpg: {
+      name: "RPG",
+      damage: 500,
+      fireRate: 1500,
+      speed: 200,       // slow projectile
+      range: 500,
+      spread: 0,
+      pellets: 1,
+      magazineSize: 1,
+      totalClips: 2,     // 2 rockets total
+      reloadMs: 2200,
+      price: 800,
+      proficiency: "Shotguns",
+      dropoff: 0,
+      auto: false,
+      knockback: 200,
+      aoeRadius: 100,    // explosion AoE radius
+      selfDamage: 20,    // damage to player if too close
+    },
+    assault_rifle: {
+      name: "AK-47",
+      damage: 22,
+      fireRate: 140,     // slower than SMG (100ms)
+      speed: 550,
+      range: 320,
+      spread: 4,
+      pellets: 1,
+      magazineSize: 50,
+      totalClips: 2,     // 2x50rd mags = 100 total rounds
+      reloadMs: 2000,
+      price: 650,
+      proficiency: "Pistols",
+      dropoff: 0.3,
+      auto: true,
+      knockback: 30,
+      speedPenalty: 0.7,  // 30% movement slow while equipped
+    },
   },
   proficiencyBonus: {
     damageMultiplier: 1.3,
@@ -192,7 +231,7 @@ export const BALANCE = {
     damage: 150,
     radius: 100,           // px AoE
     knockback: 150,
-    maxRange: 250,         // px max throw distance
+    maxRange: 80,          // px max throw distance (~2.5 tiles)
     flightMs: 500,         // travel time
     fuseMs: 200,           // delay after landing before detonation
     arcPeakPx: 25,         // fake parabolic height offset

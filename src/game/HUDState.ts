@@ -20,6 +20,7 @@ export interface ShopItemData {
   equipped: boolean;
   canAfford: boolean;
   category: "supplies" | "weapons" | "traps";
+  devOnly?: boolean;
 }
 
 export interface LeaderboardEntry {

@@ -83,6 +83,7 @@ export class GameScene extends Phaser.Scene {
   private grenadeKeyDownTime = 0;
   private grenadeAiming = false;
   private grenadeAimLine!: Phaser.GameObjects.Graphics;
+  private grenadeAimReticle!: Phaser.GameObjects.Image;
   private grenadeThrowing = false; // true during throw animation lock
 
   // Ability state (Q)
@@ -539,6 +540,18 @@ export class GameScene extends Phaser.Scene {
 
     // Projectiles
     ensureBulletTexture(this);
+    // Runtime RPG rocket texture
+    if (!this.textures.exists("rpg-projectile")) {
+      const gfx = this.add.graphics();
+      gfx.fillStyle(0x886644, 1);
+      gfx.fillRect(0, 0, 12, 5);
+      gfx.fillStyle(0xff4422, 1);
+      gfx.fillRect(0, 1, 3, 3); // exhaust glow
+      gfx.fillStyle(0xcccccc, 1);
+      gfx.fillRect(9, 1, 3, 3); // warhead tip
+      gfx.generateTexture("rpg-projectile", 12, 5);
+      gfx.destroy();
+    }
     this.projectiles = this.physics.add.group();
 
     // Projectile-enemy overlap
@@ -552,7 +565,11 @@ export class GameScene extends Phaser.Scene {
 
     // Projectile-obstacle collision (bullets stop on walls)
     this.physics.add.collider(this.projectiles, this.obstacles, (proj) => {
-      (proj as Projectile).destroy();
+      const p = proj as Projectile;
+      if (p.weaponType === "rpg") {
+        this.rpgExplode(p.x, p.y);
+      }
+      p.destroy();
     });
 
     // Traps
@@ -589,9 +606,14 @@ export class GameScene extends Phaser.Scene {
     this.barricadeGhost.setDepth(3);
     this.barricadeGhost.setVisible(false);
 
-    // Grenade aiming line (drawn each frame while G is held)
+    // Grenade aiming line (Graphics) + reticle sprite
     this.grenadeAimLine = this.add.graphics();
     this.grenadeAimLine.setDepth(8);
+    this.grenadeAimReticle = this.add.image(0, 0, "grenade-aim-reticle");
+    this.grenadeAimReticle.setDepth(8);
+    this.grenadeAimReticle.setVisible(false);
+    this.grenadeAimReticle.setAlpha(0.8);
+    this.grenadeAimReticle.setScale(0.5);
     this.grenadeCount = BALANCE.grenade.startCount;
     this.player.grenadeCount = this.grenadeCount;
 
@@ -682,7 +704,7 @@ export class GameScene extends Phaser.Scene {
         if (!this.grenadeKeyDown) return;
         this.grenadeKeyDown = false;
         this.grenadeAiming = false;
-        this.grenadeAimLine?.clear();
+        this.hideGrenadeAim();
         if (this.grenadeCount > 0 && !this.grenadeThrowing) {
           this.throwGrenade();
         }
@@ -791,6 +813,7 @@ export class GameScene extends Phaser.Scene {
             this.waveManager.spawningDisabled = false;
             this.showWeaponMessage("DEV MODE OFF", "#ff4444");
           }
+          this.rebuildShopGrid();
           hudState.update({ devMode: this.devMode });
         });
 
@@ -892,6 +915,7 @@ export class GameScene extends Phaser.Scene {
     this.minimap.ignore(this.hudContainer);
     this.minimap.ignore(this.barricadeGhost);
     this.minimap.ignore(this.grenadeAimLine);
+    this.minimap.ignore(this.grenadeAimReticle);
 
     // Health/stamina bars are rendered in React (HUDOverlay)
 
@@ -1086,12 +1110,18 @@ export class GameScene extends Phaser.Scene {
 
     if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonIntroActive) return;
 
-    // Freeze player movement while shop or level-up overlay is open
-    if (this.shopOpen || this.levelUpActive) {
-      this.player.body.setVelocity(0, 0);
-    } else {
-      this.player.update();
+    // Freeze gameplay while shop, level-up, or dev panel is open
+    const devPanelOpen = this.devMode && hudState.getField("devPanelOpen");
+    const menuOpen = this.shopOpen || this.levelUpActive || devPanelOpen;
+    if (menuOpen) {
+      if (!this.physics.world.isPaused) {
+        this.physics.world.pause();
+      }
+      return;
+    } else if (this.physics.world.isPaused) {
+      this.physics.world.resume();
     }
+    this.player.update();
     this.waveManager.update(delta);
     this.pathfinder.calculate();
 
@@ -1140,11 +1170,15 @@ export class GameScene extends Phaser.Scene {
     if (this.grenadeKeyDown && !this.grenadeThrowing) {
       const holdTime = this.time.now - this.grenadeKeyDownTime;
       if (holdTime >= BALANCE.grenade.aimThresholdMs) {
-        this.grenadeAiming = true;
+        if (!this.grenadeAiming) {
+          // First frame of aiming — freeze player on "hand raised" frame
+          this.grenadeAiming = true;
+          this.showGrenadeAimPose();
+        }
         this.drawGrenadeAimLine();
       }
     } else {
-      this.grenadeAimLine?.clear();
+      this.hideGrenadeAim();
     }
 
     // Footsteps while player is moving
@@ -1253,59 +1287,105 @@ export class GameScene extends Phaser.Scene {
 
   // ------- Grenades -------
 
-  /** Draw razor-thin parabolic aiming line from player to landing point */
+  /** Convert 8-direction string to angle in radians */
+  private directionToAngle(dir: string): number {
+    switch (dir) {
+      case "north": return -Math.PI / 2;
+      case "north-east": return -Math.PI / 4;
+      case "east": return 0;
+      case "south-east": return Math.PI / 4;
+      case "south": return Math.PI / 2;
+      case "south-west": return 3 * Math.PI / 4;
+      case "west": return Math.PI;
+      case "north-west": return -3 * Math.PI / 4;
+      default: return Math.PI / 2; // default south
+    }
+  }
+
+  /** Get hand offset from player center based on facing direction */
+  private getHandOffset(dir: string): { x: number; y: number } {
+    switch (dir) {
+      case "north":      return { x: 6, y: -12 };
+      case "north-east":  return { x: 10, y: -10 };
+      case "east":        return { x: 12, y: -4 };
+      case "south-east":  return { x: 10, y: 2 };
+      case "south":       return { x: -6, y: 4 };
+      case "south-west":  return { x: -10, y: 2 };
+      case "west":        return { x: -12, y: -4 };
+      case "north-west":  return { x: -10, y: -10 };
+      default:            return { x: 0, y: 0 };
+    }
+  }
+
+  /** Freeze player on the "hand raised" throw frame while aiming */
+  private showGrenadeAimPose() {
+    const throwAnimType = hasAnimation(this.characterDef.id, "throw-grenade") ? "throw-grenade" : "cross-punch";
+    const throwKey = getAnimKey(this.characterDef.id, throwAnimType, this.player.currentDir);
+    if (this.anims.exists(throwKey)) {
+      this.player.play(throwKey);
+      // Freeze on frame 1 (hand raised with grenade)
+      this.player.anims.pause(this.player.anims.currentAnim!.frames[1]);
+    }
+  }
+
+  /** Draw thin pulsing red laser arc from hand to landing point */
   private drawGrenadeAimLine() {
     this.grenadeAimLine.clear();
-    const pointer = this.input.activePointer;
-    const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
-    const dx = worldPoint.x - this.player.x;
-    const dy = worldPoint.y - this.player.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
+    const dir = this.player.currentDir;
+    const angle = this.directionToAngle(dir);
+    const hand = this.getHandOffset(dir);
     const maxRange = BALANCE.grenade.maxRange;
-    const clampedDist = Math.min(dist, maxRange);
-    const angle = Math.atan2(dy, dx);
 
-    const targetX = this.player.x + Math.cos(angle) * clampedDist;
-    const targetY = this.player.y + Math.sin(angle) * clampedDist;
+    const startX = this.player.x + hand.x;
+    const startY = this.player.y + hand.y;
+    const targetX = this.player.x + Math.cos(angle) * maxRange;
+    const targetY = this.player.y + Math.sin(angle) * maxRange;
     const peakHeight = BALANCE.grenade.arcPeakPx;
 
     const segments = 32;
 
-    // Glow pass — faint wide halo (2px, very low alpha)
-    this.grenadeAimLine.lineStyle(2, 0xff2222, 0.1);
+    // Pulsing alpha based on time
+    const pulse = 0.4 + 0.3 * Math.sin(this.time.now * 0.008);
+
+    // Outer glow pass
+    this.grenadeAimLine.lineStyle(2, 0xff2222, pulse * 0.3);
     this.grenadeAimLine.beginPath();
     for (let i = 0; i <= segments; i++) {
       const t = i / segments;
-      const x = this.player.x + (targetX - this.player.x) * t;
-      const y = this.player.y + (targetY - this.player.y) * t;
+      const x = startX + (targetX - startX) * t;
+      const y = startY + (targetY - startY) * t;
       const arcOffset = -peakHeight * 4 * t * (1 - t);
       if (i === 0) this.grenadeAimLine.moveTo(x, y + arcOffset);
       else this.grenadeAimLine.lineTo(x, y + arcOffset);
     }
     this.grenadeAimLine.strokePath();
 
-    // Core pass — razor thin bright line (1px, crisp)
-    this.grenadeAimLine.lineStyle(1, 0xff4455, 0.55);
+    // Core thin laser
+    this.grenadeAimLine.lineStyle(0.5, 0xff4444, pulse);
     this.grenadeAimLine.beginPath();
     for (let i = 0; i <= segments; i++) {
       const t = i / segments;
-      const x = this.player.x + (targetX - this.player.x) * t;
-      const y = this.player.y + (targetY - this.player.y) * t;
+      const x = startX + (targetX - startX) * t;
+      const y = startY + (targetY - startY) * t;
       const arcOffset = -peakHeight * 4 * t * (1 - t);
       if (i === 0) this.grenadeAimLine.moveTo(x, y + arcOffset);
       else this.grenadeAimLine.lineTo(x, y + arcOffset);
     }
     this.grenadeAimLine.strokePath();
 
-    // Landing indicator — thin ring, not a filled blob
-    this.grenadeAimLine.lineStyle(1, 0xff4455, 0.4);
-    this.grenadeAimLine.strokeCircle(targetX, targetY, 6);
-    // Tiny center dot
-    this.grenadeAimLine.fillStyle(0xff4455, 0.3);
-    this.grenadeAimLine.fillCircle(targetX, targetY, 1.5);
+    // Place reticle at landing point
+    this.grenadeAimReticle.setPosition(targetX, targetY);
+    this.grenadeAimReticle.setVisible(true);
+    this.grenadeAimReticle.setAlpha(pulse);
   }
 
-  /** Throw a grenade toward the mouse cursor */
+  /** Hide grenade aim visuals */
+  private hideGrenadeAim() {
+    this.grenadeAimLine.clear();
+    this.grenadeAimReticle.setVisible(false);
+  }
+
+  /** Throw a grenade in the player's facing direction */
   private throwGrenade() {
     if (this.grenadeCount <= 0 || this.grenadeThrowing) return;
 
@@ -1313,17 +1393,11 @@ export class GameScene extends Phaser.Scene {
     this.player.grenadeCount = this.grenadeCount;
     this.grenadeThrowing = true;
 
-    // Get target position
-    const pointer = this.input.activePointer;
-    const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
-    const dx = worldPoint.x - this.player.x;
-    const dy = worldPoint.y - this.player.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
+    // Get target position from player facing direction
+    const angle = this.directionToAngle(this.player.currentDir);
     const maxRange = BALANCE.grenade.maxRange;
-    const clampedDist = Math.min(dist, maxRange);
-    const angle = Math.atan2(dy, dx);
-    const targetX = this.player.x + Math.cos(angle) * clampedDist;
-    const targetY = this.player.y + Math.sin(angle) * clampedDist;
+    const targetX = this.player.x + Math.cos(angle) * maxRange;
+    const targetY = this.player.y + Math.sin(angle) * maxRange;
 
     const startX = this.player.x;
     const startY = this.player.y;
@@ -1340,7 +1414,7 @@ export class GameScene extends Phaser.Scene {
     grenade.setScale(0.18);
 
     // Clear aim line immediately on throw
-    this.grenadeAimLine?.clear();
+    this.hideGrenadeAim();
 
     // Animate grenade flight
     const flightMs = BALANCE.grenade.flightMs;
@@ -1745,9 +1819,61 @@ export class GameScene extends Phaser.Scene {
       onComplete: () => arcGfx.destroy(),
     });
 
+    // Spawn red sparks at foot contact point
+    const footX = this.player.x + Math.cos(angle) * 24;
+    const footY = this.player.y + Math.sin(angle) * 24;
+    this.spawnContactSparks(footX, footY, "-red");
+
     this.playSound("sfx-punch1", 0.4);
     this.playSound("sfx-hit-classic", 0.35);
     if (hits > 0) this.playSound("sfx-whoosh", 0.3);
+  }
+
+  /** Spawn colored lightning sparks at a contact point. Color: "" (blue), "-red", "-green", "-orange" */
+  private spawnContactSparks(x: number, y: number, color: string, spread = 28, count?: number) {
+    const sparkCount = count ?? (4 + Math.floor(Math.random() * 3)); // 4-6 sparks
+    const prefix = `fx-lightning-bolt${color}`;
+
+    for (let i = 0; i < sparkCount; i++) {
+      const ox = (Math.random() - 0.5) * spread;
+      const oy = (Math.random() - 0.5) * spread;
+      const sparkX = x + ox;
+      const sparkY = y + oy;
+
+      this.time.delayedCall(i * 35, () => {
+        if (!this.textures.exists(`${prefix}-1`)) return;
+
+        const spark = this.add.sprite(sparkX, sparkY, `${prefix}-1`);
+        spark.setDepth(this.player.depth + 1);
+        spark.setRotation(Math.random() * Math.PI * 2);
+        spark.setScale(0.04 + Math.random() * 0.04, 0.08 + Math.random() * 0.05);
+        spark.setAlpha(0.8 + Math.random() * 0.2);
+
+        let frame = 0;
+        const flickerTimer = this.time.addEvent({
+          delay: 45,
+          repeat: 3,
+          callback: () => {
+            if (!spark.active) return;
+            frame = (frame + 1) % 5;
+            spark.setTexture(`${prefix}-${frame + 1}`);
+            spark.setAlpha(0.5 + Math.random() * 0.5);
+          },
+        });
+
+        this.time.delayedCall(180 + Math.random() * 120, () => {
+          flickerTimer.destroy();
+          if (spark.active) {
+            this.tweens.add({
+              targets: spark,
+              alpha: 0,
+              duration: 70,
+              onComplete: () => spark.destroy(),
+            });
+          }
+        });
+      });
+    }
   }
 
   /** Dan — Electric Fist: electrified punch that chains lightning to nearby enemies */
@@ -1797,12 +1923,15 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
+    // Spawn errant electric sparks around fist regardless of hit
+    this.spawnFistSparks(angle);
+
     if (!primaryTarget) {
       this.playSound("sfx-whoosh", 0.3);
       return;
     }
 
-    const electrocuteDelay = 1000; // stun + electrified animation before death
+    const electrocuteDelay = 400; // stun animation before death
 
     // Hit primary target immediately — knockback + electrocute
     const pa = Phaser.Math.Angle.Between(this.player.x, this.player.y, (primaryTarget as Enemy).x, (primaryTarget as Enemy).y);
@@ -2034,6 +2163,59 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  /** Spawn small errant lightning bolts around the player's fist */
+  private spawnFistSparks(facingAngle: number) {
+    const sparkCount = 3 + Math.floor(Math.random() * 3); // 3-5 sparks
+    const fistOffset = 20; // distance from player center to fist
+    const fistX = this.player.x + Math.cos(facingAngle) * fistOffset;
+    const fistY = this.player.y + Math.sin(facingAngle) * fistOffset;
+
+    for (let i = 0; i < sparkCount; i++) {
+      // Random offset around fist position
+      const ox = (Math.random() - 0.5) * 24;
+      const oy = (Math.random() - 0.5) * 24;
+      const sparkX = fistX + ox;
+      const sparkY = fistY + oy;
+
+      // Stagger spawn slightly for natural feel
+      this.time.delayedCall(i * 40, () => {
+        if (!this.textures.exists("fx-lightning-bolt-1")) return;
+
+        const spark = this.add.sprite(sparkX, sparkY, "fx-lightning-bolt-1");
+        spark.setDepth(this.player.depth + 1);
+        spark.setRotation(Math.random() * Math.PI * 2);
+        spark.setScale(0.04 + Math.random() * 0.04, 0.08 + Math.random() * 0.05);
+        spark.setAlpha(0.7 + Math.random() * 0.3);
+
+        // Flicker through bolt frames
+        let frame = 0;
+        const flickerTimer = this.time.addEvent({
+          delay: 50,
+          repeat: 3,
+          callback: () => {
+            if (!spark.active) return;
+            frame = (frame + 1) % 5;
+            spark.setTexture(`fx-lightning-bolt-${frame + 1}`);
+            spark.setAlpha(0.5 + Math.random() * 0.5);
+          },
+        });
+
+        // Quick fade out
+        this.time.delayedCall(200 + Math.random() * 150, () => {
+          flickerTimer.destroy();
+          if (spark.active) {
+            this.tweens.add({
+              targets: spark,
+              alpha: 0,
+              duration: 80,
+              onComplete: () => spark.destroy(),
+            });
+          }
+        });
+      });
+    }
+  }
+
   /** PJ — Katana Slash: wide arc swing in facing direction, high damage */
   private abilityBladeDash() {
     // Play katana animation
@@ -2082,8 +2264,17 @@ export class GameScene extends Phaser.Scene {
         // Ability always spawns blood spray (even on bosses)
         this.spawnBloodSplat(enemy.x, enemy.y, "hit", enemy.enemyType);
       }
+      // Green sparks at katana contact point on each enemy hit
+      this.spawnContactSparks(enemy.x, enemy.y, "-green", 20);
       hits++;
     });
+
+    // Green sparks at blade tip even on whiff
+    if (hits === 0) {
+      const bladeX = this.player.x + Math.cos(angle) * 30;
+      const bladeY = this.player.y + Math.sin(angle) * 30;
+      this.spawnContactSparks(bladeX, bladeY, "-green", 16, 3);
+    }
 
     // Slash arc visual
     const arcGfx = this.add.graphics().setDepth(5);
@@ -2160,6 +2351,9 @@ export class GameScene extends Phaser.Scene {
         }
         hits++;
       });
+
+      // Orange sparks radiating from ground impact point
+      this.spawnContactSparks(this.player.x, this.player.y, "-orange", 36, 6);
 
       // Shockwave VFX at impact
       this.spawnSledgehammerVFX();
@@ -2249,7 +2443,8 @@ export class GameScene extends Phaser.Scene {
     if (ammo.mag <= 0) {
       if (ammo.reserve > 0) {
         this.startReload();
-      } else {
+      } else if (!this.dryFired) {
+        this.dryFired = true;
         this.playSound("sfx-dryfire", 0.4);
         this.showWeaponMessage("NO AMMO", "#ff4444");
       }
@@ -2327,6 +2522,10 @@ export class GameScene extends Phaser.Scene {
       this.playSound("sfx-shotgun", 0.4);
     } else if (this.activeWeapon === "smg") {
       this.playSound("sfx-smg", 0.3);
+    } else if (this.activeWeapon === "rpg") {
+      this.playSound("sfx-shotgun", 0.5); // placeholder — reuse shotgun boom
+    } else if (this.activeWeapon === "assault_rifle") {
+      this.playSound("sfx-smg", 0.35); // placeholder — reuse smg sound
     }
 
     // Muzzle flash
@@ -2346,10 +2545,23 @@ export class GameScene extends Phaser.Scene {
       if (ammo.reserve > 0) {
         this.startReload();
       } else {
-        this.time.delayedCall(250, () => {
-          this.playSound("sfx-dryfire", 1.0);
-          this.showWeaponMessage("NO AMMO", "#ff4444");
-        });
+        // Consumable weapons (RPG, AK-47) disappear when all ammo is spent
+        const isConsumable = this.activeWeapon === "rpg" || this.activeWeapon === "assault_rifle";
+        if (isConsumable) {
+          this.time.delayedCall(300, () => {
+            this.showWeaponMessage(`${this.currentWeaponDef?.name?.toUpperCase() ?? "WEAPON"} DEPLETED`, "#ff4444");
+            delete this.weaponAmmo[this.activeWeapon];
+            this.secondaryWeapon = null;
+            this.activeWeapon = "pistol";
+            this.activeSlot = 1;
+          });
+        } else if (!this.dryFired) {
+          this.dryFired = true;
+          this.time.delayedCall(250, () => {
+            this.playSound("sfx-dryfire", 1.0);
+            this.showWeaponMessage("NO AMMO", "#ff4444");
+          });
+        }
       }
     }
   }
@@ -2621,6 +2833,13 @@ export class GameScene extends Phaser.Scene {
         this.showCritEffect(enemy.x, enemy.y, "ranged");
       }
 
+      // RPG: AoE explosion instead of single-target hit
+      if (proj.weaponType === "rpg") {
+        this.rpgExplode(proj.x, proj.y);
+        proj.destroy();
+        return;
+      }
+
       const killed = enemy.takeDamage(damage, "ranged");
       if (killed) {
         this.onEnemyKilled(enemy);
@@ -2678,11 +2897,64 @@ export class GameScene extends Phaser.Scene {
       proj.destroy();
     };
 
+  /** RPG AoE explosion — damages all enemies in radius, self-damage if player is close */
+  private rpgExplode(x: number, y: number) {
+    const rpgDef = BALANCE.weapons.rpg as any;
+    const radius = rpgDef.aoeRadius ?? 100;
+    const baseDmg = rpgDef.damage;
+
+    // Damage all enemies in radius
+    this.enemies.getChildren().forEach((obj) => {
+      const e = obj as Enemy;
+      if (!e.active) return;
+      const dist = Phaser.Math.Distance.Between(x, y, e.x, e.y);
+      if (dist > radius) return;
+      const dmgMult = 1 - (dist / radius) * 0.5;
+      const dmg = Math.floor(baseDmg * dmgMult);
+      const killed = e.takeDamage(dmg, "ranged");
+      if (killed) {
+        this.onEnemyKilled(e);
+        this.spawnBloodSplat(e.x, e.y, "kill", e.enemyType);
+      }
+      // Knockback from explosion
+      const angle = Phaser.Math.Angle.Between(x, y, e.x, e.y);
+      e.body?.setVelocity(Math.cos(angle) * 250, Math.sin(angle) * 250);
+      e.applyKnockbackStun(400);
+    });
+
+    // Self-damage if player is within blast radius
+    const playerDist = Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y);
+    if (playerDist <= radius && !this.player.invincible) {
+      const selfDmg = rpgDef.selfDamage ?? 20;
+      this.player.stats.health = Math.max(1, this.player.stats.health - selfDmg);
+      this.cameras.main.shake(200, 0.01);
+    }
+
+    // Explosion VFX
+    const boom = this.add.image(x, y, "fx-explosion");
+    boom.setDepth(60);
+    boom.setScale(radius / 8);
+    boom.setAlpha(0.9);
+    this.tweens.add({
+      targets: boom,
+      alpha: 0,
+      scaleX: boom.scaleX * 1.5,
+      scaleY: boom.scaleY * 1.5,
+      duration: 400,
+      onComplete: () => boom.destroy(),
+    });
+
+    this.playSound("sfx-explosion", 0.6);
+    this.cameras.main.flash(100, 255, 200, 50, false);
+  }
+
   // ------- Damage / Game Over -------
 
   private handleEnemyContact: Phaser.Types.Physics.Arcade.ArcadePhysicsCallback =
     (_player, enemyObj) => {
       if (this.gameOver) return;
+      if (this.shopOpen || this.levelUpActive) return;
+      if (this.devMode && hudState.getField("devPanelOpen")) return;
       if (this.player.invincible) return; // dev god mode
       if (this.player.isPunching) return; // i-frames during punch
       if (this.abilityActive) return; // invincible during ability (e.g. Jason slam)
@@ -2692,6 +2964,7 @@ export class GameScene extends Phaser.Scene {
       this.lastDamageTime = now;
 
       const enemy = enemyObj as Enemy;
+      if (enemy.isStunned()) return; // stunned enemies can't attack
       let incomingDmg = enemy.getEffectiveDamage();
       // Keg perk: armor absorbs damage before HP
       if (this.armor > 0) {
@@ -3113,33 +3386,24 @@ export class GameScene extends Phaser.Scene {
     grenade: "/assets/sprites/items/grenade.png",
     heal: "/assets/sprites/items/bandage.png",
     dmgBoost: "/assets/sprites/items/syringe.png",
+    rpg: "/assets/sprites/items/rpg.png",
+    assault_rifle: "/assets/sprites/items/assault-rifle.png",
   };
 
   private initShop() {
-    const items = BALANCE.shop.items;
-
-    // Build navigation grid: [col][row] -> original item index
-    const columns: { idx: number }[][] = [[], [], []];
-    items.forEach((item, idx) => {
-      const id = item.id;
-      if (id === "heal" || id === "medkit" || id === "dmgBoost") columns[0].push({ idx });
-      else if (["shotgun", "smg", "ammo_light", "ammo_shotgun"].includes(id)) columns[1].push({ idx });
-      else columns[2].push({ idx });
-    });
-    this.shopGrid = columns.map(col => col.map(entry => entry.idx));
+    this.rebuildShopGrid();
 
     // Register React -> Phaser callback
     hudState.registerShopAction((action, payload) => {
       if (action === "buy" && payload !== undefined) {
-        this.buyItem(payload);
+        this.buyShopItem(payload);
       } else if (action === "buySelected") {
-        this.buyItem(this.shopSelectedIndex);
+        this.buyShopItem(this.shopSelectedIndex);
       } else if (action === "buyKey" && payload !== undefined) {
-        // Number key direct buy: build flat index
-        const flat = [...columns[0], ...columns[1], ...columns[2]];
         const idx = payload - 1; // 1-indexed to 0-indexed
+        const flat = this.shopGrid.flat();
         if (idx >= 0 && idx < flat.length) {
-          this.buyItem(flat[idx].idx);
+          this.buyShopItem(flat[idx]);
         }
       } else if (action === "hover" && payload !== undefined) {
         this.shopSelectedIndex = payload;
@@ -3150,6 +3414,30 @@ export class GameScene extends Phaser.Scene {
         this.navigateShop(payload);
       }
     });
+  }
+
+  /** Rebuild shop navigation grid based on currently visible items */
+  private rebuildShopGrid() {
+    const items = BALANCE.shop.items;
+    const columns: number[][] = [[], [], []];
+    items.forEach((item, idx) => {
+      // Skip dev-only items when not in dev mode
+      if ((item as any).devOnly && !this.devMode) return;
+      const id = item.id;
+      if (id === "heal" || id === "medkit" || id === "dmgBoost") columns[0].push(idx);
+      else if (["shotgun", "smg", "ammo_light", "ammo_shotgun", "rpg", "assault_rifle"].includes(id)) columns[1].push(idx);
+      else columns[2].push(idx);
+    });
+    this.shopGrid = columns;
+  }
+
+  /** Buy item using the visible shop index (maps to original BALANCE index internally) */
+  private buyShopItem(visibleIndex: number) {
+    const shopItems = hudState.getField("shopItems") as any[];
+    if (!shopItems || visibleIndex < 0 || visibleIndex >= shopItems.length) return;
+    const item = shopItems[visibleIndex];
+    const originalIdx = item._originalIdx ?? visibleIndex;
+    this.buyItem(originalIdx);
   }
 
   private navigateShop(direction: number) {
@@ -3173,15 +3461,21 @@ export class GameScene extends Phaser.Scene {
   /** Push current shop item state to React via HUDState */
   private pushShopData() {
     const items = BALANCE.shop.items;
-    const shopItems = items.map((item, idx) => {
+    // Filter out dev-only items when not in dev mode — they shouldn't even appear
+    const visibleItems = items.filter((item) => {
+      if ((item as any).devOnly && !this.devMode) return false;
+      return true;
+    });
+    const shopItems = visibleItems.map((item) => {
+      const originalIdx = items.indexOf(item);
       const unlockWave = (item as any).unlockWave;
       const locked = this.devMode ? false : (unlockWave ? this.waveManager.wave < unlockWave : false);
-      const price = this.getItemPrice(idx);
+      const price = this.getItemPrice(originalIdx);
       const canAfford = this.currency >= price;
-      const isEquipped = ["shotgun", "smg"].includes(item.id) && this.secondaryWeapon === item.id;
+      const isEquipped = ["shotgun", "smg", "rpg", "assault_rifle"].includes(item.id) && this.secondaryWeapon === item.id;
       const id = item.id;
       let category: "supplies" | "weapons" | "traps" = "supplies";
-      if (["shotgun", "smg", "ammo_light", "ammo_shotgun"].includes(id)) category = "weapons";
+      if (["shotgun", "smg", "ammo_light", "ammo_shotgun", "rpg", "assault_rifle"].includes(id)) category = "weapons";
       else if (["barricade", "landmine", "grenade"].includes(id)) category = "traps";
 
       return {
@@ -3195,11 +3489,12 @@ export class GameScene extends Phaser.Scene {
         equipped: isEquipped,
         canAfford,
         category,
+        _originalIdx: originalIdx,
       };
     });
 
     hudState.update({
-      shopItems,
+      shopItems: shopItems as any,
       shopSelectedIndex: this.shopSelectedIndex,
     });
   }
@@ -3944,7 +4239,9 @@ export class GameScene extends Phaser.Scene {
         break;
       }
       case "shotgun":
-      case "smg": {
+      case "smg":
+      case "rpg":
+      case "assault_rifle": {
         const weaponDef = BALANCE.weapons[itemId as keyof typeof BALANCE.weapons];
         // Already own this weapon — refill ammo
         if (this.secondaryWeapon === itemId) {
@@ -3971,9 +4268,9 @@ export class GameScene extends Phaser.Scene {
         break;
       }
       case "ammo_light": {
-        // Light ammo refills both pistol and SMG (if owned)
+        // Light ammo refills pistol, SMG, and AK-47 (if owned)
         let anyRefilled = false;
-        for (const wk of ["pistol", "smg"]) {
+        for (const wk of ["pistol", "smg", "assault_rifle"]) {
           if (wk !== "pistol" && this.secondaryWeapon !== wk) continue;
           const wDef = BALANCE.weapons[wk as keyof typeof BALANCE.weapons];
           const wAmmo = this.weaponAmmo[wk];
@@ -4057,7 +4354,9 @@ export class GameScene extends Phaser.Scene {
     const effective = this.levelingSystem.getEffectiveStats(this.characterDef.stats);
     this.player.stats.maxHealth = effective.maxHealth;
     this.player.stats.maxStamina = effective.maxStamina;
-    this.player.stats.speed = effective.speed;
+    // AK-47 speed penalty when equipped
+    const akPenalty = this.activeWeapon === "assault_rifle" ? ((BALANCE.weapons.assault_rifle as any).speedPenalty ?? 1) : 1;
+    this.player.stats.speed = effective.speed * akPenalty;
     this.player.stats.regen = effective.regen;
     this.baseDamage = effective.damage;
     if (!this.damageBoostActive) {

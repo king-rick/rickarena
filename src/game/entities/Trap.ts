@@ -26,6 +26,11 @@ export class Trap extends Phaser.Physics.Arcade.Image {
     this.hp = type === "barricade" ? BALANCE.traps.barricade.hp : 0;
 
     this.setDepth(2); // just above ground, below characters
+
+    // Scale landmine sprite down — hitbox stays independent via body.setSize
+    if (type === "landmine") {
+      this.setScale(0.3);
+    }
   }
 
   /** Call after adding to physics group */
