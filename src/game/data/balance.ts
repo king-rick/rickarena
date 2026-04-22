@@ -55,7 +55,7 @@ export const BALANCE = {
     // Must appear 2x in waves 5-13, 2x in waves 14-20. Cannot appear back-to-back.
     bossSpawn: {
       firstEligibleWave: 5,
-      fleeThreshold: 300, // damage taken this encounter before he retreats
+      // Encounter system: flee at 50% → reappear at 75% → flee at 25% → reappear at 50% → fight to death
     },
   },
 
@@ -243,8 +243,7 @@ export const BALANCE = {
       dmgScalePerWave: 0.05,   // +5% damage per wave (was 6%)
     },
     boss:  {
-      hp: 1200,
-      fleeThreshold: 300,  // SCARYBOI flees after taking this much damage in one encounter
+      hp: 1300,
       speed: 40,           // stalking walk
       runSpeed: 90,        // chasing
       leapSpeed: 150,      // burst leap
@@ -258,14 +257,14 @@ export const BALANCE = {
       backflipThreshold: 0.25, // backflips away below 25% HP
     },
     mason: {
-      hp: 2500,
+      hp: 2400,
       speed: 35,           // slow menacing walk (only moves when player is off-screen)
       knockbackResist: 0.98,
       attacks: {
-        leadJab:     { damage: 20,  range: 65,  cooldown: 700  },
-        fireBreath:  { damage: 40,  range: 120, cooldown: 5000, coneAngle: 60 },
-        jumpAndLand: { damage: 55,  range: 300, cooldown: 6000, landRadius: 80 },
-        boomBox:     { damage: 30,  range: 250, cooldown: 15000 },
+        leadJab:     { damage: 20,  range: 65,  cooldown: 500  },
+        fireBreath:  { damage: 55,  range: 120, cooldown: 3500, coneAngle: 60 },  // phase 2 only
+        jumpAndLand: { range: 300, cooldown: 3500, landRadius: 80, stunDuration: 800 },  // stuns, no damage
+        boomBox:     { damage: 30,  range: 250, cooldown: 5000 },  // phase 1+
       },
     },
   },

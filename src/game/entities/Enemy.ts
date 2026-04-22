@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import { BALANCE } from "../data/balance";
-import { hasAnimation, getAnimKey } from "../data/animations";
+import { hasAnimation, getAnimKey, getFrameKey } from "../data/animations";
 import { Direction } from "../data/characters";
 import type { Pathfinder } from "../systems/Pathfinder";
 
@@ -116,8 +116,6 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   // Mason-specific state
   private masonAttackCooldowns: Record<string, number> = {};
   private masonBusy = false;
-  private masonPacing = false;
-  private masonPaceTimer = 0;
 
   constructor(
     scene: Phaser.Scene,
@@ -344,6 +342,26 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.play(key);
       this.once("animationcomplete", () => {
         this.destroy();
+      });
+      return true;
+    }
+    return false;
+  }
+
+  /** Play smoke-appear animation (reverse of vanish) — materializes from smoke */
+  playSmokeAppear(): boolean {
+    const key = getAnimKey(this.spriteId, "smoke-appear", this.currentDir);
+    if (this.scene.anims.exists(key)) {
+      this.body.setVelocity(0, 0);
+      this.setAlpha(0);
+      // Quick fade in while smoke plays
+      this.scene.tweens.add({ targets: this, alpha: 1, duration: 200 });
+      this.play(key);
+      this.once("animationcomplete", () => {
+        // Resume normal AI after appearing
+        if (this.hasWalkAnim && !this.dying) {
+          this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
+        }
       });
       return true;
     }
@@ -979,83 +997,71 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       }
     }
 
-    const idleRange = 150; // start idle/pace cycle when close and both visible
-    if (bothOnScreen && dist < idleRange) {
-      // Pace cycle: walk a few steps, idle, repeat
-      if (this.masonPaceTimer <= 0) {
-        this.masonPacing = !this.masonPacing;
-        this.masonPaceTimer = this.masonPacing ? 800 + Math.random() * 600 : 1500 + Math.random() * 1000;
-      }
-      this.masonPaceTimer -= delta;
+    // Movement: always advance toward player. Slower when close, full speed when far.
+    const closeRange = 120;
+    const moveSpeed = dist < closeRange ? masonStats.speed * 0.6 : masonStats.speed;
 
-      if (this.masonPacing) {
-        // When close, direct velocity is fine (no walls between them)
-        this.body.setVelocity(
-          Math.cos(angle) * masonStats.speed * 0.6,
-          Math.sin(angle) * masonStats.speed * 0.6
-        );
-      } else {
-        // Idle — breathing animation
-        this.body.setVelocity(0, 0);
-      }
-    } else {
-      // Follow A* waypoints to navigate around walls
-      this.masonPacing = true;
-      this.masonPaceTimer = 0;
-      if (this.pathWaypoints.length > 0 && this.pathIndex < this.pathWaypoints.length) {
-        const wp = this.pathWaypoints[this.pathIndex];
-        const wpDist = Phaser.Math.Distance.Between(this.x, this.y, wp.x, wp.y);
-        if (wpDist < 12) {
-          this.pathIndex++;
-          if (this.pathIndex >= this.pathWaypoints.length) {
-            this.pathWaypoints = [];
-          }
-        } else {
-          const wpAngle = Phaser.Math.Angle.Between(this.x, this.y, wp.x, wp.y);
-          this.body.setVelocity(
-            Math.cos(wpAngle) * masonStats.speed,
-            Math.sin(wpAngle) * masonStats.speed
-          );
+    if (this.pathWaypoints.length > 0 && this.pathIndex < this.pathWaypoints.length) {
+      const wp = this.pathWaypoints[this.pathIndex];
+      const wpDist = Phaser.Math.Distance.Between(this.x, this.y, wp.x, wp.y);
+      if (wpDist < 12) {
+        this.pathIndex++;
+        if (this.pathIndex >= this.pathWaypoints.length) {
+          this.pathWaypoints = [];
         }
       } else {
-        // Fallback: direct walk if no path available yet
+        const wpAngle = Phaser.Math.Angle.Between(this.x, this.y, wp.x, wp.y);
         this.body.setVelocity(
-          Math.cos(angle) * masonStats.speed,
-          Math.sin(angle) * masonStats.speed
+          Math.cos(wpAngle) * moveSpeed,
+          Math.sin(wpAngle) * moveSpeed
         );
       }
+    } else {
+      // Direct walk if no path available
+      this.body.setVelocity(
+        Math.cos(angle) * moveSpeed,
+        Math.sin(angle) * moveSpeed
+      );
     }
 
-    // Attacks — priority order
-    // Lead jab (melee, both phases)
+    // Play walk or idle animation based on actual movement
+    const vel = this.body.velocity;
+    const isMoving = Math.abs(vel.x) > 5 || Math.abs(vel.y) > 5;
+    const targetAnim = isMoving ? this.walkAnimType : this.idleAnimType;
+    const animKey = getAnimKey(this.spriteId, targetAnim, this.currentDir);
+    if (this.anims.currentAnim?.key !== animKey) {
+      if (this.scene.anims.exists(animKey)) this.play(animKey, true);
+    }
+
+    // --- Attacks — priority order, phase-gated ---
+
+    // Phase 1+: Boom box soundwave (medium range pressure)
+    if (dist < masonStats.attacks.boomBox.range && dist > 80 && this.canMasonAttack("boomBox")) {
+      this.masonBoomBox(masonStats.attacks.boomBox);
+      return;
+    }
+
+    // Phase 1+: Jump & stun (gap closer)
+    if (dist < masonStats.attacks.jumpAndLand.range && dist > 100 && this.canMasonAttack("jumpAndLand")) {
+      this.masonJumpAndLand(player, masonStats.attacks.jumpAndLand);
+      return;
+    }
+
+    // Phase 2: Fire breath (escalation when hurt)
+    if (phase2 && dist < masonStats.attacks.fireBreath.range && this.canMasonAttack("fireBreath")) {
+      this.masonFireBreath(angle, player, masonStats.attacks.fireBreath);
+      return;
+    }
+
+    // Both phases: Lead jab (melee)
     if (dist < masonStats.attacks.leadJab.range && this.canMasonAttack("leadJab")) {
       this.masonMeleeAttack("leadJab", "lead-jab", masonStats.attacks.leadJab.damage);
       return;
     }
 
-    // Fire breath (both phases)
-    if (dist < masonStats.attacks.fireBreath.range && this.canMasonAttack("fireBreath")) {
-      this.masonFireBreath(angle, player, masonStats.attacks.fireBreath);
-      return;
-    }
-
-    // Phase 2 attacks
-    if (phase2) {
-      // Jump and land
-      if (dist < masonStats.attacks.jumpAndLand.range && dist > 80 && this.canMasonAttack("jumpAndLand")) {
-        this.masonJumpAndLand(player, masonStats.attacks.jumpAndLand);
-        return;
-      }
-
-      // Boom box beats (directional)
-      if (this.canMasonAttack("boomBox")) {
-        this.masonBoomBox(masonStats.attacks.boomBox);
-        return;
-      }
-    }
   }
 
-  /** Mason melee: play anim, set damage, resume walk on complete */
+  /** Mason melee: play anim, set damage, resume on complete */
   private masonMeleeAttack(attackId: string, animType: string, dmg: number) {
     this.biting = true;
     const masonStats = (BALANCE.enemies as any).mason;
@@ -1069,8 +1075,10 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.play(key);
       this.once("animationcomplete", () => {
         this.biting = false;
-        if (this.hasWalkAnim && !this.dying) {
-          this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
+        // Play idle briefly — updateMason will swap to walk on next frame if moving
+        const idleKey = getAnimKey(this.spriteId, this.idleAnimType, this.currentDir);
+        if (this.scene.anims.exists(idleKey) && !this.dying) {
+          this.play(idleKey, true);
         }
       });
     } else {
@@ -1116,7 +1124,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     return true;
   }
 
-  /** Mason fire-breath: stop, loop anim, particle cone for 2s, tick damage */
+  /** Mason fire-breath: wind-up anim (frames 0-2), freeze, sprite cone for 2s, cool-down (frames 6-8) */
   private masonFireBreath(
     angle: number,
     player: any,
@@ -1125,154 +1133,212 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.masonBusy = true;
     this.masonAttackCooldowns["fireBreath"] = stats.cooldown;
     this.body.setVelocity(0, 0);
+    this.body.setImmovable(true); // Lock position during fire breath
 
     const breathDuration = 2000; // 2 seconds of fire
     const facingAngle = angle; // lock direction at start
-
-    // Play fire-breath animation looping for the full duration
-    const key = getAnimKey(this.spriteId, "fire-breath", this.currentDir);
-    if (this.scene.anims.exists(key)) {
-      this.play({ key, repeat: -1 }); // loop
-    }
-
     const halfCone = Phaser.Math.DegToRad(stats.coneAngle / 2);
+    const dir = this.currentDir;
 
-    // Offset fire sprite to Mason's mouth position (head area, shifted toward facing dir)
-    const mouthForward = 18;
-    const mouthUp = -14;
-    const mouthOffX = Math.cos(facingAngle) * mouthForward;
-    const mouthOffY = Math.sin(facingAngle) * mouthForward + mouthUp;
+    // --- Wind-up animation: play frames 0, 1, 2 then freeze on frame 2 ---
+    const windUpFrames = [0, 1, 2];
+    const windUpDelay = 120; // ms per frame
+    const windUpTotal = windUpFrames.length * windUpDelay; // 360ms wind-up
 
-    // Sprite-based fire breath (6 frames, 128x64, drawn pointing right)
-    const hasFireSprites = this.scene.textures.exists("fx-fire-breath-1");
-    const fireSprite = hasFireSprites
-      ? this.scene.add.sprite(this.x + mouthOffX, this.y + mouthOffY, "fx-fire-breath-1")
-      : null;
-
-    // Fallback particle emitter if sprites aren't loaded
-    let emitter: Phaser.GameObjects.Particles.ParticleEmitter | null = null;
-    if (!hasFireSprites) {
-      const fireTexKey = "mason-fire-particle";
-      if (!this.scene.textures.exists(fireTexKey)) {
-        const gfx = this.scene.make.graphics({ x: 0, y: 0 } as any);
-        gfx.fillStyle(0xffffff, 1);
-        gfx.fillCircle(8, 8, 8);
-        gfx.generateTexture(fireTexKey, 16, 16);
-        gfx.destroy();
-      }
-      const facingDeg = Phaser.Math.RadToDeg(facingAngle);
-      emitter = this.scene.add.particles(this.x + mouthOffX, this.y + mouthOffY, fireTexKey, {
-        speed: { min: 100, max: 220 },
-        angle: { min: facingDeg - stats.coneAngle / 2, max: facingDeg + stats.coneAngle / 2 },
-        scale: { start: 0.5, end: 0.1 },
-        alpha: { start: 0.75, end: 0 },
-        lifespan: { min: 300, max: 500 },
-        tint: [0xff4400, 0xff8800, 0xffcc00, 0xff2200, 0xff6600],
-        frequency: 18,
-        quantity: 2,
-        blendMode: Phaser.BlendModes.ADD,
-      });
-      emitter.setDepth(this.depth + 1);
+    // Start wind-up: manually step through frames 0-2
+    let windUpIdx = 0;
+    const frameKey0 = getFrameKey(this.spriteId, "fire-breath", dir, windUpFrames[0]);
+    if (this.scene.textures.exists(frameKey0)) {
+      this.stop();
+      this.setTexture(frameKey0);
     }
-
-    if (fireSprite) {
-      fireSprite.setDepth(this.depth + 1);
-      fireSprite.setOrigin(0, 0.5); // anchor at left edge (mouth), extends right
-      fireSprite.setRotation(facingAngle); // rotate to match facing
-      fireSprite.setScale(0.6);
-      fireSprite.setAlpha(0.9);
-      fireSprite.setBlendMode(Phaser.BlendModes.ADD);
-    }
-
-    // Tick damage every 300ms during the breath
-    const tickInterval = 300;
-    const dmgPerTick = Math.round(stats.damage / (breathDuration / tickInterval));
-    let elapsed = 0;
-    let tickAccum = 0;
-    let fireFrame = 0;
-
-    const updateEvent = this.scene.time.addEvent({
-      delay: 16, // ~60fps update
-      loop: true,
+    const windUpTimer = this.scene.time.addEvent({
+      delay: windUpDelay,
+      repeat: windUpFrames.length - 1,
       callback: () => {
-        if (!this.active || this.dying) {
-          updateEvent.remove();
+        windUpIdx++;
+        if (windUpIdx < windUpFrames.length) {
+          const fk = getFrameKey(this.spriteId, "fire-breath", dir, windUpFrames[windUpIdx]);
+          if (this.scene.textures.exists(fk)) this.setTexture(fk);
+        }
+      },
+    });
+
+    // --- After wind-up, start the fire cone sprite ---
+    this.scene.time.delayedCall(windUpTotal, () => {
+      if (!this.active || this.dying) {
+        this.masonBusy = false;
+        this.body?.setImmovable(false);
+        return;
+      }
+
+      // Freeze Mason on frame 2 (mouth open, no baked fire)
+      const freezeKey = getFrameKey(this.spriteId, "fire-breath", dir, 2);
+      if (this.scene.textures.exists(freezeKey)) {
+        this.stop();
+        this.setTexture(freezeKey);
+      }
+
+      // Offset fire sprite to Mason's mouth position
+      const mouthForward = 18;
+      const mouthUp = -14;
+      const mouthOffX = Math.cos(facingAngle) * mouthForward;
+      const mouthOffY = Math.sin(facingAngle) * mouthForward + mouthUp;
+
+      // Determine if facing left-ish (cone needs to flip)
+      const facingLeft = Math.abs(facingAngle) > Math.PI / 2;
+
+      const hasFireSprites = this.scene.textures.exists("fx-fire-breath-1");
+      const fireSprite = hasFireSprites
+        ? this.scene.add.sprite(this.x + mouthOffX, this.y + mouthOffY, "fx-fire-breath-1")
+        : null;
+
+      // Fallback particle emitter if sprites aren't loaded
+      let emitter: Phaser.GameObjects.Particles.ParticleEmitter | null = null;
+      if (!hasFireSprites) {
+        const fireTexKey = "mason-fire-particle";
+        if (!this.scene.textures.exists(fireTexKey)) {
+          const gfx = this.scene.make.graphics({ x: 0, y: 0 } as any);
+          gfx.fillStyle(0xffffff, 1);
+          gfx.fillCircle(8, 8, 8);
+          gfx.generateTexture(fireTexKey, 16, 16);
+          gfx.destroy();
+        }
+        const facingDeg = Phaser.Math.RadToDeg(facingAngle);
+        emitter = this.scene.add.particles(this.x + mouthOffX, this.y + mouthOffY, fireTexKey, {
+          speed: { min: 100, max: 220 },
+          angle: { min: facingDeg - stats.coneAngle / 2, max: facingDeg + stats.coneAngle / 2 },
+          scale: { start: 0.5, end: 0.1 },
+          alpha: { start: 0.75, end: 0 },
+          lifespan: { min: 300, max: 500 },
+          tint: [0xff4400, 0xff8800, 0xffcc00, 0xff2200, 0xff6600],
+          frequency: 18,
+          quantity: 2,
+          blendMode: Phaser.BlendModes.ADD,
+        });
+        emitter.setDepth(this.depth + 1);
+      }
+
+      if (fireSprite) {
+        fireSprite.setDepth(this.depth + 1);
+        if (facingLeft) {
+          // Facing left: anchor at right edge, flip horizontally, adjust rotation
+          fireSprite.setOrigin(1, 0.5);
+          fireSprite.setFlipX(true);
+          fireSprite.setRotation(facingAngle + Math.PI);
+        } else {
+          // Facing right: anchor at left edge (mouth), extends outward
+          fireSprite.setOrigin(0, 0.5);
+          fireSprite.setRotation(facingAngle);
+        }
+        fireSprite.setScale(0.6);
+        fireSprite.setAlpha(0.9);
+        fireSprite.setBlendMode(Phaser.BlendModes.ADD);
+      }
+
+      // Tick damage every 300ms during the breath
+      const tickInterval = 300;
+      const dmgPerTick = Math.round(stats.damage / (breathDuration / tickInterval));
+      let elapsed = 0;
+      let tickAccum = 0;
+      let fireFrame = 0;
+
+      const updateEvent = this.scene.time.addEvent({
+        delay: 16,
+        loop: true,
+        callback: () => {
+          if (!this.active || this.dying) {
+            updateEvent.remove();
+            if (fireSprite?.active) {
+              this.scene.tweens.add({ targets: fireSprite, alpha: 0, duration: 200, onComplete: () => fireSprite.destroy() });
+            }
+            if (emitter) { emitter.stop(); this.scene.time.delayedCall(700, () => emitter!.destroy()); }
+            return;
+          }
+
+          elapsed += 16;
+          tickAccum += 16;
+
+          // Animate fire sprite: hold frame 1, subtle scale/alpha pulse for fire flicker
           if (fireSprite?.active) {
-            this.scene.tweens.add({ targets: fireSprite, alpha: 0, duration: 200, onComplete: () => fireSprite.destroy() });
+            if (elapsed % 80 < 16) {
+              fireSprite.setAlpha(0.75 + Math.random() * 0.15);
+              fireSprite.setScale(0.58 + Math.random() * 0.06);
+            }
+            fireSprite.setPosition(this.x + mouthOffX, this.y + mouthOffY);
           }
-          if (emitter) { emitter.stop(); this.scene.time.delayedCall(700, () => emitter!.destroy()); }
-          return;
-        }
 
-        elapsed += 16;
-        tickAccum += 16;
-
-        // Animate fire sprite: cycle through 3 frames with subtle flicker
-        if (fireSprite?.active) {
-          if (elapsed % 150 < 16) { // swap frame every ~150ms for steady burn
-            fireFrame = (fireFrame + 1) % 3;
-            fireSprite.setTexture(`fx-fire-breath-${fireFrame + 1}`);
-            fireSprite.setAlpha(0.75 + Math.random() * 0.15);
-            fireSprite.setScale(0.6 + Math.random() * 0.05); // subtle size variation
+          if (emitter) {
+            emitter.setPosition(this.x + mouthOffX, this.y + mouthOffY);
           }
-          fireSprite.setPosition(this.x + mouthOffX, this.y + mouthOffY);
-        }
 
-        // Keep emitter following Mason's mouth position (fallback)
-        if (emitter) {
-          emitter.setPosition(this.x + mouthOffX, this.y + mouthOffY);
-        }
+          // Damage tick
+          if (tickAccum >= tickInterval) {
+            tickAccum -= tickInterval;
+            if ((this.scene as any).gameOver) return;
 
-        // Damage tick
-        if (tickAccum >= tickInterval) {
-          tickAccum -= tickInterval;
-          if ((this.scene as any).gameOver) return;
+            const pDist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
+            if (pDist <= stats.range && !player.invincible) {
+              const toPlayer = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
+              let angleDiff = Math.abs(Phaser.Math.Angle.Wrap(toPlayer - facingAngle));
+              if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
 
-          const pDist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
-          if (pDist <= stats.range && !player.invincible) {
-            // Cone angle check
-            const toPlayer = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
-            let angleDiff = Math.abs(Phaser.Math.Angle.Wrap(toPlayer - facingAngle));
-            if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
-
-            if (angleDiff <= halfCone) {
-              // Line-of-sight check — fire doesn't go through walls/doors
-              if (this.hasLineOfSight(this.x, this.y, player.x, player.y)) {
-                player.stats.health -= dmgPerTick;
-                this.scene.cameras.main.flash(80, 255, 120, 0, false);
-                (this.scene as any).playPlayerHurt?.();
-                if (player.stats.health <= 0) {
-                  player.stats.health = 0;
-                  (this.scene as any).gameOver = true;
-                  player.body.setVelocity(0, 0);
-                  player.playDeath?.(() => (this.scene as any).triggerGameOver?.());
+              if (angleDiff <= halfCone) {
+                if (this.hasLineOfSight(this.x, this.y, player.x, player.y)) {
+                  player.stats.health -= dmgPerTick;
+                  this.scene.cameras.main.flash(80, 255, 120, 0, false);
+                  (this.scene as any).playPlayerHurt?.();
+                  if (player.stats.health <= 0) {
+                    player.stats.health = 0;
+                    (this.scene as any).gameOver = true;
+                    player.body.setVelocity(0, 0);
+                    player.playDeath?.(() => (this.scene as any).triggerGameOver?.());
+                  }
                 }
               }
             }
           }
-        }
 
-        // End breath after duration
-        if (elapsed >= breathDuration) {
-          updateEvent.remove();
-          if (fireSprite?.active) {
-            this.scene.tweens.add({ targets: fireSprite, alpha: 0, duration: 300, onComplete: () => fireSprite.destroy() });
+          // End breath after duration — play cool-down frames 6, 7, 8
+          if (elapsed >= breathDuration) {
+            updateEvent.remove();
+            if (fireSprite?.active) {
+              this.scene.tweens.add({ targets: fireSprite, alpha: 0, duration: 300, onComplete: () => fireSprite.destroy() });
+            }
+            if (emitter) { emitter.stop(); this.scene.time.delayedCall(700, () => emitter!.destroy()); }
+
+            // Cool-down animation: frames 6, 7, 8 (smoke dissipation)
+            const coolDownFrames = [6, 7, 8];
+            let cdIdx = 0;
+            const cdTimer = this.scene.time.addEvent({
+              delay: 150,
+              repeat: coolDownFrames.length - 1,
+              callback: () => {
+                const cfk = getFrameKey(this.spriteId, "fire-breath", dir, coolDownFrames[cdIdx]);
+                if (this.scene.textures.exists(cfk) && this.active) this.setTexture(cfk);
+                cdIdx++;
+              },
+            });
+            this.scene.time.delayedCall(coolDownFrames.length * 150, () => {
+              cdTimer.destroy();
+              this.masonBusy = false;
+              this.body?.setImmovable(false);
+              this.stop();
+              const idleKey = getAnimKey(this.spriteId, this.idleAnimType, this.currentDir);
+              if (this.scene.anims.exists(idleKey) && !this.dying) {
+                this.play(idleKey, true);
+              }
+            });
           }
-          if (emitter) { emitter.stop(); this.scene.time.delayedCall(700, () => emitter!.destroy()); }
-          this.masonBusy = false;
-          this.stop();
-          if (this.hasWalkAnim && !this.dying) {
-            this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
-          }
-        }
-      },
+        },
+      });
     });
   }
 
-  /** Mason jump-and-land: play anim, tween toward player, AoE on land */
+  /** Mason jump-and-land: gap closer that stuns the player on landing */
   private masonJumpAndLand(
     player: any,
-    stats: { damage: number; landRadius: number; cooldown: number }
+    stats: { range: number; landRadius: number; cooldown: number; stunDuration: number }
   ) {
     this.masonBusy = true;
     this.masonAttackCooldowns["jumpAndLand"] = stats.cooldown;
@@ -1281,13 +1347,14 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     const targetX = player.x + (Math.random() - 0.5) * 40;
     const targetY = player.y + (Math.random() - 0.5) * 40;
 
-    const key = getAnimKey(this.spriteId, "jump-and-land", this.currentDir);
-    if (this.scene.anims.exists(key)) {
-      this.play(key);
+    // Play jump animation (crouch → launch off screen)
+    const jumpKey = getAnimKey(this.spriteId, "jump", this.currentDir);
+    if (this.scene.anims.exists(jumpKey)) {
+      this.play(jumpKey);
     }
 
-    // Tween toward player landing position — arrives around frame 7 of 9
-    const landDelay = 700; // ms before "landing"
+    // Jump phase: 400ms crouch + launch, then landing phase
+    const landDelay = 400; // jump anim is 4 frames at 10fps = 400ms
     this.scene.tweens.add({
       targets: this,
       x: targetX,
@@ -1296,29 +1363,70 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       ease: "Sine.easeIn",
     });
 
-    // AoE damage on landing
+    // AoE stun on landing (no damage — sets up follow-up jab)
     this.scene.time.delayedCall(landDelay, () => {
       if (!this.active || this.dying) return;
       if ((this.scene as any).gameOver) return;
+
+      // Play landing animation
+      const landKey = getAnimKey(this.spriteId, "landing", this.currentDir);
+      if (this.scene.anims.exists(landKey)) {
+        this.play(landKey);
+      }
+
+      // Dust ring VFX on landing
+      const hasDustSprites = this.scene.textures.exists("fx-dust-burst-1");
+      if (hasDustSprites) {
+        const dust = this.scene.add.sprite(this.x, this.y, "fx-dust-burst-1");
+        dust.setDepth(1);
+        dust.setScale(0.5);
+        dust.setAlpha(0.7);
+        let dustFrame = 0;
+        const dustTimer = this.scene.time.addEvent({
+          delay: 80, repeat: 3,
+          callback: () => {
+            dustFrame++;
+            if (!dust.active) return;
+            dust.setTexture(`fx-dust-burst-${Math.min(dustFrame + 1, 4)}`);
+            dust.setScale(0.5 + dustFrame * 0.25);
+            dust.setAlpha(0.7 - dustFrame * 0.15);
+          },
+        });
+        this.scene.time.delayedCall(400, () => {
+          dustTimer.destroy();
+          if (dust.active) {
+            this.scene.tweens.add({ targets: dust, alpha: 0, duration: 200, onComplete: () => dust.destroy() });
+          }
+        });
+      }
+
+      this.scene.cameras.main.shake(120, 0.008);
+
       const pDist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
       if (pDist <= stats.landRadius && !player.invincible) {
-        player.stats.health -= stats.damage;
-        this.scene.cameras.main.flash(150, 255, 100, 0, false);
-        this.scene.cameras.main.shake(120, 0.008);
-        (this.scene as any).playPlayerHurt?.();
-        if (player.stats.health <= 0) {
-          player.stats.health = 0;
-          (this.scene as any).gameOver = true;
-          player.body.setVelocity(0, 0);
-          player.playDeath?.(() => (this.scene as any).triggerGameOver?.());
-        }
+        // Stun the player: freeze movement for stunDuration
+        const prevSpeed = player.stats.speed;
+        player.stats.speed = 0;
+        player.body.setVelocity(0, 0);
+        (player as any).stunned = true;
+
+        // Visual feedback: flash + tint
+        this.scene.cameras.main.flash(100, 255, 255, 100, false);
+        player.setTint(0xffff88);
+
+        this.scene.time.delayedCall(stats.stunDuration, () => {
+          player.stats.speed = prevSpeed;
+          (player as any).stunned = false;
+          player.clearTint();
+        });
       }
     });
 
     this.once("animationcomplete", () => {
       this.masonBusy = false;
-      if (this.hasWalkAnim && !this.dying) {
-        this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
+      const idleKey = getAnimKey(this.spriteId, this.idleAnimType, this.currentDir);
+      if (this.scene.anims.exists(idleKey) && !this.dying) {
+        this.play(idleKey, true);
       }
     });
   }
@@ -1349,8 +1457,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     // Resume after animation completes
     this.once("animationcomplete", () => {
       this.masonBusy = false;
-      if (this.hasWalkAnim && !this.dying) {
-        this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
+      const idleKey = getAnimKey(this.spriteId, this.idleAnimType, this.currentDir);
+      if (this.scene.anims.exists(idleKey) && !this.dying) {
+        this.play(idleKey, true);
       }
     });
 
@@ -1360,100 +1469,148 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     });
   }
 
-  /** Spawn a visual beat pulse arc that travels in a direction */
+  /** Spawn a bass shockwave that expands outward in a cone — visible sound pressure */
   private spawnBeatPulse(facingAngle: number, damage: number, maxRange: number) {
     const scene = this.scene;
     const startX = this.x;
     const startY = this.y;
-    const speed = 200; // px/s
-    const arcWidth = Phaser.Math.DegToRad(60); // 60 degree spread
+    const speed = 200; // px/s expansion speed
     let elapsed = 0;
-    let currentRadius = 30;
     let hasDamaged = false;
 
-    // Create graphics for the ring arc
-    const gfx = scene.add.graphics();
-    gfx.setDepth(5);
+    const hasSoundwaveSprites = scene.textures.exists("fx-soundwave-1");
+    const totalFrames = 4;
+
+    // Sprite-based: soundwave arc expanding outward
+    const pulse = hasSoundwaveSprites
+      ? scene.add.sprite(startX, startY, "fx-soundwave-1")
+      : null;
+    const gfx = !hasSoundwaveSprites ? scene.add.graphics() : null;
+
+    if (pulse) {
+      pulse.setDepth(5);
+      pulse.setScale(0.5);
+      pulse.setAlpha(0.8);
+      pulse.setRotation(facingAngle);
+      pulse.setBlendMode(Phaser.BlendModes.ADD);
+    }
+    if (gfx) gfx.setDepth(5);
+
+    const arcWidth = Phaser.Math.DegToRad(60);
+    const halfArc = arcWidth / 2;
+
+    // Spawn dust particles along the wave's path
+    const spawnDust = (dx: number, dy: number) => {
+      const hasDustSprites = scene.textures.exists("fx-dust-burst-1");
+      if (!hasDustSprites) return;
+      const dust = scene.add.sprite(dx + (Math.random() - 0.5) * 16, dy + (Math.random() - 0.5) * 16, "fx-dust-burst-1");
+      dust.setDepth(1);
+      dust.setScale(0.15 + Math.random() * 0.1);
+      dust.setAlpha(0.4);
+      let df = 0;
+      const dt = scene.time.addEvent({
+        delay: 100, repeat: 3,
+        callback: () => {
+          df++;
+          if (!dust.active) return;
+          dust.setTexture(`fx-dust-burst-${Math.min(df + 1, 4)}`);
+          dust.setAlpha(0.4 - df * 0.1);
+        },
+      });
+      scene.time.delayedCall(450, () => { dt.destroy(); if (dust.active) dust.destroy(); });
+    };
+
+    let lastDustDist = 0;
 
     const updateEvent = scene.time.addEvent({
-      delay: 16, // ~60fps
+      delay: 16,
       loop: true,
       callback: () => {
         if (!this.active) {
-          gfx.destroy();
+          pulse?.destroy();
+          gfx?.destroy();
           updateEvent.destroy();
           return;
         }
 
         elapsed += 16;
-        currentRadius = 30 + (speed * elapsed / 1000);
+        const travelDist = speed * elapsed / 1000;
 
-        // Check if exceeded max range
-        if (currentRadius > maxRange) {
-          gfx.destroy();
+        if (travelDist > maxRange) {
+          pulse?.destroy();
+          gfx?.destroy();
           updateEvent.destroy();
           return;
         }
 
-        // Draw the arc
-        const alpha = 1 - (currentRadius / maxRange) * 0.7;
-        gfx.clear();
-        gfx.lineStyle(4, 0xcc44ff, alpha);
-        gfx.beginPath();
-        const segments = 12;
-        const halfArc = arcWidth / 2;
-        for (let i = 0; i <= segments; i++) {
-          const a = facingAngle - halfArc + (arcWidth * i / segments);
-          const px = startX + Math.cos(a) * currentRadius;
-          const py = startY + Math.sin(a) * currentRadius;
-          if (i === 0) gfx.moveTo(px, py);
-          else gfx.lineTo(px, py);
-        }
-        gfx.strokePath();
+        const px = startX + Math.cos(facingAngle) * travelDist;
+        const py = startY + Math.sin(facingAngle) * travelDist;
+        const progress = travelDist / maxRange;
+        const alpha = 0.8 - progress * 0.45;
 
-        // Add inner glow line
-        gfx.lineStyle(2, 0xff66ff, alpha * 0.5);
-        gfx.beginPath();
-        for (let i = 0; i <= segments; i++) {
-          const a = facingAngle - halfArc + (arcWidth * i / segments);
-          const px = startX + Math.cos(a) * (currentRadius - 3);
-          const py = startY + Math.sin(a) * (currentRadius - 3);
-          if (i === 0) gfx.moveTo(px, py);
-          else gfx.lineTo(px, py);
-        }
-        gfx.strokePath();
+        // Pick frame based on travel progress (1→2→3→4 as it expands)
+        const frameIdx = Math.min(Math.floor(progress * totalFrames) + 1, totalFrames);
 
-        // Damage check against player (once per pulse)
+        if (pulse) {
+          pulse.setPosition(px, py);
+          pulse.setAlpha(alpha);
+          pulse.setScale(0.5 + progress * 0.8); // grows wider as it expands
+          pulse.setTexture(`fx-soundwave-${frameIdx}`);
+        }
+
+        if (gfx) {
+          const currentRadius = 30 + travelDist;
+          gfx.clear();
+          gfx.lineStyle(4, 0xcc44ff, alpha);
+          gfx.beginPath();
+          const segments = 12;
+          for (let i = 0; i <= segments; i++) {
+            const a = facingAngle - halfArc + (arcWidth * i / segments);
+            const lx = startX + Math.cos(a) * currentRadius;
+            const ly = startY + Math.sin(a) * currentRadius;
+            if (i === 0) gfx.moveTo(lx, ly);
+            else gfx.lineTo(lx, ly);
+          }
+          gfx.strokePath();
+        }
+
+        // Ground dust every ~40px of travel
+        if (travelDist - lastDustDist > 40) {
+          lastDustDist = travelDist;
+          spawnDust(px, py);
+          // Spawn offset dust for width
+          const perpAngle = facingAngle + Math.PI / 2;
+          const spread = 10 + progress * 20;
+          spawnDust(px + Math.cos(perpAngle) * spread, py + Math.sin(perpAngle) * spread);
+          spawnDust(px - Math.cos(perpAngle) * spread, py - Math.sin(perpAngle) * spread);
+        }
+
+        // Damage check: hit if player is near the wave front
         if (!hasDamaged) {
           const player = (scene as any).player;
           if (player) {
-            const playerDist = Phaser.Math.Distance.Between(startX, startY, player.x, player.y);
-            const playerAngle = Phaser.Math.Angle.Between(startX, startY, player.x, player.y);
-            let angleDiff = Math.abs(facingAngle - playerAngle);
-            if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
+            const playerDist = Phaser.Math.Distance.Between(px, py, player.x, player.y);
+            if (playerDist < 35 && !player.invincible && !(scene as any).gameOver) {
+              player.stats.health -= damage;
+              // Brief purple flash — subtle, not seizure-inducing
+              scene.cameras.main.flash(80, 120, 0, 200, false);
+              scene.cameras.main.shake(100, 0.004);
+              (scene as any).playPlayerHurt?.();
+              hasDamaged = true;
 
-            // Hit if player is within the ring's current radius band AND within the arc
-            if (Math.abs(playerDist - currentRadius) < 25 && angleDiff < halfArc) {
-              if (!player.invincible && !(scene as any).gameOver) {
-                player.stats.health -= damage;
-                scene.cameras.main.flash(200, 180, 0, 255, false);
-                scene.cameras.main.shake(200, 0.010);
-                (scene as any).playPlayerHurt?.();
-                hasDamaged = true;
+              // Knockback away from Mason
+              const kb = 80;
+              const kbAngle = Phaser.Math.Angle.Between(startX, startY, player.x, player.y);
+              player.body?.setVelocity(
+                Math.cos(kbAngle) * kb,
+                Math.sin(kbAngle) * kb
+              );
 
-                // Knockback
-                const kb = 80;
-                player.body?.setVelocity(
-                  Math.cos(playerAngle) * kb,
-                  Math.sin(playerAngle) * kb
-                );
-
-                if (player.stats.health <= 0) {
-                  player.stats.health = 0;
-                  (scene as any).gameOver = true;
-                  player.body.setVelocity(0, 0);
-                  player.playDeath?.(() => (scene as any).triggerGameOver?.());
-                }
+              if (player.stats.health <= 0) {
+                player.stats.health = 0;
+                (scene as any).gameOver = true;
+                player.body.setVelocity(0, 0);
+                player.playDeath?.(() => (scene as any).triggerGameOver?.());
               }
             }
           }

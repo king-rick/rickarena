@@ -1,5 +1,28 @@
 # RickArena Changelog
 
+## 2026-04-22 — Concept Art V3/V4 Generation (Animated Cel-Shaded)
+
+**Full concept art regeneration session using ComfyUI (Flux Dev + RealESRGAN 4x upscale).**
+
+Unified all character concept art into a single animated cel-shaded style matching the Mason DJ reference image. Bold black outlines, cel-shaded coloring, Castlevania Netflix animation aesthetic. Dark moody palette with crimson red skies, volumetric fog, stylized blood.
+
+**V2 (scrapped):** Dead Space photorealistic style. Too realistic for the game's art direction.
+
+**V3 action shots:**
+- Rick: SMG firefight, shredding zombies. Medium-length black wavy hair, beard, aviator sunglasses, green flannel rolled up showing sleeve tattoos.
+- Dan: Shotgun point-blank into zombie face, head exploding. Short dirty blonde hair, slight receding hairline, grey t-shirt.
+- Jason: Sledgehammer smashing zombie ribcage, joint in mouth. Messy dark brown hair, 5 o'clock shadow, hungover/dazed, dark green jacket.
+- PJ: Katana multi-kill combo, blood arcs. Short blonde hair, blonde mustache, sleeve tattoos, black t-shirt.
+
+**V4 variant batch (13 images for final selection):**
+- Rick x3: Hip-fire shotgun, dual pistols from car roof, alley close-quarters SMG
+- Dan x3: Mid-reload blast, sliding knee shot, pistol + flashlight tactical
+- Jason x4: Overhead skull-crush, casual stoned pistol shooting, hammer through two zombies, post-battle breather
+- PJ x3: Aerial leaping slash, spinning slash in zombie circle, alley sprint katana + pistol
+
+**Generation scripts:** `concept-art/generate-v3*.py`, `concept-art/generate-v4-variants.py`
+**Output:** ComfyUI output folder, `rickarena_v3_*` and `rickarena_v4_*` prefixes.
+
 ## 2026-04-12 — SCARYBOI Intro Cinematic + Animated Fireballs
 
 **SCARYBOI intro cinematic:**

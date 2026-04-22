@@ -111,7 +111,7 @@ export class WaveManager {
   private bossEnemy: Enemy | null = null;
   private bossDamageTaken = 0;
   private bossLastWave = 0;
-  private bossTotalHp = 1200;
+  private bossEncounter = 0;  // 0 = hasn't appeared, 1/2/3 = encounter number
   private bossAppearances: number[] = [];
 
 
@@ -238,32 +238,35 @@ export class WaveManager {
   }
 
 
-  /** Check if SCARYBOI should flee this encounter */
+  /** Check if SCARYBOI should flee this encounter (HP-percentage based) */
   private checkBossFlee() {
     if (!this.bossEnemy || !this.bossActive) return;
 
-    const threshold = BALANCE.waves.bossSpawn.fleeThreshold;
+    const maxHp = (BALANCE.enemies.boss as any).hp as number;
+    const hpPct = this.bossEnemy.health / maxHp;
 
-    // Flee if took enough damage this encounter
-    if (this.bossDamageTaken >= threshold) {
+    // Encounter 1: flee at 50% HP
+    // Encounter 2: flee at 25% HP
+    // Encounter 3: fight to the death — no fleeing
+    if (this.bossEncounter === 1 && hpPct <= 0.5) {
+      this.makeBossFlee();
+      return;
+    }
+    if (this.bossEncounter === 2 && hpPct <= 0.25) {
       this.makeBossFlee();
       return;
     }
 
-    // Also flee if boss actually died (health <= 0 handled by Enemy.die)
+    // Boss actually died (encounter 3 or overkill)
     if (this.bossEnemy.dying || !this.bossEnemy.active) {
       this.bossActive = false;
       this.bossEnemy = null;
-      // Boss died for real — reset for next encounter with full HP
-      this.bossTotalHp = (BALANCE.enemies.boss as any).hp;
+      this.bossEncounter = 0; // fully dead, reset if needed
     }
   }
 
   private makeBossFlee() {
     if (!this.bossEnemy || !this.bossEnemy.active) return;
-
-    // Persist remaining HP for next encounter
-    this.bossTotalHp = Math.max(1, this.bossEnemy.health);
 
     const boss = this.bossEnemy;
 
@@ -496,9 +499,21 @@ export class WaveManager {
     const dmgMult = this.getWaveDamageMultiplier();
     const boss = new Enemy(this.scene, spawn.x, spawn.y, "boss", hpMult, dmgMult);
 
-    // Override HP with persistent total (SCARYBOI keeps damage between encounters)
-    boss.health = this.bossTotalHp;
-    boss.maxHealth = (BALANCE.enemies.boss as any).hp;
+    const maxHp = (BALANCE.enemies.boss as any).hp as number;
+    this.bossEncounter++;
+
+    // Set HP based on encounter number
+    // Encounter 1: full HP (100%)
+    // Encounter 2: 75% HP
+    // Encounter 3: 50% HP
+    if (this.bossEncounter === 2) {
+      boss.health = Math.round(maxHp * 0.75);
+    } else if (this.bossEncounter >= 3) {
+      boss.health = Math.round(maxHp * 0.5);
+    } else {
+      boss.health = maxHp;
+    }
+    boss.maxHealth = maxHp;
 
     boss.body.setCollideWorldBounds(true);
     this.enemies.add(boss);
@@ -514,6 +529,9 @@ export class WaveManager {
 
     if (isFirst) {
       this.onBossFirstSpawn?.();
+    } else {
+      // Returning encounters: play smoke-appear animation (reverse of vanish)
+      boss.playSmokeAppear();
     }
   }
 

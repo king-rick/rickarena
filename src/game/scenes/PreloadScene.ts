@@ -199,6 +199,11 @@ export class PreloadScene extends Phaser.Scene {
       this.load.image(`fx-fire-breath-${i}`, `/assets/sprites/projectiles/fire-breath/frame${i}.png`);
     }
 
+    // Mason soundwave VFX (4 frames, bass shockwave arcs)
+    for (let i = 1; i <= 4; i++) {
+      this.load.image(`fx-soundwave-${i}`, `/assets/sprites/projectiles/soundwave/frame${i}.png`);
+    }
+
     // Blood splatter VFX (4 variants x 3 frames)
     for (let v = 1; v <= 4; v++) {
       for (let f = 1; f <= 3; f++) {
@@ -350,7 +355,9 @@ export class PreloadScene extends Phaser.Scene {
           else if (anim.type === "electrified-stun") frameRate = 7;
           else if (anim.type === "smoke-vanish") frameRate = 4;
           else if (anim.type === "fire-breath") frameRate = 10;
-          else if (anim.type === "jump-and-land") frameRate = 10;
+          else if (anim.type === "jump") frameRate = 10;
+          else if (anim.type === "landing") frameRate = 10;
+          else if (anim.type === "angry") frameRate = 8;
           else if (anim.type === "boom-box") frameRate = 10;
 
           this.anims.create({
@@ -360,6 +367,25 @@ export class PreloadScene extends Phaser.Scene {
             repeat: isLooping ? -1 : 0,
           });
         }
+      }
+    }
+
+    // SCARYBOI smoke-appear: reverse of smoke-vanish (same frames, reversed order)
+    for (const dir of DIRECTIONS) {
+      const vanishFrames: Phaser.Types.Animations.AnimationFrame[] = [];
+      let allExist = true;
+      for (let f = 0; f < 9; f++) {
+        const fk = getFrameKey("scaryboi", "smoke-vanish", dir, f);
+        if (!this.textures.exists(fk)) { allExist = false; break; }
+        vanishFrames.push({ key: fk });
+      }
+      if (allExist) {
+        this.anims.create({
+          key: getAnimKey("scaryboi", "smoke-appear", dir),
+          frames: vanishFrames.reverse(),
+          frameRate: 5,
+          repeat: 0,
+        });
       }
     }
 

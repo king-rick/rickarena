@@ -41,12 +41,12 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "breathing-idle", frames: 4 },
     { type: "walk", frames: 6 },
     { type: "lead-jab", frames: 3 },
-    { type: "throw-object", frames: 7 },
-    { type: "taking-punch", frames: 6 },
     { type: "fire-breath", frames: 9 },
-    { type: "jump-and-land", frames: 9 },
     { type: "boom-box", frames: 17 },
     { type: "death", frames: 9 },
+    { type: "jump", frames: 4 },
+    { type: "landing", frames: 4 },
+    { type: "angry", frames: 4 },
   ],
   pj: [
     { type: "walk", frames: 6 },
@@ -112,6 +112,7 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "falling-back-death", frames: 7 },
     { type: "being-shot", frames: 9 },
     { type: "smoke-vanish", frames: 9 },
+    { type: "smoke-appear", frames: 9 },  // reverse of smoke-vanish
   ],
 };
 
