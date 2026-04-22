@@ -178,7 +178,7 @@ const DEFAULT_STATE: HUDData = {
   abilityName: "",
   abilityCooldown: 0,
   abilityMaxCooldown: 0,
-  abilityKey: "R",
+  abilityKey: "Q",
   kills: 0,
   currency: 0,
   wave: 1,

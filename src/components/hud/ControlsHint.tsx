@@ -11,7 +11,7 @@ export const ControlsHint = memo(function ControlsHint() {
       style={{ bottom: 8, left: 0, right: 0 }}
     >
       <span style={{ fontFamily: BODY, fontSize: 14, color: "#444455" }}>
-        WASD move | CLICK/SPACE punch | RIGHT-CLICK/F use item | Q/E cycle | R ability | B shop
+        WASD move | CLICK/SPACE punch | RIGHT-CLICK/F use item | R reload | Q ability | G grenade | B shop
       </span>
     </div>
   );
