@@ -115,7 +115,6 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "cross-punch", frames: 6 },
     { type: "lead-jab", frames: 3 },
     { type: "fireball", frames: 6 },
-    { type: "throw-object", frames: 7 },
     { type: "backflip", frames: 10 },
     { type: "falling-back-death", frames: 7 },
     { type: "being-shot", frames: 9 },

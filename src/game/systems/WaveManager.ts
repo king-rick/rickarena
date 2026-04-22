@@ -106,13 +106,14 @@ export class WaveManager {
   private readyUp = false;
   private readyCountdown = 0;
 
-  // SCARYBOI recurring villain tracking
+  // SCARYBOI encounter system — 3 fixed location-based encounters
   private bossActive = false;
-  private bossEnemy: Enemy | null = null;
-  private bossDamageTaken = 0;
-  private bossLastWave = 0;
-  private bossEncounter = 0;  // 0 = hasn't appeared, 1/2/3 = encounter number
-  private bossAppearances: number[] = [];
+  bossEnemy: Enemy | null = null;
+  private scaryboiEncounters = { zone2: false, southBuilding: false, estate: false };
+  private scaryboiDefeated = false;
+  private scaryboiFirstSeen = false;
+  private gateOpenedWave: number | null = null;
+  private activeEncounter: "zone2" | "southBuilding" | "estate" = "zone2";
 
 
   // Persistent dog pack system
@@ -136,7 +137,8 @@ export class WaveManager {
   onIntermissionStart?: (wave: number) => void;
   onStateChange?: (state: WaveState) => void;
   onBossFlee?: () => void;
-  onBossFirstSpawn?: () => void;
+  onEncounterTrigger?: (enc: "zone2" | "southBuilding" | "estate") => void;
+  onBossKilled?: () => void;
 
 
   constructor(config: WaveManagerConfig) {
@@ -230,38 +232,30 @@ export class WaveManager {
     }
   }
 
-  /** Track damage dealt to SCARYBOI for flee threshold */
-  onBossDamaged(amount: number) {
-    if (this.bossActive) {
-      this.bossDamageTaken += amount;
-    }
-  }
-
-
   /** Check if SCARYBOI should flee this encounter (HP-percentage based) */
   private checkBossFlee() {
     if (!this.bossEnemy || !this.bossActive) return;
 
     const maxHp = (BALANCE.enemies.boss as any).hp as number;
     const hpPct = this.bossEnemy.health / maxHp;
+    const encConfig = (BALANCE.waves as any).bossEncounters[this.activeEncounter];
+    const fleeThreshold = encConfig?.fleeThreshold ?? 0;
 
-    // Encounter 1: flee at 50% HP
-    // Encounter 2: flee at 25% HP
-    // Encounter 3: fight to the death — no fleeing
-    if (this.bossEncounter === 1 && hpPct <= 0.5) {
-      this.makeBossFlee();
-      return;
-    }
-    if (this.bossEncounter === 2 && hpPct <= 0.25) {
+    // Flee if HP drops below encounter threshold (estate = 0, no flee)
+    if (fleeThreshold > 0 && hpPct <= fleeThreshold) {
       this.makeBossFlee();
       return;
     }
 
-    // Boss actually died (encounter 3 or overkill)
+    // Boss actually died (estate final stand or overkill)
     if (this.bossEnemy.dying || !this.bossEnemy.active) {
       this.bossActive = false;
+      const isEstate = this.activeEncounter === "estate";
       this.bossEnemy = null;
-      this.bossEncounter = 0; // fully dead, reset if needed
+      if (isEstate) {
+        this.scaryboiDefeated = true;
+        this.onBossKilled?.();
+      }
     }
   }
 
@@ -321,6 +315,10 @@ export class WaveManager {
     this.enemiesAlive = 0;
     this.bossActive = false;
     this.bossEnemy = null;
+    this.scaryboiEncounters = { zone2: false, southBuilding: false, estate: false };
+    this.scaryboiDefeated = false;
+    this.scaryboiFirstSeen = false;
+    this.gateOpenedWave = null;
     this.startWave();
   }
 
@@ -422,9 +420,16 @@ export class WaveManager {
     this.enemiesAlive = 0;
     this.spawnTimer = 0;
 
-    // SCARYBOI recurring villain
-    if (this.shouldSpawnBoss() && !this.spawningDisabled) {
-      this.spawnBoss();
+    // SCARYBOI Zone 2 Ambush: first wave after Gate is opened
+    if (
+      !this.scaryboiEncounters.zone2 &&
+      !this.scaryboiDefeated &&
+      !this.bossActive &&
+      !this.spawningDisabled &&
+      this.gateOpenedWave !== null &&
+      this.wave > this.gateOpenedWave
+    ) {
+      this.triggerEncounter("zone2");
     }
 
 
@@ -436,104 +441,34 @@ export class WaveManager {
     this.onWaveStart?.(this.wave);
   }
 
-  /**
-   * SCARYBOI appears randomly after wave 5.
-   * Rules:
-   * - Cannot appear back-to-back
-   * - Must appear at least 2x in waves 5-13, 2x in waves 14-20
-   * - Uses weighted random with forced appearances when behind schedule
-   */
-  private shouldSpawnBoss(): boolean {
-    const w = this.wave;
-    if (w < BALANCE.waves.bossSpawn.firstEligibleWave) return false;
+  /** Trigger a SCARYBOI encounter — GameScene handles actual spawning */
+  triggerEncounter(enc: "zone2" | "southBuilding" | "estate") {
+    if (this.bossActive || this.scaryboiDefeated) return;
+    if (this.scaryboiEncounters[enc]) return;
 
-    // Cannot appear back-to-back
-    if (this.bossLastWave === w - 1) return false;
-
-    const earlyAppearances = this.bossAppearances.filter(v => v >= 5 && v <= 13).length;
-    const lateAppearances = this.bossAppearances.filter(v => v >= 14 && v <= 20).length;
-
-    // Force spawn if running out of waves to meet quota
-    if (w >= 5 && w <= 13) {
-      const wavesLeft = 13 - w + 1;
-      const needed = 2 - earlyAppearances;
-      // Account for back-to-back rule: need at least needed*2-1 waves
-      if (needed > 0 && wavesLeft <= needed * 2) return true;
-    }
-    if (w >= 14 && w <= 20) {
-      const wavesLeft = 20 - w + 1;
-      const needed = 2 - lateAppearances;
-      if (needed > 0 && wavesLeft <= needed * 2) return true;
-    }
-
-    // Random chance — higher if behind schedule
-    let chance = 0.3; // base 30% chance per eligible wave
-    if (w <= 13 && earlyAppearances < 2) chance = 0.45;
-    if (w >= 14 && lateAppearances < 2) chance = 0.45;
-
-    return Math.random() < chance;
-  }
-
-  private spawnBoss() {
-    // Spawn from a dog spawn point far from the player
-    const pos = this.getPlayerPos();
-    const farPoints = DOG_SPAWN_POINTS.filter(s => {
-      const d = Phaser.Math.Distance.Between(pos.x, pos.y, s.x, s.y);
-      return d > 400 && !isExcluded(s.x, s.y) && !this.isGated(s.x, s.y);
-    });
-    let spawn: { x: number; y: number };
-    if (farPoints.length > 0) {
-      spawn = farPoints[Math.floor(Math.random() * farPoints.length)];
-    } else {
-      const anyValid = DOG_SPAWN_POINTS.filter(
-        (s) => !isExcluded(s.x, s.y) && !this.isGated(s.x, s.y)
-      );
-      if (anyValid.length > 0) {
-        spawn = anyValid[Math.floor(Math.random() * anyValid.length)];
-      } else {
-        spawn = this.findAnyValidSurfaceSpawn(pos);
-      }
-    }
-
-    const hpMult = this.getWaveHpMultiplier();
-    const dmgMult = this.getWaveDamageMultiplier();
-    const boss = new Enemy(this.scene, spawn.x, spawn.y, "boss", hpMult, dmgMult);
-
-    const maxHp = (BALANCE.enemies.boss as any).hp as number;
-    this.bossEncounter++;
-
-    // Set HP based on encounter number
-    // Encounter 1: full HP (100%)
-    // Encounter 2: 75% HP
-    // Encounter 3: 50% HP
-    if (this.bossEncounter === 2) {
-      boss.health = Math.round(maxHp * 0.75);
-    } else if (this.bossEncounter >= 3) {
-      boss.health = Math.round(maxHp * 0.5);
-    } else {
-      boss.health = maxHp;
-    }
-    boss.maxHealth = maxHp;
-
-    boss.body.setCollideWorldBounds(true);
-    this.enemies.add(boss);
-    this.enemiesAlive++;
-
+    this.activeEncounter = enc;
+    this.scaryboiEncounters[enc] = true;
     this.bossActive = true;
+
+    this.onEncounterTrigger?.(enc);
+  }
+
+  /** Called by GameScene after spawning the boss entity */
+  registerBossEnemy(boss: Enemy) {
     this.bossEnemy = boss;
-    this.bossDamageTaken = 0;
-    this.bossLastWave = this.wave;
+    this.enemiesAlive++;
+  }
 
-    const isFirst = this.bossAppearances.length === 0;
-    this.bossAppearances.push(this.wave);
-
-    if (isFirst) {
-      this.onBossFirstSpawn?.();
-    } else {
-      // Returning encounters: play smoke-appear animation (reverse of vanish)
-      boss.playSmokeAppear();
+  /** Called when Gate is opened — enables zone2 encounter on next wave */
+  notifyGateOpened() {
+    if (this.gateOpenedWave === null) {
+      this.gateOpenedWave = this.wave;
     }
   }
+
+  isScaryboiDefeated(): boolean { return this.scaryboiDefeated; }
+  hasSeenScaryboi(): boolean { return this.scaryboiFirstSeen; }
+  markScaryboiSeen() { this.scaryboiFirstSeen = true; }
 
   private beginIntermission() {
     // If SCARYBOI is still active at wave end, make him flee
@@ -813,32 +748,6 @@ export class WaveManager {
         this.enemiesAlive++;
       }
     }
-  }
-
-  /**
-   * Boss fallback when no preset dog point is valid — must respect exclusion + gates
-   * (same rules as zombie spawns; avoids spawning SCARYBOI behind locked doors).
-   */
-  private findAnyValidSurfaceSpawn(near: { x: number; y: number }): { x: number; y: number } {
-    for (let attempt = 0; attempt < 160; attempt++) {
-      const angle = Math.random() * Math.PI * 2;
-      const dist = 80 + Math.random() * 880;
-      const sx = Phaser.Math.Clamp(near.x + Math.cos(angle) * dist, 60, SURFACE_WIDTH - 60);
-      const sy = Phaser.Math.Clamp(near.y + Math.sin(angle) * dist, 60, MAP_HEIGHT - 60);
-      if (!isExcluded(sx, sy) && !this.isGated(sx, sy)) {
-        return { x: sx, y: sy };
-      }
-    }
-    for (let tx = 2; tx < 58; tx++) {
-      for (let ty = 2; ty < 58; ty++) {
-        const sx = tx * 32 + 16;
-        const sy = ty * 32 + 16;
-        if (!isExcluded(sx, sy) && !this.isGated(sx, sy)) {
-          return { x: sx, y: sy };
-        }
-      }
-    }
-    return { x: near.x, y: near.y };
   }
 
   /** Dev: spawn a specific enemy type at a random edge position */

@@ -51,11 +51,11 @@ export const BALANCE = {
     },
     bossVariantWave: 7,
     spawnStaggerMs: 600,
-    // SCARYBOI — recurring villain, appears randomly after wave 5
-    // Must appear 2x in waves 5-13, 2x in waves 14-20. Cannot appear back-to-back.
-    bossSpawn: {
-      firstEligibleWave: 5,
-      // Encounter system: flee at 50% → reappear at 75% → flee at 25% → reappear at 50% → fight to death
+    // SCARYBOI — 3 fixed location-based encounters (replaces random spawn)
+    bossEncounters: {
+      zone2:          { hpPercent: 1.0,  fleeThreshold: 0.5,  gracePeriodMs: 2000 },
+      southBuilding:  { hpPercent: 0.75, fleeThreshold: 0.25, gracePeriodMs: 2000 },
+      estate:         { hpPercent: 0.5,  fleeThreshold: 0,    gracePeriodMs: 2000 },
     },
   },
 

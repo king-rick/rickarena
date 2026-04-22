@@ -122,6 +122,7 @@ export class PreloadScene extends Phaser.Scene {
     this.load.image("item-shotgun", "/assets/sprites/items/shotgun.png");
     this.load.image("item-smg", "/assets/sprites/items/smg.png");
     this.load.image("item-grenade", "/assets/sprites/items/grenade.png");
+    this.load.image("item-rpg", "/assets/sprites/items/rpg.png");
     this.load.image("bullet", "/assets/sprites/items/bullet.png");
     this.load.image("bullet-fire", "/assets/sprites/items/bullet-fire.png");
     this.load.image("item-ammo", "/assets/sprites/items/ammo.png");
@@ -370,7 +371,7 @@ export class PreloadScene extends Phaser.Scene {
           else if (anim.type === "running") frameRate = 14;
           else if (anim.type === "being-shot") frameRate = 12;
           else if (anim.type === "electrified-stun") frameRate = 7;
-          else if (anim.type === "smoke-vanish") frameRate = 4;
+          else if (anim.type === "smoke-vanish") frameRate = 3; // slow dramatic exit (~3s)
           else if (anim.type === "fire-breath") frameRate = 10;
           else if (anim.type === "jump") frameRate = 10;
           else if (anim.type === "landing") frameRate = 10;
@@ -400,7 +401,7 @@ export class PreloadScene extends Phaser.Scene {
         this.anims.create({
           key: getAnimKey("scaryboi", "smoke-appear", dir),
           frames: vanishFrames.reverse(),
-          frameRate: 5,
+          frameRate: 3, // slow dramatic entrance (~3s)
           repeat: 0,
         });
       }

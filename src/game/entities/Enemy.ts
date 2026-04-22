@@ -107,12 +107,15 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private electrocuting = false;             // true during electric fist deferred death
 
   // Boss-specific state
-  private bossPhase: "stalk" | "chase" | "retreat" = "stalk";
   private bossAttackCooldowns: Record<string, number> = {};
   private backflipping = false;
   private castingFireball = false;
   private bossRunning = false; // true when in chase speed
   private bossBusy = false;    // true during boss attacks — zeroes velocity every frame to prevent knockback skating
+  private bossMovementState: "idle" | "approaching" | "chasing" | "circling" | "retreating" = "idle";
+  private bossGracePeriod = 0;   // ms remaining before first attack after spawn
+  private bossCircleDir = 1;     // 1 or -1, randomized for circling direction
+  private bossCircleTimer = 0;   // ms remaining in circling state
 
   // Mason-specific state
   private masonAttackCooldowns: Record<string, number> = {};
@@ -249,12 +252,6 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.hitFlashTimer = 100;
     this.setTint(0xffffff);
 
-    // Notify WaveManager of boss/mason damage for flee threshold tracking
-    if (this.enemyType === "boss") {
-      const wm = (this.scene as any).waveManager;
-      wm?.onBossDamaged?.(amount);
-    }
-
     // Stun on hit — fast enemies stun longer (fragile), boss/mason resist stun
     this.stunTimer = this.enemyType === "fast" ? 400 : (this.enemyType === "boss" || this.enemyType === "mason") ? 80 : 200;
 
@@ -342,6 +339,18 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     });
 
     return true;
+  }
+
+  /** Initialize boss encounter — called by GameScene after spawn */
+  initBossEncounter(gracePeriodMs: number) {
+    this.bossGracePeriod = gracePeriodMs;
+    this.bossMovementState = "idle";
+    this.body.setVelocity(0, 0);
+    // Play idle anim during grace period
+    const idleKey = getAnimKey(this.spriteId, this.idleAnimType, this.currentDir);
+    if (this.scene.anims.exists(idleKey)) {
+      this.play(idleKey, true);
+    }
   }
 
   /** Play smoke-vanish animation, then destroy. Returns true if anim exists. */
@@ -636,13 +645,15 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       return;
     }
 
-    // Phase selection based on HP — low HP = cautious, not fleeing
-    if (hpPct <= bossStats.backflipThreshold) {
-      this.bossPhase = "retreat"; // cautious / kiting
-    } else if (dist > 200) {
-      this.bossPhase = "stalk";
-    } else {
-      this.bossPhase = "chase";
+    // Grace period — stand idle after spawn, no attacks
+    if (this.bossGracePeriod > 0) {
+      this.bossGracePeriod -= delta;
+      this.body.setVelocity(0, 0);
+      const idleKey = getAnimKey(this.spriteId, this.idleAnimType, this.currentDir);
+      if (this.scene.anims.exists(idleKey) && this.anims.currentAnim?.key !== idleKey) {
+        this.play(idleKey, true);
+      }
+      return;
     }
 
     // Clamp boss to map bounds so he can't run off the map
@@ -650,7 +661,6 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     const mapH = (this.scene as any).mapHeight ?? 1920;
     const pad = 48;
     if (this.x < pad || this.x > mapW - pad || this.y < pad || this.y > mapH - pad) {
-      // Push back toward center of map
       const cx = mapW / 2;
       const cy = mapH / 2;
       const toCenter = Phaser.Math.Angle.Between(this.x, this.y, cx, cy);
@@ -662,96 +672,182 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       return;
     }
 
-    switch (this.bossPhase) {
-      case "retreat":
-        // Low HP: play cautiously — kite at medium range, mix fireballs + melee
-        // Only backflip if player is very close and cooldown is up (not every time)
-        if (dist < 100 && this.canBossAttack("backflip")) {
-          this.bossBackflip(angle);
-          return;
-        }
-        // Maintain medium distance — circle/kite, don't just run away
-        if (dist < 120) {
-          // Strafe sideways instead of running straight back
-          const strafeAngle = angle + Math.PI * 0.7; // angled retreat, not straight back
-          this.body.setVelocity(
-            Math.cos(strafeAngle) * bossStats.speed,
-            Math.sin(strafeAngle) * bossStats.speed
-          );
-          this.bossRunning = false;
-        } else if (dist > 250) {
-          // Too far — cautiously approach
-          this.body.setVelocity(
-            Math.cos(angle) * bossStats.speed * 0.7,
-            Math.sin(angle) * bossStats.speed * 0.7
-          );
-          this.bossRunning = false;
-        } else {
-          // Sweet spot — stop and use ranged attacks
-          this.body.setVelocity(0, 0);
-          this.bossRunning = false;
-          // Play idle anim so boss doesn't walk in place
-          const idleKey = getAnimKey(this.spriteId, this.idleAnimType, this.currentDir);
-          if (this.scene.anims.exists(idleKey) && this.anims.currentAnim?.key !== idleKey) {
-            this.play(idleKey, true);
-          }
-        }
-        // Fireball when at range
-        if (dist > 100 && this.canBossAttack("fireball")) {
-          this.bossFireball(angle, player);
-          return;
-        }
-        // Still melee if player closes in
-        if (dist < bossStats.attacks.leadJab.range && this.canBossAttack("leadJab")) {
-          this.bossMeleeAttack("leadJab", "lead-jab", bossStats.attacks.leadJab.damage);
-          return;
-        }
-        break;
+    // ─── Movement state transitions ───
+    if (this.bossCircleTimer > 0) {
+      this.bossCircleTimer -= delta;
+      if (this.bossCircleTimer <= 0) {
+        this.bossMovementState = dist > 200 ? "approaching" : "chasing";
+      }
+    }
 
-      case "stalk":
-        // Far away: walk toward player slowly, throw fireballs
+    // Low HP: prefer retreating/circling with ranged attacks
+    if (hpPct <= bossStats.backflipThreshold) {
+      if (this.bossMovementState !== "circling" && this.bossMovementState !== "retreating") {
+        this.bossMovementState = dist < 120 ? "retreating" : "circling";
+        if (this.bossMovementState === "circling") {
+          this.bossCircleDir = Math.random() < 0.5 ? 1 : -1;
+          this.bossCircleTimer = 1500 + Math.random() * 1000;
+        }
+      }
+    } else if (this.bossMovementState !== "circling") {
+      // Normal HP: approach or chase based on distance
+      if (dist > 200) {
+        this.bossMovementState = "approaching";
+      } else {
+        this.bossMovementState = "chasing";
+      }
+    }
+
+    // ─── A* pathfinding refresh ───
+    this.pathRefreshTimer -= delta;
+    if (this.pathRefreshTimer <= 0) {
+      this.pathRefreshTimer = 500; // refresh every 500ms
+      const pathfinder = (this.scene as any).pathfinder as import("../systems/Pathfinder").Pathfinder | undefined;
+      if (pathfinder) {
+        // Path target depends on movement state
+        let targetX = player.x;
+        let targetY = player.y;
+
+        if (this.bossMovementState === "circling") {
+          // Circle around player at ~175px radius
+          const circleAngle = angle + Math.PI / 2 * this.bossCircleDir;
+          targetX = player.x + Math.cos(circleAngle) * 175;
+          targetY = player.y + Math.sin(circleAngle) * 175;
+        } else if (this.bossMovementState === "retreating") {
+          // Move away from player
+          const retreatAngle = angle + Math.PI;
+          targetX = this.x + Math.cos(retreatAngle) * 200;
+          targetY = this.y + Math.sin(retreatAngle) * 200;
+          targetX = Phaser.Math.Clamp(targetX, pad, mapW - pad);
+          targetY = Phaser.Math.Clamp(targetY, pad, mapH - pad);
+        }
+
+        pathfinder.findPath(this.x, this.y, targetX, targetY, (path) => {
+          if (!this.active || this.dying) return;
+          if (path && path.length > 1) {
+            this.pathWaypoints = path;
+            this.pathIndex = 1;
+          } else {
+            this.pathWaypoints = [];
+            this.pathIndex = 0;
+          }
+        });
+      }
+    }
+
+    // ��── Movement execution ───
+    let moveSpeed: number;
+    switch (this.bossMovementState as string) {
+      case "idle":
+        this.body.setVelocity(0, 0);
         this.bossRunning = false;
-        this.body.setVelocity(
-          Math.cos(angle) * bossStats.speed,
-          Math.sin(angle) * bossStats.speed
-        );
-        // Fireball at range
-        if (dist > 150 && dist < bossStats.attacks.fireball.range && this.canBossAttack("fireball")) {
-          this.bossFireball(angle, player);
-          return;
-        }
-        // Leap to close distance
-        if (dist > 120 && dist < bossStats.attacks.leapAttack.range && this.canBossAttack("leapAttack")) {
-          this.bossLeapAttack(angle);
-          return;
-        }
         break;
-
-      case "chase":
-        // Close: run at player, use melee attacks
+      case "approaching":
+        moveSpeed = bossStats.speed;
+        this.bossRunning = false;
+        this.followPathOrDirect(angle, moveSpeed);
+        break;
+      case "chasing":
+        moveSpeed = bossStats.runSpeed;
         this.bossRunning = true;
-        this.body.setVelocity(
-          Math.cos(angle) * bossStats.runSpeed,
-          Math.sin(angle) * bossStats.runSpeed
-        );
-        // Close range melee
-        if (dist < bossStats.attacks.crossPunch.range) {
-          // Alternate between jab and cross punch
-          if (this.canBossAttack("leadJab")) {
-            this.bossMeleeAttack("leadJab", "lead-jab", bossStats.attacks.leadJab.damage);
-            return;
-          }
-          if (this.canBossAttack("crossPunch")) {
-            this.bossMeleeAttack("crossPunch", "cross-punch", bossStats.attacks.crossPunch.damage);
-            return;
-          }
-        }
-        // Leap if slightly out of melee range
-        if (dist > 100 && dist < bossStats.attacks.leapAttack.range && this.canBossAttack("leapAttack")) {
-          this.bossLeapAttack(angle);
-          return;
-        }
+        this.followPathOrDirect(angle, moveSpeed);
         break;
+      case "circling":
+        moveSpeed = bossStats.speed;
+        this.bossRunning = false;
+        this.followPathOrDirect(angle + Math.PI / 2 * this.bossCircleDir, moveSpeed);
+        break;
+      case "retreating":
+        moveSpeed = bossStats.speed;
+        this.bossRunning = false;
+        this.followPathOrDirect(angle + Math.PI, moveSpeed);
+        break;
+    }
+
+    // Play idle anim when stopped
+    const vel = this.body.velocity;
+    if (Math.abs(vel.x) < 5 && Math.abs(vel.y) < 5) {
+      const idleKey = getAnimKey(this.spriteId, this.idleAnimType, this.currentDir);
+      if (this.scene.anims.exists(idleKey) && this.anims.currentAnim?.key !== idleKey) {
+        this.play(idleKey, true);
+      }
+    }
+
+    // ─── Attack selection by range bracket ───
+    if (hpPct <= bossStats.backflipThreshold) {
+      // Low HP: backflip if close, fireball at range, melee only if cornered
+      if (dist < 100 && this.canBossAttack("backflip")) {
+        this.bossBackflip(angle);
+        return;
+      }
+      if (dist > 80 && this.canBossAttack("fireball")) {
+        this.bossFireball(angle, player);
+        return;
+      }
+      if (dist < bossStats.attacks.leadJab.range && this.canBossAttack("leadJab")) {
+        this.bossMeleeAttack("leadJab", "lead-jab", bossStats.attacks.leadJab.damage);
+        return;
+      }
+    } else if (dist < 70) {
+      // Close range: melee priority
+      if (this.canBossAttack("leadJab")) {
+        this.bossMeleeAttack("leadJab", "lead-jab", bossStats.attacks.leadJab.damage);
+        return;
+      }
+      if (this.canBossAttack("crossPunch")) {
+        this.bossMeleeAttack("crossPunch", "cross-punch", bossStats.attacks.crossPunch.damage);
+        return;
+      }
+    } else if (dist < 200) {
+      // Medium range: mix of fireball, leap, melee
+      if (this.canBossAttack("fireball") && Math.random() < 0.5) {
+        this.bossFireball(angle, player);
+        return;
+      }
+      if (dist > 100 && this.canBossAttack("leapAttack")) {
+        this.bossLeapAttack(angle);
+        return;
+      }
+      if (dist < bossStats.attacks.crossPunch.range && this.canBossAttack("crossPunch")) {
+        this.bossMeleeAttack("crossPunch", "cross-punch", bossStats.attacks.crossPunch.damage);
+        return;
+      }
+    } else {
+      // Long range: fireball or leap to close
+      if (this.canBossAttack("fireball")) {
+        this.bossFireball(angle, player);
+        return;
+      }
+      if (this.canBossAttack("leapAttack")) {
+        this.bossLeapAttack(angle);
+        return;
+      }
+    }
+  }
+
+  /** Follow A* waypoints if available, otherwise move directly */
+  private followPathOrDirect(directAngle: number, speed: number) {
+    if (this.pathWaypoints.length > 0 && this.pathIndex < this.pathWaypoints.length) {
+      const wp = this.pathWaypoints[this.pathIndex];
+      const wpDist = Phaser.Math.Distance.Between(this.x, this.y, wp.x, wp.y);
+      if (wpDist < 12) {
+        this.pathIndex++;
+        if (this.pathIndex >= this.pathWaypoints.length) {
+          this.pathWaypoints = [];
+        }
+      } else {
+        const wpAngle = Phaser.Math.Angle.Between(this.x, this.y, wp.x, wp.y);
+        this.body.setVelocity(
+          Math.cos(wpAngle) * speed,
+          Math.sin(wpAngle) * speed
+        );
+      }
+    } else {
+      // Direct movement as fallback
+      this.body.setVelocity(
+        Math.cos(directAngle) * speed,
+        Math.sin(directAngle) * speed
+      );
     }
   }
 
@@ -777,6 +873,26 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.once("animationcomplete", () => {
         this.biting = false;
         this.bossBusy = false;
+
+        // Combo: jab → cross punch (50% chance if in range)
+        if (attackId === "leadJab" && !this.dying && this.canBossAttack("crossPunch")) {
+          const player = (this.scene as any).player;
+          if (player?.active && Math.random() < 0.5) {
+            const d = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
+            if (d < bossStats.attacks.crossPunch.range) {
+              this.bossMeleeAttack("crossPunch", "cross-punch", bossStats.attacks.crossPunch.damage);
+              return;
+            }
+          }
+        }
+
+        // After melee, enter brief circling state for tactical spacing
+        if (!this.dying) {
+          this.bossMovementState = "circling";
+          this.bossCircleDir = Math.random() < 0.5 ? 1 : -1;
+          this.bossCircleTimer = 800 + Math.random() * 600;
+        }
+
         if (this.hasWalkAnim && !this.dying) {
           this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
         }
@@ -847,6 +963,17 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       if (!this.active) return;
       this.backflipping = false;
       this.body.setVelocity(0, 0);
+
+      // Combo: backflip → fireball (if cooldown ready)
+      if (!this.dying && this.canBossAttack("fireball")) {
+        const player = (this.scene as any).player;
+        if (player?.active) {
+          const a = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
+          this.bossFireball(a, player);
+          return;
+        }
+      }
+
       if (this.hasWalkAnim && !this.dying) {
         this.play(getAnimKey(this.spriteId, this.walkAnimType, this.currentDir), true);
       }

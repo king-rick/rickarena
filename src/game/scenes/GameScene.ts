@@ -36,6 +36,9 @@ export class GameScene extends Phaser.Scene {
   private gameOver = false;
   private paused = false;
   private scaryboiIntroActive = false;
+  private scaryboiSouthTriggered = false;  // prevents re-triggering south building encounter
+  private scaryboiEstateTriggered = false; // prevents re-triggering estate encounter
+  private pendingScaryboiSpawn: { x: number; y: number; hpPercent: number; gracePeriodMs: number; enc: string } | null = null;
   private masonIntroActive = false;
   private masonTriggered = false; // true once Mason intro has fired (one-time)
   private masonEnemy: Enemy | null = null; // reference to Mason entity
@@ -410,6 +413,13 @@ export class GameScene extends Phaser.Scene {
           this.doors.push({ zone: doorZone, cost, label, opened: false, paid: false, locked, health: doorHealth, maxHealth: doorHealth, broken: false, clearCols, clearRows, savedTiles });
         }
       }
+    }
+
+    // South Building: unlock and set price to $400 (was locked in Tiled)
+    const southDoor = this.doors.find(d => d.label === "South Building");
+    if (southDoor) {
+      southDoor.locked = false;
+      southDoor.cost = 400;
     }
 
     // Generator + Machines — read from interactables layer
@@ -1045,11 +1055,27 @@ export class GameScene extends Phaser.Scene {
       this.playSound("sfx-church-bell", 0.3);
     };
 
-    this.waveManager.onBossFirstSpawn = () => {
-      this.scaryboiIntroActive = true;
-      this.physics.pause();
-      this.game.canvas.style.pointerEvents = "none";
-      hudState.update({ scaryboiIntroActive: true });
+    this.waveManager.onEncounterTrigger = (enc) => {
+      this.spawnScaryboiEncounter(enc);
+    };
+
+    this.waveManager.onBossKilled = () => {
+      // Drop RPG at boss death location
+      const boss = this.waveManager.bossEnemy;
+      if (boss) {
+        this.spawnRpgPickup(boss.x, boss.y);
+      }
+      // Re-open estate door
+      const estateDoor = this.doors.find(d => d.label === "Estate Entrance");
+      if (estateDoor && !estateDoor.opened) {
+        (estateDoor.zone.body as Phaser.Physics.Arcade.StaticBody).enable = false;
+        if (estateDoor.promptText) estateDoor.promptText.setVisible(false);
+        for (const t of estateDoor.savedTiles) {
+          this.getDoorLayer(t.layer)?.removeTileAt(t.col, t.row);
+        }
+        estateDoor.opened = true;
+      }
+      this.showWeaponMessage("SCARYBOI DEFEATED!", "#44dd44");
     };
 
     hudState.registerScaryboiIntroAction(() => {
@@ -1059,6 +1085,13 @@ export class GameScene extends Phaser.Scene {
         this.physics.resume();
         this.game.canvas.style.pointerEvents = "auto";
         hudState.update({ scaryboiIntroActive: false });
+
+        // Now materialize SCARYBOI with smoke animation
+        if (this.pendingScaryboiSpawn) {
+          const s = this.pendingScaryboiSpawn;
+          this.pendingScaryboiSpawn = null;
+          this.doScaryboiSpawn(s.x, s.y, s.hpPercent, s.gracePeriodMs, s.enc);
+        }
       });
     });
 
@@ -1141,6 +1174,20 @@ export class GameScene extends Phaser.Scene {
         (ptx === 39 && pty === 12)
       ) {
         this.triggerMasonIntro();
+      }
+    }
+
+    // SCARYBOI location-based encounter triggers
+    if (!this.waveManager.isScaryboiDefeated() && !this.waveManager.isBossActive()) {
+      const ptx = Math.floor(this.player.x / 32);
+      const pty = Math.floor(this.player.y / 32);
+      // South Building trap: player walks ~3-4 tiles inside (door at tile 12,49, interior is north)
+      if (!this.scaryboiSouthTriggered && ptx >= 2 && ptx <= 16 && pty >= 37 && pty <= 46) {
+        this.waveManager.triggerEncounter("southBuilding");
+      }
+      // Estate final stand: player enters estate interior (entrance at tile 33,26)
+      if (!this.scaryboiEstateTriggered && ptx >= 30 && ptx <= 45 && pty >= 18 && pty <= 24) {
+        this.waveManager.triggerEncounter("estate");
       }
     }
 
@@ -3887,6 +3934,123 @@ export class GameScene extends Phaser.Scene {
     hudState.update({ masonAnnouncementActive: true });
   }
 
+  /** Spawn SCARYBOI for a specific encounter */
+  private spawnScaryboiEncounter(enc: "zone2" | "southBuilding" | "estate") {
+    const encConfig = (BALANCE.waves as any).bossEncounters[enc];
+    const maxHp = (BALANCE.enemies.boss as any).hp as number;
+
+    // Mark location triggers so they don't re-fire
+    if (enc === "southBuilding") this.scaryboiSouthTriggered = true;
+    if (enc === "estate") this.scaryboiEstateTriggered = true;
+
+    // Spawn within camera view — at zoom 5.0 the viewport is ~384x216 world px.
+    // Place SCARYBOI ~120px from player (visible but not on top of them).
+    const cam = this.cameras.main;
+    const halfVW = (cam.width / cam.zoom) / 2 - 20; // ~172px with margin
+    const halfVH = (cam.height / cam.zoom) / 2 - 20; // ~88px with margin
+    const spawnDist = 120; // px from player — close enough to be on screen
+
+    let spawnX: number, spawnY: number;
+    // Pick a random angle, offset from player, clamp to camera viewport
+    const a = Math.random() * Math.PI * 2;
+    spawnX = this.player.x + Math.cos(a) * spawnDist;
+    spawnY = this.player.y + Math.sin(a) * spawnDist;
+    // Clamp to stay within camera view
+    spawnX = Phaser.Math.Clamp(spawnX, this.player.x - halfVW, this.player.x + halfVW);
+    spawnY = Phaser.Math.Clamp(spawnY, this.player.y - halfVH, this.player.y + halfVH);
+    // Clamp to map bounds
+    spawnX = Phaser.Math.Clamp(spawnX, 60, (this as any).mapWidth - 60);
+    spawnY = Phaser.Math.Clamp(spawnY, 60, (this as any).mapHeight - 60);
+
+    // First-ever appearance: show intro card FIRST, then spawn + smoke after dismissal
+    if (!this.waveManager.hasSeenScaryboi()) {
+      this.waveManager.markScaryboiSeen();
+      this.scaryboiIntroActive = true;
+      this.physics.pause();
+      this.game.canvas.style.pointerEvents = "none";
+      hudState.update({ scaryboiIntroActive: true });
+
+      // Defer actual spawn until intro is dismissed
+      this.pendingScaryboiSpawn = { x: spawnX, y: spawnY, hpPercent: encConfig.hpPercent, gracePeriodMs: encConfig.gracePeriodMs, enc };
+    } else {
+      // Subsequent encounters: spawn immediately with smoke
+      this.doScaryboiSpawn(spawnX, spawnY, encConfig.hpPercent, encConfig.gracePeriodMs, enc);
+    }
+
+    // Estate: seal door behind player
+    if (enc === "estate") {
+      const estateDoor = this.doors.find(d => d.label === "Estate Entrance");
+      if (estateDoor && estateDoor.opened) {
+        (estateDoor.zone.body as Phaser.Physics.Arcade.StaticBody).enable = true;
+        for (const t of estateDoor.savedTiles) {
+          this.getDoorLayer(t.layer)?.putTileAt(t.gid, t.col, t.row);
+        }
+        estateDoor.opened = false;
+      }
+    }
+  }
+
+  /** Actually create the SCARYBOI entity and play smoke-appear */
+  private doScaryboiSpawn(spawnX: number, spawnY: number, hpPercent: number, gracePeriodMs: number, enc: string) {
+    const maxHp = (BALANCE.enemies.boss as any).hp as number;
+    const boss = new Enemy(this, spawnX, spawnY, "boss", 1, 1);
+    boss.health = Math.round(maxHp * hpPercent);
+    boss.maxHealth = maxHp;
+    boss.body.setCollideWorldBounds(true);
+    this.enemies.add(boss);
+
+    boss.initBossEncounter(gracePeriodMs);
+    this.waveManager.registerBossEnemy(boss);
+
+    // Smoke appear for encounters 1 & 2, standing idle for encounter 3
+    if (enc !== "estate") {
+      boss.playSmokeAppear();
+    }
+
+    this.showWeaponMessage("SCARYBOI APPEARS...", "#ff4444");
+  }
+
+  /** Spawn RPG pickup at a world position (dropped by SCARYBOI on death) */
+  private spawnRpgPickup(x: number, y: number) {
+    const tex = this.textures.exists("item-rpg") ? "item-rpg" : "item-pistol";
+    const pickup = this.add.image(x, y, tex)
+      .setDepth(10)
+      .setScale(1.5);
+
+    // Gentle bob animation
+    this.tweens.add({
+      targets: pickup,
+      y: y - 5,
+      yoyo: true,
+      repeat: -1,
+      duration: 800,
+      ease: "Sine.easeInOut",
+    });
+
+    // Check proximity each frame for auto-pickup
+    const checkPickup = () => {
+      if (!pickup.active || !this.player?.active) return;
+      const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, pickup.x, y);
+      if (d < 40) {
+        // Equip RPG with full ammo
+        const wpDef = (BALANCE.weapons as any).rpg;
+        (this as any).secondaryWeapon = "rpg";
+        (this as any).weaponAmmo = (this as any).weaponAmmo || {};
+        (this as any).weaponAmmo["rpg"] = {
+          mag: wpDef.magazineSize,
+          reserve: wpDef.magazineSize * (wpDef.totalClips - 1),
+        };
+        (this as any).activeWeapon = "rpg";
+        (this as any).activeSlot = 2;
+        this.showWeaponMessage("RPG ACQUIRED!", "#ffdd44");
+        this.playSound("sfx-purchase", 0.6);
+        pickup.destroy();
+        this.events.off("update", checkPickup);
+      }
+    };
+    this.events.on("update", checkPickup);
+  }
+
   private readonly doorPromptDist = 60; // px from door center to show prompt
 
   private updateDoorPrompts() {
@@ -3986,6 +4150,10 @@ export class GameScene extends Phaser.Scene {
         }
         this.showWeaponMessage(`${door.label} OPENED`, "#44dd44");
         this.playSound("sfx-purchase", 0.5);
+        // Notify WaveManager when Gate opens (triggers zone2 SCARYBOI encounter)
+        if (door.label === "Gate") {
+          this.waveManager.notifyGateOpened();
+        }
         return;
       }
     }
@@ -4058,6 +4226,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.showWeaponMessage(`${door.label} DESTROYED`, "#ff4444");
+    if (door.label === "Gate") {
+      this.waveManager.notifyGateOpened();
+    }
     this.playSound("sfx-purchase", 0.3);
   }
 
