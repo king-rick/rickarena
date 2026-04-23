@@ -446,14 +446,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Public demo (e.g. Vercel): only the first $300 Gate is openable; all other purchasable doors stay locked.
-    if (isPublicBuild()) {
-      for (const door of this.doors) {
-        if (door.label !== PUBLIC_BUILD_UNLOCKABLE_DOOR_LABEL) {
-          door.locked = true;
-        }
-      }
-    }
+    // All purchasable doors are available (Gate, South Building, Estate Entrance)
 
     // Player — spawn inside starting room (tile 50, 53)
     const spawnX = 50 * 32 + 16; // tile center

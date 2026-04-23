@@ -44,9 +44,9 @@ export const BALANCE = {
     speedTierWaves: { jogStart: 4, runStart: 7 },
     // % of zombies at each speed tier per wave phase
     speedMix: {
-      early:  { shamble: 0.9, jog: 0.1, run: 0.0 },   // waves 1-3: mostly shamblers, gentle ramp
-      mid:    { shamble: 0.2, jog: 0.5, run: 0.3 },    // waves 4-6
-      late:   { shamble: 0.1, jog: 0.3, run: 0.6 },    // waves 7-9
+      early:  { shamble: 0.5, jog: 0.4, run: 0.1 },   // waves 1-3: mixed, feels threatening early
+      mid:    { shamble: 0.15, jog: 0.5, run: 0.35 },  // waves 4-6
+      late:   { shamble: 0.05, jog: 0.3, run: 0.65 },  // waves 7-9
       swarm:  { shamble: 0.0, jog: 0.15, run: 0.85 },  // waves 10+
     },
     bossVariantWave: 7,
@@ -286,7 +286,7 @@ export const BALANCE = {
 
   // Enemy base stats — WaW-style scaling (exponential HP, speed tiers, flat damage)
   enemies: {
-    basic: { hp: 50, damage: 20, speed: 50, jogSpeed: 75, runSpeed: 100 },
+    basic: { hp: 50, damage: 20, speed: 60, jogSpeed: 80, runSpeed: 105 },
     fast:  {
       hp: 30, damage: 12, speed: 115, attackCooldown: 400,  // dog: fragile but fast when aggro
       roamSpeed: 30,           // slow idle wander on grass
