@@ -150,6 +150,17 @@ export class GameScene extends Phaser.Scene {
   private startingDoorBody?: Phaser.GameObjects.Zone; // physics body blocking doorway
   private startingChestSprite?: Phaser.GameObjects.Sprite;
   private hasWeapon = false; // false until player opens chest
+
+  // Loot chests (placed via Tiled interactables layer, type "chest")
+  private lootChests: {
+    x: number;
+    y: number;
+    label: string;
+    opened: boolean;
+    sprite: Phaser.GameObjects.Sprite;
+    promptText?: Phaser.GameObjects.Text;
+  }[] = [];
+
   private roofLayer?: Phaser.Tilemaps.TilemapLayer;
   private roofVisible = true;
 
@@ -434,6 +445,10 @@ export class GameScene extends Phaser.Scene {
           const label = props?.find((p: any) => p.name === "label")?.value ?? "Generator";
           const sprite = this.add.sprite(cx, cy, "generator-off").setDepth(3);
           this.generator = { sprite, x: cx, y: cy };
+        } else if (objType === "chest") {
+          const label = props?.find((p: any) => p.name === "label")?.value ?? "Chest";
+          const sprite = this.add.sprite(cx, cy, "chest", 0).setScale(0.5).setDepth(2);
+          this.lootChests.push({ x: cx, y: cy, label, opened: false, sprite });
         } else if (objType === "machine") {
           const name = ((obj as any).name || "").toLowerCase();
           const machineType = name.includes("zyn") ? "zyn" : "keg";
@@ -764,6 +779,7 @@ export class GameScene extends Phaser.Scene {
       eKey.on("down", () => {
         if (this.gameOver || this.paused || this.shopOpen) return;
         if (this.tryStartingChest()) return;
+        if (this.tryLootChest()) return;
         if (this.tryStartingDoor()) return;
         if (this.tryInteractGenerator()) return;
         if (this.tryBuyMachine()) return;
@@ -1152,6 +1168,7 @@ export class GameScene extends Phaser.Scene {
 
     // Door proximity prompts
     this.updateStartingRoomPrompts();
+    this.updateLootChestPrompts();
     this.updateDoorPrompts();
     this.updateMachinePrompts();
 
@@ -3804,6 +3821,60 @@ export class GameScene extends Phaser.Scene {
     this.showWeaponMessage("PISTOL ACQUIRED", "#44dd44");
     this.playSound("sfx-purchase", 0.5);
     return true;
+  }
+
+  // ─── Loot Chests (Tiled interactables) ───
+
+  private updateLootChestPrompts() {
+    for (const chest of this.lootChests) {
+      if (chest.opened) {
+        if (chest.promptText) chest.promptText.setVisible(false);
+        continue;
+      }
+      const dist = Phaser.Math.Distance.Between(
+        this.player.x, this.player.y, chest.x, chest.y
+      );
+      if (dist < 60) {
+        if (!chest.promptText) {
+          chest.promptText = this.createPromptText(chest.x, chest.y + 20, "[E] OPEN CHEST");
+        }
+        chest.promptText.setVisible(true);
+      } else {
+        if (chest.promptText) chest.promptText.setVisible(false);
+      }
+    }
+  }
+
+  private tryLootChest(): boolean {
+    for (const chest of this.lootChests) {
+      if (chest.opened) continue;
+      const dist = Phaser.Math.Distance.Between(
+        this.player.x, this.player.y, chest.x, chest.y
+      );
+      if (dist >= 60) continue;
+
+      chest.opened = true;
+      chest.sprite.setFrame(1); // open sprite
+
+      if (chest.promptText) {
+        chest.promptText.destroy();
+        chest.promptText = undefined;
+      }
+
+      // Give AK-47 with full ammo
+      const wpDef = (BALANCE.weapons as any).assault_rifle;
+      this.secondaryWeapon = "assault_rifle";
+      this.weaponAmmo["assault_rifle"] = {
+        mag: wpDef.magazineSize,
+        reserve: wpDef.magazineSize * (wpDef.totalClips - 1),
+      };
+      this.activeWeapon = "assault_rifle";
+      this.activeSlot = 2;
+      this.showWeaponMessage("AK-47 ACQUIRED!", "#ffdd44");
+      this.playSound("sfx-purchase", 0.6);
+      return true;
+    }
+    return false;
   }
 
   private tryStartingDoor(): boolean {

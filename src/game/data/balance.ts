@@ -61,10 +61,10 @@ export const BALANCE = {
 
   // Economy — tight early, loosens slightly mid-game
   economy: {
-    killReward: { basic: 12, fast: 10, boss: 100, mason: 500 },
-    xpPerKill: { basic: 10, fast: 8, boss: 100, mason: 500 },
+    killReward: { basic: 15, fast: 15, boss: 100, mason: 500 },
+    xpPerKill: { basic: 10, fast: 10, boss: 100, mason: 500 },
     waveCompletionBonus: { base: 30, perWave: 10 }, // $30 + wave * $10
-    priceInflationPerWave: 0.05, // 5% per wave
+    priceInflationPerWave: 0, // no inflation — prices stay clean
     interestRate: 0.05, // 5% interest on banked cash per intermission
     interestCap: 50, // max $50 interest per wave
   },
