@@ -43,6 +43,7 @@ export interface HUDData {
   // Hotbar
   activeSlot: number;
   equippedWeapon: string | null;
+  activeItemType: string | null; // "weapon" | "barricade" | "mine" | null
   ammo: number;
   maxAmmo: number;
   reserveAmmo: number;
@@ -168,6 +169,7 @@ const DEFAULT_STATE: HUDData = {
   level: 1,
   activeSlot: 0,
   equippedWeapon: null,
+  activeItemType: null,
   ammo: 0,
   maxAmmo: 0,
   reserveAmmo: 0,

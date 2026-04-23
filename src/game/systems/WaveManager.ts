@@ -427,14 +427,15 @@ export class WaveManager {
     this.enemiesAlive = 0;
     this.spawnTimer = 0;
 
-    // SCARYBOI Zone 2 Ambush: first wave after Gate is opened
+    // SCARYBOI Zone 2 Ambush: first wave after Gate is opened (minimum wave 3)
     if (
       !this.scaryboiEncounters.zone2 &&
       !this.scaryboiDefeated &&
       !this.bossActive &&
       !this.spawningDisabled &&
       this.gateOpenedWave !== null &&
-      this.wave > this.gateOpenedWave
+      this.wave > this.gateOpenedWave &&
+      this.wave >= 3
     ) {
       this.triggerEncounter("zone2");
     }

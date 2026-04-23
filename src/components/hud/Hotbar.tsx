@@ -9,24 +9,26 @@ const ITEM_ICONS: Record<string, string> = {
   pistol: "/assets/sprites/items/pistol.png",
   shotgun: "/assets/sprites/items/shotgun.png",
   smg: "/assets/sprites/items/smg.png",
+  assault_rifle: "/assets/sprites/items/assault-rifle.png",
+  rpg: "/assets/sprites/items/rpg.png",
   barricade: "/assets/sprites/items/trap-barricade.png",
   landmine: "/assets/sprites/items/trap-landmine.png",
 };
 
-function getActiveIcon(activeSlot: number, equippedWeapon: string | null): { icon: string | null; label: string } {
-  if ((activeSlot === 1 || activeSlot === 2) && equippedWeapon) return { icon: ITEM_ICONS[equippedWeapon] ?? null, label: equippedWeapon.toUpperCase() };
-  if (activeSlot === 3) return { icon: ITEM_ICONS.barricade, label: "BARRICADE" };
-  if (activeSlot === 4) return { icon: ITEM_ICONS.landmine, label: "LANDMINE" };
+function getActiveIcon(activeItemType: string | null, equippedWeapon: string | null): { icon: string | null; label: string } {
+  if (activeItemType === "weapon" && equippedWeapon) return { icon: ITEM_ICONS[equippedWeapon] ?? null, label: equippedWeapon.toUpperCase() };
+  if (activeItemType === "barricade") return { icon: ITEM_ICONS.barricade, label: "BARRICADE" };
+  if (activeItemType === "mine") return { icon: ITEM_ICONS.landmine, label: "LANDMINE" };
   return { icon: null, label: "" };
 }
 
-function getActiveCount(activeSlot: number, ammo: number, maxAmmo: number, reserveAmmo: number, reloading: boolean, barricadeCount: number, mineCount: number): { count: string; danger: boolean } {
-  if (activeSlot === 1 || activeSlot === 2) {
+function getActiveCount(activeItemType: string | null, ammo: number, maxAmmo: number, reserveAmmo: number, reloading: boolean, barricadeCount: number, mineCount: number): { count: string; danger: boolean } {
+  if (activeItemType === "weapon") {
     if (reloading) return { count: "RELOADING", danger: true };
     return { count: `${ammo}/${reserveAmmo}`, danger: ammo === 0 && reserveAmmo === 0 };
   }
-  if (activeSlot === 3) return { count: `x${barricadeCount}`, danger: false };
-  if (activeSlot === 4) return { count: `x${mineCount}`, danger: false };
+  if (activeItemType === "barricade") return { count: `x${barricadeCount}`, danger: false };
+  if (activeItemType === "mine") return { count: `x${mineCount}`, danger: false };
   return { count: "", danger: false };
 }
 
@@ -41,8 +43,9 @@ export const Hotbar = memo(function Hotbar() {
   const mineCount = useSyncExternalStore(hudState.subscribe, () => hudState.getField("mineCount"));
   const grenadeCount = useSyncExternalStore(hudState.subscribe, () => hudState.getField("grenadeCount"));
 
-  const { icon, label } = getActiveIcon(activeSlot, equippedWeapon);
-  const { count, danger } = getActiveCount(activeSlot, ammo, maxAmmo, reserveAmmo, reloading, barricadeCount, mineCount);
+  const activeItemType = useSyncExternalStore(hudState.subscribe, () => hudState.getField("activeItemType"));
+  const { icon, label } = getActiveIcon(activeItemType, equippedWeapon);
+  const { count, danger } = getActiveCount(activeItemType, ammo, maxAmmo, reserveAmmo, reloading, barricadeCount, mineCount);
 
   // Nothing equipped — don't render
   if (!icon) return null;

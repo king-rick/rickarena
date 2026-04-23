@@ -84,7 +84,7 @@ export const BALANCE = {
       { id: "landmine", name: "Landmine", desc: "AoE explosion on contact", basePrice: 40 },
       { id: "grenade", name: "Grenade", desc: "Throwable explosive (max 3)", basePrice: 60 },
       { id: "rpg", name: "RPG", desc: "2 rockets, massive AoE", basePrice: 800, devOnly: true },
-      { id: "assault_rifle", name: "AK-47", desc: "2x50rd mags, high damage", basePrice: 650, devOnly: true },
+      { id: "assault_rifle", name: "Assault Rifle", desc: "2x50rd mags, high damage", basePrice: 650, devOnly: true },
     ],
   },
 
@@ -115,8 +115,8 @@ export const BALANCE = {
       range: 200,
       spread: 18,
       pellets: 7,
-      magazineSize: 6,
-      totalClips: 2, // 2 clips of 6 = 12 total shells
+      magazineSize: 2,
+      totalClips: 8, // 8 clips of 2 = 16 total shells (double barrel)
       reloadMs: 1800,
       price: 350,
       proficiency: "Shotguns",
@@ -162,7 +162,7 @@ export const BALANCE = {
       selfDamage: 20,    // damage to player if too close
     },
     assault_rifle: {
-      name: "AK-47",
+      name: "Assault Rifle",
       damage: 22,
       fireRate: 140,     // slower than SMG (100ms)
       speed: 550,
