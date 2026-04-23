@@ -446,7 +446,13 @@ export class GameScene extends Phaser.Scene {
           this.generator = { sprite, x: cx, y: cy };
         } else if (objType === "chest") {
           const label = props?.find((p: any) => p.name === "label")?.value ?? "Chest";
-          const sprite = this.add.sprite(cx, cy, "chest", 0).setScale(0.5).setDepth(2);
+          // Remove the Tiled visual tile so we don't get a double sprite
+          const chestTileX = Math.floor(obj.x! / 32);
+          const chestTileY = Math.floor(obj.y! / 32);
+          for (const layer of [this.propsLowLayer, this.propsMidLayer]) {
+            layer?.removeTileAt(chestTileX, chestTileY);
+          }
+          const sprite = this.add.sprite(cx, cy, "chest", 0).setDepth(2);
           this.lootChests.push({ x: cx, y: cy, label, opened: false, sprite });
         } else if (objType === "machine") {
           const name = ((obj as any).name || "").toLowerCase();
