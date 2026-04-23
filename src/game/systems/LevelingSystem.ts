@@ -29,7 +29,7 @@ export interface EffectiveStats {
   speed: number;
   regen: number;
   critChance: number;
-  killBonusPct: number; // extra % on kill rewards
+  killBonusFlat: number; // flat $ bonus on kill rewards
 }
 
 export class LevelingSystem {
@@ -115,7 +115,7 @@ export class LevelingSystem {
     let speed = base.speed;
     let regen = base.regen;
     let critChance = base.critChance;
-    let killBonusPct = 0;
+    let killBonusFlat = 0;
 
     // Track buff count per category for soft cap diminishing returns
     const catCount: Record<string, number> = {};
@@ -145,7 +145,7 @@ export class LevelingSystem {
           critChance += buff.flat * mult;
           break;
         case "scavenger":
-          killBonusPct += buff.flat * mult;
+          killBonusFlat += buff.flat * mult;
           break;
       }
     }
@@ -161,7 +161,7 @@ export class LevelingSystem {
       speed: Math.floor(speed),
       regen: Math.floor(regen * 10) / 10,
       critChance,
-      killBonusPct,
+      killBonusFlat,
     };
   }
 

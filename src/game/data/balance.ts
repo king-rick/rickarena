@@ -59,14 +59,17 @@ export const BALANCE = {
     ],
   },
 
-  // Economy — tight early, loosens slightly mid-game
+  // Economy — flat numbers, no percentages
   economy: {
     killReward: { basic: 15, fast: 15, boss: 100, mason: 500 },
+    meleeBonus: 5, // flat $5 extra for melee kills (so $20 melee vs $15 ranged)
     xpPerKill: { basic: 10, fast: 10, boss: 100, mason: 500 },
-    waveCompletionBonus: { base: 30, perWave: 10 }, // $30 + wave * $10
+    waveCompletionBonus: { earlyBonus: 50, lateBonus: 100, lateWave: 6 }, // $50 waves 1-5, $100 waves 6+
     priceInflationPerWave: 0, // no inflation — prices stay clean
     interestRate: 0.05, // 5% interest on banked cash per intermission
     interestCap: 50, // max $50 interest per wave
+    doorCost: 300, // all doors cost $300
+    machineCost: 250, // zyn & keg cost $250
   },
 
   // Shop
@@ -76,12 +79,13 @@ export const BALANCE = {
       { id: "medkit", name: "Medkit", desc: "Heal 80 HP", basePrice: 120 },
       { id: "dmgBoost", name: "Adrenaline", desc: "+5 damage next wave", basePrice: 100 },
       // Pistol is a starting weapon — not sold in shop
-      { id: "shotgun", name: "Shotgun", desc: "8 shells, spread", basePrice: 350, unlockWave: 4 },
-      { id: "smg", name: "SMG", desc: "50 rounds, rapid fire", basePrice: 500, unlockWave: 7 },
+      { id: "shotgun", name: "Shotgun", desc: "8 shells, spread", basePrice: 350 },
+      { id: "smg", name: "SMG", desc: "50 rounds, rapid fire", basePrice: 500 },
       { id: "ammo_light", name: "Light Ammo", desc: "+2 clips (pistol & SMG)", basePrice: 75 },
-      { id: "ammo_shotgun", name: "Shotgun Shells", desc: "+2 shotgun clips", basePrice: 80, unlockWave: 4 },
-      { id: "barricade", name: "Barricade", desc: "Blocks enemies, 300 HP", basePrice: 30 },
-      { id: "landmine", name: "Landmine", desc: "AoE explosion on contact", basePrice: 40 },
+      { id: "ammo_shotgun", name: "Shotgun Shells", desc: "+2 shotgun clips", basePrice: 80 },
+      { id: "ammo_heavy", name: "Heavy Ammo", desc: "+2 assault rifle mags", basePrice: 100 },
+      { id: "barricade", name: "Barricade", desc: "Blocks enemies, 300 HP", basePrice: 30, hidden: true },
+      { id: "landmine", name: "Landmine", desc: "AoE explosion on contact", basePrice: 40, hidden: true },
       { id: "grenade", name: "Grenade", desc: "Throwable explosive (max 3)", basePrice: 60 },
       { id: "rpg", name: "RPG", desc: "2 rockets, massive AoE", basePrice: 800, devOnly: true },
       { id: "assault_rifle", name: "Assault Rifle", desc: "2x50rd mags, high damage", basePrice: 650, devOnly: true },
@@ -276,9 +280,9 @@ export const BALANCE = {
         elite:    { name: "Luck III",         desc: "+10% crit",  flatCrit: 0.10, minLevel: 9 },
       },
       scavenger: {
-        basic:    { name: "Scavenger",       desc: "+15% kill $",  killBonus: 0.15, minLevel: 1 },
-        advanced: { name: "Scavenger II",   desc: "+25% kill $",  killBonus: 0.25, minLevel: 5 },
-        elite:    { name: "Scavenger III",  desc: "+40% kill $",  killBonus: 0.40, minLevel: 9 },
+        basic:    { name: "Scavenger",       desc: "+$5 per kill",   killBonus: 5, minLevel: 1 },
+        advanced: { name: "Scavenger II",   desc: "+$8 per kill",   killBonus: 8, minLevel: 5 },
+        elite:    { name: "Scavenger III",  desc: "+$12 per kill",  killBonus: 12, minLevel: 9 },
       },
     },
     categoryWeights: { strength: 22, health: 22, stamina: 18, speed: 14, luck: 12, scavenger: 12 } as Record<string, number>,

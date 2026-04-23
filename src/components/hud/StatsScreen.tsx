@@ -178,8 +178,8 @@ export const StatsScreen = memo(function StatsScreen() {
                 <StatRow label="Speed" current={effective.speed} base={base.speed} />
                 <StatRow label="Regen" current={effective.regen} base={base.regen} suffix="/s" />
                 <StatRow label="Crit" current={Math.round(effective.critChance * 100)} base={Math.round(base.critChance * 100)} suffix="%" />
-                {effective.killBonusPct > 0 && (
-                  <StatRow label="Kill $" current={Math.round(effective.killBonusPct * 100)} base={0} suffix="%" />
+                {effective.killBonusFlat > 0 && (
+                  <StatRow label="Kill Bonus" current={effective.killBonusFlat} base={0} suffix="$" />
                 )}
               </div>
             </Panel>

@@ -426,11 +426,10 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // South Building: unlock and set price to $400 (was locked in Tiled)
-    const southDoor = this.doors.find(d => d.label === "South Building");
-    if (southDoor) {
-      southDoor.locked = false;
-      southDoor.cost = 400;
+    // All doors: unlock and set uniform price from balance
+    for (const door of this.doors) {
+      door.locked = false;
+      door.cost = BALANCE.economy.doorCost;
     }
 
     // Generator + Machines — read from interactables layer
@@ -452,8 +451,8 @@ export class GameScene extends Phaser.Scene {
         } else if (objType === "machine") {
           const name = ((obj as any).name || "").toLowerCase();
           const machineType = name.includes("zyn") ? "zyn" : "keg";
-          const cost = props?.find((p: any) => p.name === "cost")?.value ?? 1000;
           const label = props?.find((p: any) => p.name === "label")?.value ?? "Machine";
+          const cost = BALANCE.economy.machineCost; // uniform price from balance
           const textureKey = `machine-${machineType}-off`;
           const sprite = this.add.sprite(cx, cy, textureKey).setDepth(3);
           this.machines.push({ machineType, label, cost, x: cx, y: cy, sprite, purchased: false });
@@ -1039,9 +1038,9 @@ export class GameScene extends Phaser.Scene {
     };
 
     this.waveManager.onIntermissionStart = () => {
-      // Wave completion bonus
-      const waveBonus = BALANCE.economy.waveCompletionBonus.base +
-        this.waveManager.wave * BALANCE.economy.waveCompletionBonus.perWave;
+      // Wave completion bonus — flat: $50 waves 1-5, $100 waves 6+
+      const wcb = BALANCE.economy.waveCompletionBonus;
+      const waveBonus = this.waveManager.wave >= wcb.lateWave ? wcb.lateBonus : wcb.earlyBonus;
       this.currency += waveBonus;
       this.showWeaponMessage(`+$${waveBonus} WAVE CLEAR`, "#44dd44");
 
@@ -1817,12 +1816,12 @@ export class GameScene extends Phaser.Scene {
 
   private onEnemyKilled(enemy: Enemy, source: "melee" | "ranged" | "trap" = "ranged") {
     this.kills++;
-    // Kill reward with scavenger bonus — melee kills earn 25% more
+    // Kill reward — flat bonuses: melee +$5, scavenger adds flat $
     const effective = this.levelingSystem.getEffectiveStats(this.characterDef.stats);
     const baseReward = BALANCE.economy.killReward[enemy.enemyType];
-    const meleeBonus = source === "melee" ? 0.25 : 0;
-    const bonus = Math.floor(baseReward * (effective.killBonusPct + meleeBonus));
-    this.currency += baseReward + bonus;
+    const meleeFlat = source === "melee" ? BALANCE.economy.meleeBonus : 0;
+    const scavengerFlat = Math.floor(effective.killBonusFlat);
+    this.currency += baseReward + meleeFlat + scavengerFlat;
     this.waveManager.onEnemyKilled();
     this.playRandomEnemyDeath();
 
@@ -3516,11 +3515,12 @@ export class GameScene extends Phaser.Scene {
     const items = BALANCE.shop.items;
     const columns: number[][] = [[], [], []];
     items.forEach((item, idx) => {
-      // Skip dev-only items when not in dev mode
+      // Skip dev-only and hidden items when not in dev mode
       if ((item as any).devOnly && !this.devMode) return;
+      if ((item as any).hidden && !this.devMode) return;
       const id = item.id;
       if (id === "heal" || id === "medkit" || id === "dmgBoost") columns[0].push(idx);
-      else if (["shotgun", "smg", "ammo_light", "ammo_shotgun", "rpg", "assault_rifle"].includes(id)) columns[1].push(idx);
+      else if (["shotgun", "smg", "ammo_light", "ammo_shotgun", "ammo_heavy", "rpg", "assault_rifle"].includes(id)) columns[1].push(idx);
       else columns[2].push(idx);
     });
     this.shopGrid = columns;
@@ -3559,18 +3559,17 @@ export class GameScene extends Phaser.Scene {
     // Filter out dev-only items when not in dev mode — they shouldn't even appear
     const visibleItems = items.filter((item) => {
       if ((item as any).devOnly && !this.devMode) return false;
+      if ((item as any).hidden && !this.devMode) return false;
       return true;
     });
     const shopItems = visibleItems.map((item) => {
       const originalIdx = items.indexOf(item);
-      const unlockWave = (item as any).unlockWave;
-      const locked = this.devMode ? false : (unlockWave ? this.waveManager.wave < unlockWave : false);
       const price = this.getItemPrice(originalIdx);
       const canAfford = this.currency >= price;
       const isEquipped = ["shotgun", "smg", "rpg", "assault_rifle"].includes(item.id) && this.weapons.includes(item.id);
       const id = item.id;
       let category: "supplies" | "weapons" | "traps" = "supplies";
-      if (["shotgun", "smg", "ammo_light", "ammo_shotgun", "rpg", "assault_rifle"].includes(id)) category = "weapons";
+      if (["shotgun", "smg", "ammo_light", "ammo_shotgun", "ammo_heavy", "rpg", "assault_rifle"].includes(id)) category = "weapons";
       else if (["barricade", "landmine", "grenade"].includes(id)) category = "traps";
 
       return {
@@ -3579,8 +3578,7 @@ export class GameScene extends Phaser.Scene {
         desc: item.desc,
         price,
         icon: this.shopIconMap[item.id] || "",
-        locked,
-        unlockWave: unlockWave || undefined,
+        locked: false,
         equipped: isEquipped,
         canAfford,
         category,
@@ -4472,14 +4470,6 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // Wave-lock check (bypassed in dev mode)
-    const unlockWave = (item as any).unlockWave;
-    if (!this.devMode && unlockWave && this.waveManager.wave < unlockWave) {
-      this.playSound("sfx-error", 0.3);
-      this.showWeaponMessage(`UNLOCKS WAVE ${unlockWave}`, "#ff4444");
-      return;
-    }
-
     const itemId = item.id;
 
     switch (itemId) {
@@ -4537,9 +4527,9 @@ export class GameScene extends Phaser.Scene {
         break;
       }
       case "ammo_light": {
-        // Light ammo refills pistol, SMG, and Assault Rifle (if owned)
+        // Light ammo refills pistol and SMG (if owned)
         let anyRefilled = false;
-        for (const wk of ["pistol", "smg", "assault_rifle"]) {
+        for (const wk of ["pistol", "smg"]) {
           if (!this.weapons.includes(wk)) continue;
           const wDef = BALANCE.weapons[wk as keyof typeof BALANCE.weapons];
           const wAmmo = this.weaponAmmo[wk];
@@ -4566,6 +4556,20 @@ export class GameScene extends Phaser.Scene {
         this.currency -= price;
         const addAmmo = wDef.magazineSize * 2;
         wAmmo.reserve = Math.min(wAmmo.reserve + addAmmo, totalMax - wAmmo.mag);
+        break;
+      }
+      case "ammo_heavy": {
+        if (!this.weapons.includes("assault_rifle")) {
+          return;
+        }
+        const arDef = BALANCE.weapons.assault_rifle;
+        const arAmmo = this.weaponAmmo.assault_rifle;
+        if (!arAmmo) return;
+        const arTotalMax = arDef.magazineSize * arDef.totalClips;
+        if (arAmmo.mag + arAmmo.reserve >= arTotalMax) return;
+        this.currency -= price;
+        const addHeavy = arDef.magazineSize * 2;
+        arAmmo.reserve = Math.min(arAmmo.reserve + addHeavy, arTotalMax - arAmmo.mag);
         break;
       }
       case "barricade":

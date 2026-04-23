@@ -131,7 +131,7 @@ export interface HUDData {
     speed: number;
     regen: number;
     critChance: number;
-    killBonusPct: number;
+    killBonusFlat: number;
   };
   statsBase: {
     damage: number;
@@ -220,7 +220,7 @@ const DEFAULT_STATE: HUDData = {
   leaderboard: [],
   leaderboardHighlightId: null,
   statsOpen: false,
-  statsEffective: { damage: 0, maxHealth: 0, maxStamina: 0, speed: 0, regen: 0, critChance: 0, killBonusPct: 0 },
+  statsEffective: { damage: 0, maxHealth: 0, maxStamina: 0, speed: 0, regen: 0, critChance: 0, killBonusFlat: 0 },
   statsBase: { damage: 0, hp: 0, stamina: 0, speed: 0, regen: 0, critChance: 0 },
   statsBuffs: [],
   statsXp: 0,
