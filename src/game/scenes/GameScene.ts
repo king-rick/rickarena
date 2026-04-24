@@ -145,8 +145,16 @@ export class GameScene extends Phaser.Scene {
   private propsMidLayer?: Phaser.Tilemaps.TilemapLayer;
   private floorInteriorLayer?: Phaser.Tilemaps.TilemapLayer;
 
-  // Interior darkness — hide outside map when inside a building
-  private interiorDarknessRT?: Phaser.GameObjects.RenderTexture;
+  // Outdoor-only layers — hidden when player enters a building
+  private groundLayer?: Phaser.Tilemaps.TilemapLayer;
+  private groundDetailLayer?: Phaser.Tilemaps.TilemapLayer;
+  private pathsLayer?: Phaser.Tilemaps.TilemapLayer;
+  private foliagePaintedLayer?: Phaser.Tilemaps.TilemapLayer;
+  private overhangsLayer?: Phaser.Tilemaps.TilemapLayer;
+  private vfxMarksLayer?: Phaser.Tilemaps.TilemapLayer;
+  private insideWallsLayer?: Phaser.Tilemaps.TilemapLayer;
+
+  // Interior visibility — toggle outdoor layers when inside a building
   private playerInsideBuilding = true; // player spawns inside the house
 
   // Starting room — chest + door before wave 1
@@ -264,39 +272,25 @@ export class GameScene extends Phaser.Scene {
     ];
     // Main camera background matches grass so tile seams don't show black gaps
     this.cameras.main.setBackgroundColor(0x5a7a2a);
-    map.createLayer("ground", allTilesets, 0, 0)?.setDepth(-2);
-    map.createLayer("ground_detail", allTilesets, 0, 0)?.setDepth(-1.5);
-    map.createLayer("paths", allTilesets, 0, 0)?.setDepth(-1);
+    this.groundLayer = map.createLayer("ground", allTilesets, 0, 0)?.setDepth(-2) ?? undefined;
+    this.groundDetailLayer = map.createLayer("ground_detail", allTilesets, 0, 0)?.setDepth(-1.5) ?? undefined;
+    this.pathsLayer = map.createLayer("paths", allTilesets, 0, 0)?.setDepth(-1) ?? undefined;
     this.floorInteriorLayer = map.createLayer("floor_interior", allTilesets, 0, 0)?.setDepth(-0.5) ?? undefined;
     this.wallsBaseLayer = map.createLayer("walls_base", allTilesets, 0, 0)?.setDepth(0) ?? undefined;
-    map.createLayer("inside walls", allTilesets, 0, 0)?.setDepth(0.5);
+    this.insideWallsLayer = map.createLayer("inside walls", allTilesets, 0, 0)?.setDepth(0.5) ?? undefined;
     this.wallsTopLayer = map.createLayer("walls_top", allTilesets, 0, 0)?.setDepth(1) ?? undefined;
     this.propsLowLayer = map.createLayer("props_low", allTilesets, 0, 0)?.setDepth(2) ?? undefined;
+    map.createLayer("props_indoor", allTilesets, 0, 0)?.setDepth(2);
     this.propsMidLayer = map.createLayer("props_mid", allTilesets, 0, 0)?.setDepth(3) ?? undefined;
-    map.createLayer("foliage_painted", allTilesets, 0, 0)?.setDepth(4);
+    this.foliagePaintedLayer = map.createLayer("foliage_painted", allTilesets, 0, 0)?.setDepth(25) ?? undefined;
     this.roofLayer = map.createLayer("roof", allTilesets, 0, 0)?.setDepth(26) ?? undefined;
-    map.createLayer("overhangs", allTilesets, 0, 0)?.setDepth(25);
-    map.createLayer("vfx_marks", allTilesets, 0, 0)?.setDepth(5);
+    this.overhangsLayer = map.createLayer("overhangs", allTilesets, 0, 0)?.setDepth(25) ?? undefined;
+    this.vfxMarksLayer = map.createLayer("vfx_marks", allTilesets, 0, 0)?.setDepth(5) ?? undefined;
     this.cameras.main.setRoundPixels(true);
 
     // Expose map dimensions for enemy AI bounds clamping
     (this as any).mapWidth = map.widthInPixels;
     (this as any).mapHeight = map.heightInPixels;
-
-    // Spawn sprites from Tiled object layer
-    const spritesLayer = map.getObjectLayer("sprites");
-    if (spritesLayer) {
-      for (const obj of spritesLayer.objects) {
-        if (obj.name === "endicott-v1" || obj.name === "fountain" || obj.name === "greenhouse" || obj.name === "gazebo") {
-          const spr = this.add.sprite(0, 0, obj.name);
-          spr.setOrigin(0, 1);
-          spr.setPosition(obj.x!, obj.y!);
-          spr.setDisplaySize(obj.width!, obj.height!);
-          spr.setDepth(2);
-          if (obj.rotation) spr.setAngle(obj.rotation);
-        }
-      }
-    }
 
     // Obstacles group — must be created before fence so fence can register collision
     this.obstacles = this.physics.add.staticGroup();
@@ -363,10 +357,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // East tree wall — individual sprites so they overlap naturally
-    this.spawnTreeWall(collisionRects);
-
-    // Fence border removed — perimeter handled by map tiles
+    // Fence border + tree walls removed — perimeter handled by Tiled map tiles
 
     // A* pathfinding grid — built from collision rects + polygons
     this.pathfinder = new Pathfinder(ENDICOTT_MAP_W, ENDICOTT_MAP_H, collisionRects, collisionPolygons);
@@ -498,7 +489,7 @@ export class GameScene extends Phaser.Scene {
 
     // Camera (1080p — wider view than 540p at same zoom)
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
-    this.cameras.main.setZoom(5.0);
+    this.cameras.main.setZoom(4.0);
     this.cameras.main.setBounds(0, 0, ENDICOTT_MAP_W, ENDICOTT_MAP_H);
     this.cameras.main.setRoundPixels(true);
 
@@ -1129,10 +1120,8 @@ export class GameScene extends Phaser.Scene {
     });
 
 
-    // Player spawns inside — build interior darkness immediately (no fade)
-    const spawnTileX = Math.floor(this.player.x / 32);
-    const spawnTileY = Math.floor(this.player.y / 32);
-    this.buildInteriorDarkness(spawnTileX, spawnTileY);
+    // Player spawns inside — hide outdoor layers immediately (no fade)
+    this.setOutdoorLayersVisible(false);
   }
 
   update(time: number, delta: number) {
@@ -1203,7 +1192,7 @@ export class GameScene extends Phaser.Scene {
       const pty = Math.floor(this.player.y / 32);
       // Zone2 (Gate): tile strip just past the gate — triggers same round gate is opened
       const gateDoor = this.doors.find(d => d.label === "Gate");
-      if (!this.scaryboiZone2Triggered && (gateDoor?.opened || gateDoor?.broken) && pty === 40 && ptx >= 19 && ptx <= 21) {
+      if (!this.scaryboiZone2Triggered && (gateDoor?.opened || gateDoor?.broken) && pty === 37 && ptx >= 18 && ptx <= 22) {
         this.scaryboiZone2Triggered = true;
         this.waveManager.triggerEncounter("zone2");
       }
@@ -1221,6 +1210,7 @@ export class GameScene extends Phaser.Scene {
     // Roof fade — hide roof when player is under it
     this.updateRoofVisibility();
     this.updateInteriorDarkness();
+    this.updateCanopyFade();
 
     // Barricade placement ghost
     const showGhost = this.activeSlot === this.barricadeSlot
@@ -3219,162 +3209,6 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private spawnFenceBorder() {
-    const mapW = ENDICOTT_MAP_W;
-    const mapH = ENDICOTT_MAP_H;
-    const hTex = "trap-barricade";   // horizontal (64x32)
-    const vTex = "trap-barricade-v"; // vertical (32x64)
-    const margin = 2;
-    const depth = 3;
-    const hStep = 48; // tighter horizontal spacing
-    const vStep = 48; // tighter vertical spacing
-
-    // Road gap definitions (pixel ranges to skip fence placement)
-    const southRoadX = { min: 864, max: 1024 };  // centered on player spawn (x=960)
-    const northRoadX = { min: 800, max: 928 };    // based on decoration tiles
-    const westRoadY  = { min: 704, max: 896 };    // based on decoration tiles
-
-    const addFence = (x: number, y: number, tex: string) => {
-      const fence = this.add.image(x, y, tex);
-      fence.setDepth(depth);
-      this.physics.add.existing(fence, true); // true = static body
-      this.obstacles.add(fence);
-    };
-
-    // North edge (horizontal barricades) — skip north road gap
-    for (let x = 0; x < mapW; x += hStep) {
-      const cx = x + 32;
-      if (cx > northRoadX.min && cx < northRoadX.max) continue;
-      addFence(cx, margin + 16, hTex);
-    }
-    // South edge — skip south road gap
-    for (let x = 0; x < mapW; x += hStep) {
-      const cx = x + 32;
-      if (cx > southRoadX.min && cx < southRoadX.max) continue;
-      addFence(cx, mapH - margin - 16, hTex);
-    }
-    // West edge (vertical barricades) — skip west road gap
-    for (let y = 0; y < mapH; y += vStep) {
-      const cy = y + 32;
-      if (cy > westRoadY.min && cy < westRoadY.max) continue;
-      addFence(margin + 16, cy, vTex);
-    }
-    // East edge — no road gap (forest side)
-    for (let y = 0; y < mapH; y += vStep) {
-      addFence(mapW - margin - 16, y + 32, vTex);
-    }
-  }
-
-  private spawnTreeWall(collisionRects: { x: number; y: number; w: number; h: number }[] = []) {
-    const mapW = ENDICOTT_MAP_W;
-    const mapH = ENDICOTT_MAP_H;
-    const rng = (min: number, max: number) => min + Math.random() * (max - min);
-    const spacingX = 40;
-    const spacingY = 44;
-
-    // Road exclusion zones — no trees near road exits or main paths
-    // Each zone is a rectangle { x, y, w, h } in world coordinates
-    const roadZones = [
-      // South road exit (centered on spawn x=960)
-      { x: 864, y: 1700, w: 160, h: 300 },
-      // North road exit
-      { x: 800, y: 0, w: 128, h: 300 },
-      // West road exit
-      { x: 0, y: 704, w: 300, h: 192 },
-    ];
-    const roadBuffer = 80; // extra clearance around road zones
-    const collisionBuffer = 80; // extra clearance around building walls
-    const isExcluded = (x: number, y: number) => {
-      for (const z of roadZones) {
-        if (
-          x > z.x - roadBuffer && x < z.x + z.w + roadBuffer &&
-          y > z.y - roadBuffer && y < z.y + z.h + roadBuffer
-        ) return true;
-      }
-      for (const r of collisionRects) {
-        if (
-          x > r.x - collisionBuffer && x < r.x + r.w + collisionBuffer &&
-          y > r.y - collisionBuffer && y < r.y + r.h + collisionBuffer
-        ) return true;
-      }
-      return false;
-    };
-
-    // Seeded-ish noise for organic tree line edges
-    // Returns a wavy offset (in pixels) so the boundary isn't a straight line
-    const edgeWobble = (pos: number, seed: number) => {
-      const s1 = Math.sin(pos * 0.008 + seed) * 48;
-      const s2 = Math.sin(pos * 0.023 + seed * 2.7) * 24;
-      const s3 = Math.sin(pos * 0.051 + seed * 5.1) * 12;
-      return s1 + s2 + s3;
-    };
-
-    const placeTree = (x: number, y: number) => {
-      const fx = x + rng(-12, 12);
-      const fy = y + rng(-10, 10);
-      if (isExcluded(fx, fy)) return;
-      const isDark = Math.random() < 0.3;
-      const sheet = isDark ? "dark-trees-64" : "trees-64";
-      const frame = Math.floor(Math.random() * 16);
-      const tree = this.add.sprite(fx, fy, sheet, frame);
-      tree.setOrigin(0.5, 0.8);
-      tree.setDepth(fy / 10);
-      tree.setScale(rng(0.9, 1.15));
-    };
-
-    const placeSparseTree = (x: number, y: number) => {
-      const fx = x + rng(-8, 8);
-      const fy = y + rng(-8, 8);
-      if (isExcluded(fx, fy)) return;
-      if (Math.random() < 0.45) return;
-      const isDark = Math.random() < 0.4;
-      const sheet = isDark ? "dark-trees-64" : "trees-64";
-      const frame = Math.floor(Math.random() * 16);
-      const tree = this.add.sprite(fx, fy, sheet, frame);
-      tree.setOrigin(0.5, 0.8);
-      tree.setDepth(fy / 10);
-      tree.setScale(rng(0.85, 1.1));
-    };
-
-    // --- EAST PERIMETER ---
-    // Dense at the far edge, gradually thins toward center
-    const eastEdgeX = 57 * 32; // dense wall starts here (pushed right to clear paths)
-    for (let baseY = -32; baseY < mapH + 32; baseY += spacingY) {
-      const wobble = edgeWobble(baseY, 42);
-      // Dense zone: eastEdgeX to map edge
-      for (let baseX = eastEdgeX + wobble; baseX < mapW + 32; baseX += spacingX) {
-        placeTree(baseX, baseY);
-      }
-      // Gradient zone: gets sparser the further from the edge (narrower to avoid paths)
-      const gradientStart = eastEdgeX + wobble - 64; // ~2 tiles of gradient
-      for (let baseX = gradientStart; baseX < eastEdgeX + wobble; baseX += spacingX * 1.3) {
-        const distFromEdge = (eastEdgeX + wobble) - baseX;
-        const skipChance = distFromEdge / 100; // thins out faster
-        if (Math.random() < skipChance) continue;
-        placeSparseTree(baseX, baseY);
-      }
-    }
-
-    // --- SOUTHEAST PERIMETER ---
-    // Tighter band, ~2-3 tiles deep with gradient
-    const southEdgeY = 57 * 32; // dense wall starts here (pushed down to clear paths)
-    for (let baseX = 30 * 32; baseX < eastEdgeX - 64; baseX += spacingX) {
-      const wobble = edgeWobble(baseX, 97);
-      // Dense zone: southEdgeY to map edge (narrow band)
-      for (let baseY = southEdgeY + wobble; baseY < mapH + 32; baseY += spacingY) {
-        placeTree(baseX, baseY);
-      }
-      // Thin gradient above the dense line
-      const gradientStart = southEdgeY + wobble - 48; // ~1.5 tiles of gradient
-      for (let baseY = gradientStart; baseY < southEdgeY + wobble; baseY += spacingY * 1.5) {
-        const distFromEdge = (southEdgeY + wobble) - baseY;
-        const skipChance = distFromEdge / 60;
-        if (Math.random() < skipChance) continue;
-        placeSparseTree(baseX, baseY);
-      }
-    }
-  }
-
   // ------- Pause / Settings (React-rendered, action-driven) -------
 
   private registerReactActions() {
@@ -3438,7 +3272,7 @@ export class GameScene extends Phaser.Scene {
               window.removeEventListener("wheel", this.wheelHandler);
               this.wheelHandler = undefined;
             }
-            this.cameras.main.setZoom(5.0);
+            this.cameras.main.setZoom(4.0);
           }
           break;
         }
@@ -3613,6 +3447,89 @@ export class GameScene extends Phaser.Scene {
     return Math.floor(item.basePrice * inflation);
   }
 
+  // ─── Canopy fade (tree canopies go transparent near player + red glow on hidden characters) ───
+
+  private fadedCanopyTiles: { tile: Phaser.Tilemaps.Tile }[] = [];
+  private canopyGlowSprites: Set<Phaser.GameObjects.Sprite> = new Set();
+
+  /** Check if a sprite is substantially under canopy (checks head + center + feet) */
+  private isUnderCanopy(x: number, y: number): boolean {
+    const check = (cx: number, cy: number) => {
+      const tx = Math.floor(cx / 32);
+      const ty = Math.floor(cy / 32);
+      return !!(this.foliagePaintedLayer?.getTileAt(tx, ty) || this.overhangsLayer?.getTileAt(tx, ty));
+    };
+    // Sample 3 points vertically on the sprite — require at least 2 hits
+    const hits = (check(x, y) ? 1 : 0) + (check(x, y - 12) ? 1 : 0) + (check(x, y - 24) ? 1 : 0);
+    return hits >= 2;
+  }
+
+  private updateCanopyFade() {
+    // Restore previously faded tiles
+    for (const { tile } of this.fadedCanopyTiles) {
+      tile.alpha = 1;
+    }
+    this.fadedCanopyTiles.length = 0;
+
+    // Remove glow from sprites that were glowing last frame
+    for (const sprite of this.canopyGlowSprites) {
+      if (sprite.active && sprite.preFX) {
+        sprite.preFX.clear();
+      }
+    }
+    this.canopyGlowSprites.clear();
+
+    if (this.playerInsideBuilding) return;
+
+    const px = this.player.x;
+    const py = this.player.y;
+    const fadeRadius = 4; // tiles
+    const tileX = Math.floor(px / 32);
+    const tileY = Math.floor(py / 32);
+
+    const canopyLayers = [this.foliagePaintedLayer, this.overhangsLayer];
+
+    for (const layer of canopyLayers) {
+      if (!layer) continue;
+      for (let dy = -fadeRadius; dy <= fadeRadius; dy++) {
+        for (let dx = -fadeRadius; dx <= fadeRadius; dx++) {
+          const tx = tileX + dx;
+          const ty = tileY + dy;
+          const tile = layer.getTileAt(tx, ty);
+          if (!tile) continue;
+
+          const worldTileCenterX = tx * 32 + 16;
+          const worldTileCenterY = ty * 32 + 16;
+          const dist = Phaser.Math.Distance.Between(px, py, worldTileCenterX, worldTileCenterY) / 32;
+
+          if (dist < fadeRadius) {
+            const t = Math.max(0, (dist - 1) / (fadeRadius - 1));
+            tile.alpha = 0.55 + t * 0.45; // 0.55 at center, 1.0 at edge
+            this.fadedCanopyTiles.push({ tile });
+          }
+        }
+      }
+    }
+
+    // Red glow outline on player and enemies under canopy
+    const addGlow = (sprite: Phaser.GameObjects.Sprite) => {
+      if (!sprite.active || !sprite.preFX) return;
+      sprite.preFX.addGlow(0xff2222, 2, 0, false, 0.15, 10);
+      this.canopyGlowSprites.add(sprite);
+    };
+
+    if (this.isUnderCanopy(this.player.x, this.player.y)) {
+      addGlow(this.player);
+    }
+
+    this.enemies.getChildren().forEach((obj) => {
+      const enemy = obj as Phaser.GameObjects.Sprite;
+      if (enemy.active && this.isUnderCanopy(enemy.x, enemy.y)) {
+        addGlow(enemy);
+      }
+    });
+  }
+
   // ─── Roof visibility ───
 
   private updateRoofVisibility() {
@@ -3641,7 +3558,12 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  // ─── Interior darkness (fog of war inside buildings) ───
+  // ─── Interior visibility (hide outdoor layers when inside a building) ───
+
+  /** Layers that should be hidden when the player is inside a building */
+  private get outdoorLayers(): (Phaser.Tilemaps.TilemapLayer | undefined)[] {
+    return [this.groundLayer, this.groundDetailLayer, this.pathsLayer, this.foliagePaintedLayer, this.overhangsLayer, this.vfxMarksLayer, this.propsLowLayer, this.insideWallsLayer];
+  }
 
   private updateInteriorDarkness() {
     if (!this.floorInteriorLayer || !this.roofLayer) return;
@@ -3653,88 +3575,27 @@ export class GameScene extends Phaser.Scene {
 
     if (isInside && !this.playerInsideBuilding) {
       this.playerInsideBuilding = true;
-      this.fadeInInteriorDarkness(tileX, tileY);
+      this.fadeInteriorTransition(true);
     } else if (!isInside && this.playerInsideBuilding) {
       this.playerInsideBuilding = false;
-      this.fadeOutInteriorDarkness();
+      this.fadeInteriorTransition(false);
     }
   }
 
-  /** Flood-fill building interior, create black overlay with holes for visible tiles */
-  private buildInteriorDarkness(startTileX: number, startTileY: number) {
-    if (this.interiorDarknessRT) {
-      this.interiorDarknessRT.destroy();
+  /** Set outdoor layers visible/hidden immediately (no fade, for game start) */
+  private setOutdoorLayersVisible(visible: boolean) {
+    const alpha = visible ? 1 : 0;
+    for (const layer of this.outdoorLayers) {
+      layer?.setAlpha(alpha);
     }
-    if (!this.floorInteriorLayer) return;
-
-    // Flood-fill connected interior tiles
-    const visited = new Set<string>();
-    const queue: [number, number][] = [[startTileX, startTileY]];
-    const interiorTiles: [number, number][] = [];
-
-    while (queue.length > 0) {
-      const [tx, ty] = queue.pop()!;
-      const key = `${tx},${ty}`;
-      if (visited.has(key)) continue;
-      visited.add(key);
-
-      const tile = this.floorInteriorLayer.getTileAt(tx, ty);
-      if (!tile) continue;
-      // Only include tiles that are actually under a roof (skip stray floor tiles)
-      if (!this.roofLayer?.getTileAt(tx, ty)) continue;
-
-      interiorTiles.push([tx, ty]);
-      queue.push([tx - 1, ty], [tx + 1, ty], [tx, ty - 1], [tx, ty + 1]);
-    }
-
-    // Expand by 1 tile in cardinal directions — only into tiles with wall/roof content
-    const interiorSet = new Set(interiorTiles.map(([tx, ty]) => `${tx},${ty}`));
-    const expandedSet = new Set<string>(interiorSet);
-    const cardinals = [[0, -1], [0, 1], [-1, 0], [1, 0]];
-    for (const [tx, ty] of interiorTiles) {
-      for (const [dx, dy] of cardinals) {
-        const nx = tx + dx;
-        const ny = ty + dy;
-        const key = `${nx},${ny}`;
-        if (expandedSet.has(key)) continue;
-        const hasWall = this.wallsBaseLayer?.getTileAt(nx, ny)
-          || this.wallsTopLayer?.getTileAt(nx, ny)
-          || this.roofLayer?.getTileAt(nx, ny);
-        if (hasWall) {
-          expandedSet.add(key);
-        }
-      }
-    }
-
-    const mapW = 100 * 32;
-    const mapH = 60 * 32;
-
-    // Create RenderTexture: fill black, then erase interior tiles
-    const rt = this.add.renderTexture(0, 0, mapW, mapH);
-    rt.setOrigin(0, 0);
-    rt.setDepth(200); // above all game objects (trees go up to ~192), below HUD (150+minimap 160)
-
-    // Fill entirely with black
-    rt.fill(0x000000, 1);
-
-    // Erase (punch out) the interior tiles so they're transparent
-    const eraser = this.make.graphics({ x: 0, y: 0 });
-    eraser.fillStyle(0xffffff, 1);
-    for (const key of expandedSet) {
-      const [tx, ty] = key.split(",").map(Number);
-      eraser.fillRect(tx * 32, ty * 32, 32, 32);
-    }
-    rt.erase(eraser);
-    eraser.destroy();
-
-    this.interiorDarknessRT = rt;
+    // Set camera background to black when inside so hidden ground shows black
+    this.cameras.main.setBackgroundColor(visible ? 0x5a7a2a : 0x000000);
   }
 
-  /** Fade to black, build the interior darkness, then reveal */
-  private fadeInInteriorDarkness(tileX: number, tileY: number) {
-    // Create a full-screen black overlay for the transition
+  /** Fade to black, toggle outdoor layers, then reveal */
+  private fadeInteriorTransition(enteringBuilding: boolean) {
     const fade = this.add.graphics();
-    fade.setDepth(201);
+    fade.setDepth(300);
     fade.fillStyle(0x000000, 1);
     fade.fillRect(0, 0, 100 * 32, 60 * 32);
     fade.setAlpha(0);
@@ -3745,41 +3606,7 @@ export class GameScene extends Phaser.Scene {
       duration: 250,
       ease: "Sine.easeIn",
       onComplete: () => {
-        // Build the interior mask while screen is black
-        this.buildInteriorDarkness(tileX, tileY);
-        // Fade the transition overlay out, revealing the masked interior
-        this.tweens.add({
-          targets: fade,
-          alpha: 0,
-          duration: 400,
-          ease: "Sine.easeOut",
-          onComplete: () => fade.destroy(),
-        });
-      },
-    });
-  }
-
-  /** Fade to black, remove the interior darkness, then reveal the outside */
-  private fadeOutInteriorDarkness() {
-    // Create a full-screen black overlay for the transition
-    const fade = this.add.graphics();
-    fade.setDepth(201);
-    fade.fillStyle(0x000000, 1);
-    fade.fillRect(0, 0, 100 * 32, 60 * 32);
-    fade.setAlpha(0);
-
-    this.tweens.add({
-      targets: fade,
-      alpha: 1,
-      duration: 250,
-      ease: "Sine.easeIn",
-      onComplete: () => {
-        // Remove interior darkness while screen is black
-        if (this.interiorDarknessRT) {
-          this.interiorDarknessRT.destroy();
-          this.interiorDarknessRT = undefined;
-        }
-        // Fade the transition overlay out, revealing the full map
+        this.setOutdoorLayersVisible(!enteringBuilding);
         this.tweens.add({
           targets: fade,
           alpha: 0,
