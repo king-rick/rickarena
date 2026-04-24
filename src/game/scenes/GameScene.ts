@@ -1201,21 +1201,19 @@ export class GameScene extends Phaser.Scene {
     if (!this.waveManager.isScaryboiDefeated() && !this.waveManager.isBossActive()) {
       const ptx = Math.floor(this.player.x / 32);
       const pty = Math.floor(this.player.y / 32);
-      // Only trigger encounters during active waves — not during intermission or pre-game
-      const waveIsActive = this.waveManager.state === "active" || this.waveManager.state === "clearing";
       // Zone2 (Gate): tile strip just past the gate — triggers same round gate is opened
       const gateDoor = this.doors.find(d => d.label === "Gate");
-      if (waveIsActive && !this.scaryboiZone2Triggered && (gateDoor?.opened || gateDoor?.broken) && pty === 40 && ptx >= 19 && ptx <= 21) {
+      if (!this.scaryboiZone2Triggered && (gateDoor?.opened || gateDoor?.broken) && pty === 40 && ptx >= 19 && ptx <= 21) {
         this.scaryboiZone2Triggered = true;
         this.waveManager.triggerEncounter("zone2");
       }
       // South Building: player walks inside — only if door opened/purchased
       const southDoor = this.doors.find(d => d.label === "South Building");
-      if (waveIsActive && !this.scaryboiSouthTriggered && (!southDoor || southDoor.opened || southDoor.broken) && ptx >= 2 && ptx <= 16 && pty >= 37 && pty <= 46) {
+      if (!this.scaryboiSouthTriggered && (!southDoor || southDoor.opened || southDoor.broken) && ptx >= 2 && ptx <= 16 && pty >= 37 && pty <= 46) {
         this.waveManager.triggerEncounter("southBuilding");
       }
       // Estate final stand: only triggers once both other encounters are done
-      if (waveIsActive && !this.scaryboiEstateTriggered && !this.waveManager.isEstateLocked() && ptx >= 30 && ptx <= 45 && pty >= 18 && pty <= 24) {
+      if (!this.scaryboiEstateTriggered && !this.waveManager.isEstateLocked() && ptx >= 30 && ptx <= 45 && pty >= 18 && pty <= 24) {
         this.waveManager.triggerEncounter("estate");
       }
     }
