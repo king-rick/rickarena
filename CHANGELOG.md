@@ -1,5 +1,51 @@
 # RickArena Changelog
 
+## 2026-04-23 — SCARYBOI Overhaul, Physics Fix, Balance Caps
+
+**SCARYBOI boss fight completely reworked — all 3 encounters now cinematic, aggressive AI, physics bugs fixed.**
+
+### SCARYBOI Cinematic Cutscenes (All Encounters)
+- All 3 encounters (zone2, southBuilding, estate) now trigger a cinematic cutscene
+- Encounter 1 (zone2): full sequence — letterbox bars → smoke → backflip → idle → banner + VO
+- Encounters 2+ (southBuilding, estate): short sequence — smoke → idle → banner (no backflip)
+- Per-encounter quotes and VO paths in `SCARYBOI_CUTSCENE_DATA` (easy to swap later)
+- `ScaryboiIntro.tsx` reads quote/VO dynamically from hudState — no more hardcoded text
+- VO skipped automatically if voSrc is empty string
+
+### SCARYBOI Aggressive AI Rework
+- Always sprints at player (chasing state) — no more passive approaching
+- Direct charge within 150px — skips A* pathfinding to prevent orbiting behavior
+- Punch lunge: 220px/s for 200ms closes the collision separation gap
+- Body-center distance checks (fixes sprite-origin vs body-center mismatch)
+- Punch range 95px (matches ~84px collision floor between bodies)
+- Always backflips away after punching (no cooldown gate on disengage)
+- Faster cooldowns: punch 900ms, fireball 2000ms, backflip 2000ms
+- Run speed 120, walk speed 55
+- Indoor mode (southBuilding): rush/melee priority, 20% fireball chance
+- Outdoor mode (zone2, estate): balanced, 60% fireball, backflips
+- SCARYBOI faces south in all encounters (toward player)
+- Encounters trigger anytime — works during intermission, not just active rounds
+
+### Physics Fix — Rubber-Band Knockback
+- **Root cause:** `setMass(50)` on player body created 50:1 mass ratio, amplifying collision impulses when sprinting
+- **Fix:** Removed `setMass(50)`, added `setMaxVelocity(260, 260)` as velocity safety cap
+- Player can never exceed sprint speed even during knockback
+- Boss knockbackResist reverted to 0.8 (was mistakenly set to 0.1)
+
+### Balance Caps
+- **Rick superkick:** 400 dmg, max 2 hits, 60° tight cone, sorted by distance (boss killer move)
+- **Crit chance:** Hard capped at 5% regardless of buff stacking
+- **Speed multiplier:** Capped at 1.5x (was 2.5x) — max 240 base, 384 sprinting
+
+### Balance Tuning
+- Boss walk speed 40→55, run speed 90→120
+- Punch range 70→95, punch cooldown 1500→900ms
+- Fireball cooldown 3000→2000ms, backflip cooldown 3000→2000ms
+- Grace periods: 3000→500ms (encounter 1), 3000→0ms (encounters 2+)
+- Assault rifle speed penalty 30%→10%
+
+---
+
 ## NEXT UP — Grenade System: Aim Line Sprite Wiring
 
 **Status: IN PROGRESS — core grenade system built, aim line sprites generated but not wired in yet.**
@@ -124,7 +170,7 @@ Universal grenade system. All characters start with 1, buy more at shop (max 3).
 - Set up persistent memory system (`memory/MEMORY.md` + user, project, feedback memories)
 - Created `/closeout` skill for end-of-session changelog + commit workflow
 
-## 2026-04-22 — Concept Art V3/V4 Generation (Animated Cel-Shaded)
+## 2026-04-22 — Concept Art V3/V4/V5 Generation (Animated Cel-Shaded)
 
 **Full concept art regeneration session using ComfyUI (Flux Dev + RealESRGAN 4x upscale).**
 
@@ -144,8 +190,18 @@ Unified all character concept art into a single animated cel-shaded style matchi
 - Jason x4: Overhead skull-crush, casual stoned pistol shooting, hammer through two zombies, post-battle breather
 - PJ x3: Aerial leaping slash, spinning slash in zombie circle, alley sprint katana + pistol
 
-**Generation scripts:** `concept-art/generate-v3*.py`, `concept-art/generate-v4-variants.py`
-**Output:** ComfyUI output folder, `rickarena_v3_*` and `rickarena_v4_*` prefixes.
+**V4 Jason redo (2 variants):** Shaggy-from-Scooby-Doo surprise scene. Joint raised, wide eyes, massive horde behind.
+
+**V5 scene batch (6 images):**
+- Loading screen: 4 heroes + Mason boss looming in shadow (only glowing purple glasses visible)
+- SCARYBOI intro: emerging from supernatural smoke, lower half engulfed
+- Mason DJ variant: dungeon nightclub, zombie crowd
+- Endicott Estate: aerial wide shot of the grounds, red sky, fog, zombie silhouettes
+- Title screen: 4 silhouetted survivors on ridge overlooking zombie-filled burning city (no text)
+- Zombie dog pack: 5 mutant dogs with teal-green crystal spikes charging at viewer
+
+**Generation scripts:** `concept-art/generate-v*.py`
+**Output:** ComfyUI output folder, `rickarena_v3_*`, `rickarena_v4_*`, `rickarena_v5_*` prefixes.
 
 ## 2026-04-12 — SCARYBOI Intro Cinematic + Animated Fireballs
 
