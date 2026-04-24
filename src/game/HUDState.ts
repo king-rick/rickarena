@@ -153,6 +153,9 @@ export interface HUDData {
 
   // SCARYBOI intro cinematic
   scaryboiIntroActive: boolean;
+  scaryboiEncounterIndex: number; // 0, 1, 2 — which encounter cutscene to show
+  scaryboiQuote: string;         // encounter-specific quote text
+  scaryboiVoSrc: string;         // encounter-specific VO audio path (empty = no VO)
 
   // MASON cinematics
   masonAnnouncementActive: boolean;  // wave 5 cutscene
@@ -230,6 +233,9 @@ const DEFAULT_STATE: HUDData = {
   devMode: false,
   devSpawningDisabled: false,
   scaryboiIntroActive: false,
+  scaryboiEncounterIndex: 0,
+  scaryboiQuote: "",
+  scaryboiVoSrc: "",
   masonAnnouncementActive: false,
   masonFightIntroActive: false,
   masonFinalIntroActive: false,

@@ -114,8 +114,11 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private castingFireball = false;
   private bossRunning = false; // true when in chase speed
   private bossBusy = false;    // true during boss attacks — zeroes velocity every frame to prevent knockback skating
+  private bossLunging = false; // true during punch lunge — exempts from bossBusy velocity zero
   private bossMovementState: "idle" | "approaching" | "chasing" | "circling" | "retreating" = "idle";
   private bossGracePeriod = 0;   // ms remaining before first attack after spawn
+  private bossIsIndoor = false;  // true for south building — prefer rush/melee over fireballs
+  bossCutscene = false;          // true during first-encounter cutscene — blocks all AI
   private bossCircleDir = 1;     // 1 or -1, randomized for circling direction
   private bossCircleTimer = 0;   // ms remaining in circling state
 
@@ -346,9 +349,15 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     return true;
   }
 
+  /** Set the facing direction (used to orient boss on spawn before grace period idle) */
+  setFacing(dir: Direction) {
+    this.currentDir = dir;
+  }
+
   /** Initialize boss encounter — called by GameScene after spawn */
-  initBossEncounter(gracePeriodMs: number) {
+  initBossEncounter(gracePeriodMs: number, isIndoor = false) {
     this.bossGracePeriod = gracePeriodMs;
+    this.bossIsIndoor = isIndoor;
     this.bossMovementState = "idle";
     this.body.setVelocity(0, 0);
     // Play idle anim during grace period
@@ -390,6 +399,83 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       return true;
     }
     return false;
+  }
+
+  /** Cinematic smoke-appear for the first-encounter cutscene — slower, smoother fade */
+  playSmokeAppearCutscene(onComplete: () => void) {
+    const key = getAnimKey(this.spriteId, "smoke-appear", this.currentDir);
+    this.setAlpha(0);
+    if (this.scene.anims.exists(key)) {
+      // Slow fade-in over the full smoke duration for a cinematic feel
+      this.scene.tweens.add({ targets: this, alpha: 1, duration: 800, ease: "Sine.easeIn" });
+      this.play(key);
+      this.once("animationcomplete", () => {
+        if (this.active) onComplete();
+      });
+    } else {
+      // Fallback: just fade in
+      this.scene.tweens.add({
+        targets: this, alpha: 1, duration: 800, ease: "Sine.easeIn",
+        onComplete: () => { if (this.active) onComplete(); },
+      });
+    }
+  }
+
+  /** Cinematic backflip for the intro cutscene — no velocity, no fireball chain */
+  playCutsceneBackflip(onComplete: () => void) {
+    this.backflipping = true;
+    const flipKey = getAnimKey(this.spriteId, "backflip", this.currentDir);
+    if (this.scene.anims.exists(flipKey)) {
+      this.play(flipKey);
+    }
+    // Duration matches normal backflip (500ms) + small buffer
+    this.scene.time.delayedCall(600, () => {
+      if (!this.active) return;
+      this.backflipping = false;
+      onComplete();
+    });
+  }
+
+  /**
+   * Full cinematic sequence for first encounter:
+   * smoke appear → backflip → fight-stance-idle → calls onBannerReady
+   */
+  playCutsceneSequence(onBannerReady: () => void) {
+    this.playSmokeAppearCutscene(() => {
+      this.playCutsceneBackflip(() => {
+        // Settle into menacing idle
+        const idleKey = getAnimKey(this.spriteId, this.idleAnimType, this.currentDir);
+        if (this.scene.anims.exists(idleKey)) {
+          this.play(idleKey, true);
+        }
+        // Brief pause while idle plays, then show banner
+        this.scene.time.delayedCall(500, () => {
+          if (this.active) onBannerReady();
+        });
+      });
+    });
+  }
+
+  /**
+   * Short cutscene for encounters 2+: smoke appear → fight-stance-idle → banner
+   * No backflip — he's done showing off, just materializes menacingly.
+   */
+  playCutsceneSequenceShort(onBannerReady: () => void) {
+    this.playSmokeAppearCutscene(() => {
+      const idleKey = getAnimKey(this.spriteId, this.idleAnimType, this.currentDir);
+      if (this.scene.anims.exists(idleKey)) {
+        this.play(idleKey, true);
+      }
+      this.scene.time.delayedCall(400, () => {
+        if (this.active) onBannerReady();
+      });
+    });
+  }
+
+  /** End cutscene mode and start the actual encounter (called on banner dismiss) */
+  startEncounterAfterCutscene(gracePeriodMs: number, isIndoor: boolean) {
+    this.bossCutscene = false;
+    this.initBossEncounter(gracePeriodMs, isIndoor);
   }
 
   /** Play taking-punch flinch, then resume walk */
@@ -644,8 +730,13 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
   /** Boss phase-based combat AI */
   private updateBoss(delta: number, player: Phaser.Physics.Arcade.Sprite) {
-    const angle = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
-    const dist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
+    if (this.bossCutscene) return; // frozen during intro cutscene
+
+    // Use body centers for distance/angle — sprite origins are offset from collision bodies
+    const bx = this.body.center.x, by = this.body.center.y;
+    const px = player.body!.center.x, py = player.body!.center.y;
+    const angle = Phaser.Math.Angle.Between(bx, by, px, py);
+    const dist = Phaser.Math.Distance.Between(bx, by, px, py);
     const hpPct = this.health / this.maxHealth;
     const bossStats = BALANCE.enemies.boss;
 
@@ -658,7 +749,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     // Don't act while mid-animation — zero velocity every frame to prevent knockback skating
     if (this.bossBusy || this.backflipping || this.castingFireball || this.biting || this.leaping || this.beingShot) {
-      if (this.bossBusy) this.body.setVelocity(0, 0);
+      if (this.bossBusy && !this.bossLunging) this.body.setVelocity(0, 0);
       return;
     }
 
@@ -707,12 +798,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         }
       }
     } else if (this.bossMovementState !== "circling") {
-      // Normal HP: approach or chase based on distance
-      if (dist > 200) {
-        this.bossMovementState = "approaching";
-      } else {
-        this.bossMovementState = "chasing";
-      }
+      // Normal HP: always sprint at player — SCARYBOI is aggressive
+      this.bossMovementState = "chasing";
     }
 
     // ─── A* pathfinding refresh ───
@@ -767,7 +854,12 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       case "chasing":
         moveSpeed = bossStats.runSpeed;
         this.bossRunning = true;
-        this.followPathOrDirect(angle, moveSpeed);
+        // Close range: skip A* and charge directly — pathfinding orbits instead of closing in
+        if (dist < 150) {
+          this.body.setVelocity(Math.cos(angle) * moveSpeed, Math.sin(angle) * moveSpeed);
+        } else {
+          this.followPathOrDirect(angle, moveSpeed);
+        }
         break;
       case "circling":
         moveSpeed = bossStats.speed;
@@ -790,28 +882,18 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       }
     }
 
-    // ─── Attack pattern: sprint → punch-combo → backflip(s) → fireball → repeat ───
-    if (dist < bossStats.attacks.punchCombo.range) {
-      // Close range: punch-combo, then backflip to disengage
-      if (this.canBossAttack("punchCombo")) {
-        this.bossMeleeAttack("punchCombo", "punch-combo", bossStats.attacks.punchCombo.damage);
-        return;
-      }
-      // After punching, backflip away to create space
-      if (this.canBossAttack("backflip")) {
-        this.bossBackflip(angle);
-        return;
-      }
-    } else if (dist < 200) {
-      // Medium range: fireball or sprint in for melee
-      if (this.canBossAttack("fireball") && Math.random() < 0.6) {
-        this.bossFireball(angle, player);
-        return;
-      }
-      // Otherwise sprint toward player (handled by movement below)
-    } else {
-      // Long range: fireball to pressure, then sprint in
-      if (this.canBossAttack("fireball")) {
+    // ─── Attack pattern: sprint in → punch → backflip out → fireball → repeat ───
+    if (dist < bossStats.attacks.punchCombo.range && this.canBossAttack("punchCombo")) {
+      // In melee range: punch (backflip auto-chains after punch completes in bossMeleeAttack)
+      this.bossMeleeAttack("punchCombo", "punch-combo", bossStats.attacks.punchCombo.damage);
+      return;
+    }
+    // Not in melee range: fireball if available, otherwise keep sprinting at player
+    if (dist > bossStats.attacks.punchCombo.range && this.canBossAttack("fireball")) {
+      // Indoor: rarely fireball (20%), outdoor: frequently (60%)
+      const fireballChance = this.bossIsIndoor ? 0.2 : 0.6;
+      // Only fireball at range — don't waste it point-blank
+      if (dist > 120 && Math.random() < fireballChance) {
         this.bossFireball(angle, player);
         return;
       }
@@ -859,7 +941,20 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     // Set damage for this specific attack (GameScene reads getEffectiveDamage on contact)
     this.damage = dmg;
 
-    this.body.setVelocity(0, 0);
+    // Lunge toward player during punch — closes the collision gap
+    const player = (this.scene as any).player;
+    if (player?.active) {
+      const lungeAngle = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
+      this.bossLunging = true;
+      this.body.setVelocity(Math.cos(lungeAngle) * 220, Math.sin(lungeAngle) * 220);
+      // Stop the lunge after 200ms — aggressive close into player's space
+      this.scene.time.delayedCall(200, () => {
+        this.bossLunging = false;
+        if (this.active && this.bossBusy) this.body.setVelocity(0, 0);
+      });
+    } else {
+      this.body.setVelocity(0, 0);
+    }
     const key = getAnimKey(this.spriteId, animType, this.currentDir);
     if (this.scene.anims.exists(key)) {
       this.play(key);
@@ -867,8 +962,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         this.biting = false;
         this.bossBusy = false;
 
-        // After punch-combo, backflip away to create distance
-        if (attackId === "punchCombo" && !this.dying && this.canBossAttack("backflip")) {
+        // After punch-combo, always backflip away — don't let him box the player in
+        if (attackId === "punchCombo" && !this.dying) {
           const player = (this.scene as any).player;
           if (player?.active) {
             const a = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
@@ -2148,8 +2243,10 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     // Boss uses its own AI system
     if (this.enemyType === "boss" && this.stunTimer <= 0) {
       this.updateBoss(delta, player);
-      this.updateDirection(player);
-      this.updateVisuals(delta);
+      if (!this.bossCutscene) {
+        this.updateDirection(player);
+        this.updateVisuals(delta);
+      }
       return;
     }
 

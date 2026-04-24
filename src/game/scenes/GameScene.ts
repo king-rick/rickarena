@@ -36,6 +36,13 @@ export class GameScene extends Phaser.Scene {
   private gameOver = false;
   private paused = false;
   private scaryboiIntroActive = false;
+  private scaryboiBannerReady = false;     // true only after banner is actually visible (gates Space dismiss)
+  private scaryboiDismissing = false;      // prevents double-dismiss during cutscene fade
+  private scaryboiLetterboxBars: Phaser.GameObjects.Rectangle[] | null = null;
+  private scaryboiCutsceneBoss: Enemy | null = null;
+  private scaryboiCutsceneGracePeriodMs = 2000;
+  private scaryboiCutsceneIsIndoor = false;
+  private scaryboiZone2Triggered = false;  // prevents re-triggering zone2 encounter
   private scaryboiSouthTriggered = false;  // prevents re-triggering south building encounter
   private scaryboiEstateTriggered = false; // prevents re-triggering estate encounter
   private pendingScaryboiSpawn: { x: number; y: number; hpPercent: number; gracePeriodMs: number; enc: string } | null = null;
@@ -526,6 +533,8 @@ export class GameScene extends Phaser.Scene {
     // World bounds
     this.physics.world.setBounds(0, 0, ENDICOTT_MAP_W, ENDICOTT_MAP_H);
     this.player.body.setCollideWorldBounds(true);
+    // Cap velocity so collision separation can never launch the player beyond sprint speed
+    (this.player.body as Phaser.Physics.Arcade.Body).setMaxVelocity(260, 260);
 
     // Collisions
     this.physics.add.collider(this.player, this.obstacles);
@@ -647,7 +656,11 @@ export class GameScene extends Phaser.Scene {
         Phaser.Input.Keyboard.KeyCodes.SPACE
       );
       space.on("down", () => {
-        if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonIntroActive) return;
+        if (this.gameOver || this.paused || this.masonIntroActive) return;
+        if (this.scaryboiIntroActive && this.scaryboiBannerReady) {
+          this.dismissScaryboiIntro();
+          return;
+        }
         if (this.levelUpActive) return; // Don't punch while picking buffs
         if (this.waveManager.state === "pre_game") {
           this.waveManager.skipPreGame();
@@ -1097,20 +1110,8 @@ export class GameScene extends Phaser.Scene {
     };
 
     hudState.registerScaryboiIntroAction(() => {
-      // React handles the 700ms fade-out. Re-enable input after it completes.
-      this.time.delayedCall(700, () => {
-        this.scaryboiIntroActive = false;
-        this.physics.resume();
-        this.game.canvas.style.pointerEvents = "auto";
-        hudState.update({ scaryboiIntroActive: false });
-
-        // Now materialize SCARYBOI with smoke animation
-        if (this.pendingScaryboiSpawn) {
-          const s = this.pendingScaryboiSpawn;
-          this.pendingScaryboiSpawn = null;
-          this.doScaryboiSpawn(s.x, s.y, s.hpPercent, s.gracePeriodMs, s.enc);
-        }
-      });
+      // "Bring it" button clicked in React banner — same as pressing Space
+      this.dismissScaryboiIntro();
     });
 
     // Mason announcement callback — player dismissed the intro card
@@ -1200,14 +1201,21 @@ export class GameScene extends Phaser.Scene {
     if (!this.waveManager.isScaryboiDefeated() && !this.waveManager.isBossActive()) {
       const ptx = Math.floor(this.player.x / 32);
       const pty = Math.floor(this.player.y / 32);
-      // South Building trap: player walks ~3-4 tiles inside (door at tile 12,49, interior is north)
-      // Only triggers if the South Building door has been opened/purchased
+      // Only trigger encounters during active waves — not during intermission or pre-game
+      const waveIsActive = this.waveManager.state === "active" || this.waveManager.state === "clearing";
+      // Zone2 (Gate): tile strip just past the gate — triggers same round gate is opened
+      const gateDoor = this.doors.find(d => d.label === "Gate");
+      if (waveIsActive && !this.scaryboiZone2Triggered && (gateDoor?.opened || gateDoor?.broken) && pty === 40 && ptx >= 19 && ptx <= 21) {
+        this.scaryboiZone2Triggered = true;
+        this.waveManager.triggerEncounter("zone2");
+      }
+      // South Building: player walks inside — only if door opened/purchased
       const southDoor = this.doors.find(d => d.label === "South Building");
-      if (!this.scaryboiSouthTriggered && (!southDoor || southDoor.opened || southDoor.broken) && ptx >= 2 && ptx <= 16 && pty >= 37 && pty <= 46) {
+      if (waveIsActive && !this.scaryboiSouthTriggered && (!southDoor || southDoor.opened || southDoor.broken) && ptx >= 2 && ptx <= 16 && pty >= 37 && pty <= 46) {
         this.waveManager.triggerEncounter("southBuilding");
       }
       // Estate final stand: only triggers once both other encounters are done
-      if (!this.scaryboiEstateTriggered && !this.waveManager.isEstateLocked() && ptx >= 30 && ptx <= 45 && pty >= 18 && pty <= 24) {
+      if (waveIsActive && !this.scaryboiEstateTriggered && !this.waveManager.isEstateLocked() && ptx >= 30 && ptx <= 45 && pty >= 18 && pty <= 24) {
         this.waveManager.triggerEncounter("estate");
       }
     }
@@ -1872,27 +1880,31 @@ export class GameScene extends Phaser.Scene {
     }
 
     const angle = this.getFacingAngle();
-    const range = 120;
-    const arc = Phaser.Math.DegToRad(90); // focused cone — boss killer, not crowd clearer
-    const damage = 300;
+    const range = 100;
+    const arc = Phaser.Math.DegToRad(60); // tight cone — boss killer, not crowd clearer
+    const damage = 400;
     const knockback = 200;
+    const maxHits = 2; // focused single-target kick, hits 1-2 enemies max
     let hits = 0;
 
     // Screen shake for impact feel
     this.cameras.main.shake(120, 0.004);
 
-    this.enemies.getChildren().forEach((obj) => {
-      const enemy = obj as Enemy;
-      if (!enemy.active) return;
+    // Sort by distance so we hit the closest enemies first
+    const candidates = (this.enemies.getChildren() as Enemy[])
+      .filter(e => e.active && !e.dying)
+      .map(e => ({ enemy: e, dist: Phaser.Math.Distance.Between(this.player.x, this.player.y, e.x, e.y) }))
+      .filter(c => c.dist <= range)
+      .sort((a, b) => a.dist - b.dist);
 
-      const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, enemy.x, enemy.y);
-      if (dist > range) return;
+    for (const { enemy } of candidates) {
+      if (hits >= maxHits) break;
 
       const enemyAngle = Phaser.Math.Angle.Between(this.player.x, this.player.y, enemy.x, enemy.y);
       let diff = enemyAngle - angle;
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
-      if (Math.abs(diff) > arc / 2) return;
+      if (Math.abs(diff) > arc / 2) continue;
 
       const killed = enemy.takeDamage(damage);
       if (killed) {
@@ -1903,11 +1915,10 @@ export class GameScene extends Phaser.Scene {
           Math.sin(enemyAngle) * knockback
         );
         enemy.applyKnockbackStun(600);
-        // Ability always spawns blood spray (even on bosses)
         this.spawnBloodSplat(enemy.x, enemy.y, "hit", enemy.enemyType);
       }
       hits++;
-    });
+    }
 
     // Kick arc visual — flash a wide arc in front of the player
     const arcGfx = this.add.graphics().setDepth(5);
@@ -2647,8 +2658,8 @@ export class GameScene extends Phaser.Scene {
       if (ammo.reserve > 0) {
         this.startReload();
       } else {
-        // Consumable weapons (RPG, Assault Rifle) disappear when all ammo is spent
-        const isConsumable = this.activeWeapon === "rpg" || this.activeWeapon === "assault_rifle";
+        // Consumable weapons (RPG only) disappear when all ammo is spent
+        const isConsumable = this.activeWeapon === "rpg";
         if (isConsumable) {
           const depletedWeapon = this.activeWeapon;
           this.time.delayedCall(300, () => {
@@ -2877,7 +2888,7 @@ export class GameScene extends Phaser.Scene {
     const distCrit = BALANCE.crit.closeCritBonus * (1 - distanceRatio);
     const levelCrit = (this.levelingSystem.level - 1) * BALANCE.crit.critPerLevel;
 
-    const totalCrit = charCrit + weaponCrit + distCrit + levelCrit;
+    const totalCrit = Math.min(charCrit + weaponCrit + distCrit + levelCrit, 0.05); // hard cap 5%
     return Math.random() < totalCrit;
   }
 
@@ -4039,48 +4050,43 @@ export class GameScene extends Phaser.Scene {
     hudState.update({ masonAnnouncementActive: true });
   }
 
+  // Fixed spawn positions per encounter (tile coords × 32, centered in tile)
+  private readonly SCARYBOI_SPAWN: Record<"zone2" | "southBuilding" | "estate", { x: number; y: number }> = {
+    zone2:         { x: 20 * 32 + 16, y: 36 * 32 + 16 },
+    southBuilding: { x: 12 * 32 + 16, y: 45 * 32 + 16 },
+    estate:        { x: 33 * 32 + 16, y: 22 * 32 + 16 },
+  };
+
+  // Per-encounter cutscene data — quote and VO are easy to swap later
+  private readonly SCARYBOI_CUTSCENE_DATA: Record<"zone2" | "southBuilding" | "estate", { quote: string; voSrc: string }> = {
+    zone2: {
+      quote: "You've lasted longer than the others. Admirable, but mistaken...",
+      voSrc: "/assets/audio/voice/rickarena-scaryboi-intro-vo.mp3",
+    },
+    southBuilding: {
+      quote: "You thought hiding in here would save you?",
+      voSrc: "", // TODO: wire in VO when recorded
+    },
+    estate: {
+      quote: "This ends now. No more running.",
+      voSrc: "", // TODO: wire in VO when recorded
+    },
+  };
+
   /** Spawn SCARYBOI for a specific encounter */
   private spawnScaryboiEncounter(enc: "zone2" | "southBuilding" | "estate") {
-    // Use encounter ORDER config, not location-based
     const encConfig = this.waveManager.getCurrentEncounterConfig();
 
     // Mark location triggers so they don't re-fire
     if (enc === "southBuilding") this.scaryboiSouthTriggered = true;
     if (enc === "estate") this.scaryboiEstateTriggered = true;
 
-    // Spawn within camera view — at zoom 5.0 the viewport is ~384x216 world px.
-    // Place SCARYBOI ~120px from player (visible but not on top of them).
-    const cam = this.cameras.main;
-    const halfVW = (cam.width / cam.zoom) / 2 - 20; // ~172px with margin
-    const halfVH = (cam.height / cam.zoom) / 2 - 20; // ~88px with margin
-    const spawnDist = 120; // px from player — close enough to be on screen
+    const { x: spawnX, y: spawnY } = this.SCARYBOI_SPAWN[enc];
 
-    let spawnX: number, spawnY: number;
-    // Pick a random angle, offset from player, clamp to camera viewport
-    const a = Math.random() * Math.PI * 2;
-    spawnX = this.player.x + Math.cos(a) * spawnDist;
-    spawnY = this.player.y + Math.sin(a) * spawnDist;
-    // Clamp to stay within camera view
-    spawnX = Phaser.Math.Clamp(spawnX, this.player.x - halfVW, this.player.x + halfVW);
-    spawnY = Phaser.Math.Clamp(spawnY, this.player.y - halfVH, this.player.y + halfVH);
-    // Clamp to map bounds
-    spawnX = Phaser.Math.Clamp(spawnX, 60, (this as any).mapWidth - 60);
-    spawnY = Phaser.Math.Clamp(spawnY, 60, (this as any).mapHeight - 60);
-
-    // First-ever appearance: show intro card FIRST, then spawn + smoke after dismissal
-    if (!this.waveManager.hasSeenScaryboi()) {
-      this.waveManager.markScaryboiSeen();
-      this.scaryboiIntroActive = true;
-      this.physics.pause();
-      this.game.canvas.style.pointerEvents = "none";
-      hudState.update({ scaryboiIntroActive: true });
-
-      // Defer actual spawn until intro is dismissed
-      this.pendingScaryboiSpawn = { x: spawnX, y: spawnY, hpPercent: encConfig.hpPercent, gracePeriodMs: encConfig.gracePeriodMs, enc };
-    } else {
-      // Subsequent encounters: spawn immediately with smoke
-      this.doScaryboiSpawn(spawnX, spawnY, encConfig.hpPercent, encConfig.gracePeriodMs, enc);
-    }
+    // Every encounter gets a cutscene — first has backflip, subsequent are shorter
+    const isFirst = !this.waveManager.hasSeenScaryboi();
+    if (isFirst) this.waveManager.markScaryboiSeen();
+    this.playScaryboiCutscene(spawnX, spawnY, encConfig, enc as "zone2" | "southBuilding" | "estate", isFirst);
 
     // Estate: seal door behind player
     if (enc === "estate") {
@@ -4104,7 +4110,10 @@ export class GameScene extends Phaser.Scene {
     boss.body.setCollideWorldBounds(true);
     this.enemies.add(boss);
 
-    boss.initBossEncounter(gracePeriodMs);
+    // All encounters: SCARYBOI faces south (toward player)
+    boss.setFacing("south");
+    const isIndoor = enc === "southBuilding";
+    boss.initBossEncounter(gracePeriodMs, isIndoor);
     this.waveManager.registerBossEnemy(boss);
 
     // Smoke appear for encounters 1 & 2, standing idle for encounter 3
@@ -4113,6 +4122,129 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.showWeaponMessage("SCARYBOI APPEARS...", "#ff4444");
+  }
+
+  /**
+   * Cinematic freeze cutscene for SCARYBOI encounters.
+   * Encounter 1: letterbox → smoke → backflip → idle → banner
+   * Encounters 2+: letterbox → smoke → idle → banner (no backflip)
+   */
+  private playScaryboiCutscene(
+    spawnX: number,
+    spawnY: number,
+    encConfig: { hpPercent: number; gracePeriodMs: number },
+    enc: "zone2" | "southBuilding" | "estate",
+    isFirst: boolean
+  ) {
+    this.scaryboiIntroActive = true;
+    this.scaryboiCutsceneGracePeriodMs = encConfig.gracePeriodMs;
+    this.scaryboiCutsceneIsIndoor = enc === "southBuilding";
+    this.physics.pause();
+    this.game.canvas.style.pointerEvents = "none";
+
+    // Switch player to breathing-idle immediately
+    const idleKey = getAnimKey(this.characterDef.id, "breathing-idle", this.player.currentDir);
+    if (this.anims.exists(idleKey)) this.player.play(idleKey, true);
+
+    const screenW = this.cameras.main.width;
+    const screenH = this.cameras.main.height;
+    const barH = Math.round(screenH * 0.13);
+
+    // Letterbox bars start off-screen, fixed to camera (scrollFactor 0)
+    const topBar = this.add.rectangle(screenW / 2, -barH / 2, screenW, barH, 0x000000)
+      .setScrollFactor(0).setDepth(290).setAlpha(1);
+    const bottomBar = this.add.rectangle(screenW / 2, screenH + barH / 2, screenW, barH, 0x000000)
+      .setScrollFactor(0).setDepth(290).setAlpha(1);
+    this.scaryboiLetterboxBars = [topBar, bottomBar];
+
+    // Bars slide in simultaneously — cinematic wipe
+    this.tweens.add({ targets: topBar, y: barH / 2, duration: 500, ease: "Quart.easeOut" });
+    this.tweens.add({
+      targets: bottomBar,
+      y: screenH - barH / 2,
+      duration: 500,
+      ease: "Quart.easeOut",
+      onComplete: () => {
+        // Bars settled — spawn boss in cutscene mode (no AI, no grace period yet)
+        const maxHp = (BALANCE.enemies.boss as any).hp as number;
+        const boss = new Enemy(this, spawnX, spawnY, "boss", 1, 1);
+        boss.health = Math.round(maxHp * encConfig.hpPercent);
+        boss.maxHealth = maxHp;
+        boss.body.setCollideWorldBounds(true);
+        boss.bossCutscene = true;
+        boss.setFacing("south");
+        this.enemies.add(boss);
+        this.waveManager.registerBossEnemy(boss);
+        this.scaryboiCutsceneBoss = boss;
+
+        // Encounter 1: full sequence (smoke → backflip → idle)
+        // Encounters 2+: short sequence (smoke → idle, no backflip)
+        const cutsceneData = this.SCARYBOI_CUTSCENE_DATA[enc];
+        const onBannerReady = () => {
+          this.scaryboiBannerReady = true;
+          hudState.update({
+            scaryboiIntroActive: true,
+            scaryboiEncounterIndex: isFirst ? 0 : enc === "southBuilding" ? 1 : 2,
+            scaryboiQuote: cutsceneData.quote,
+            scaryboiVoSrc: cutsceneData.voSrc,
+          });
+        };
+        if (isFirst) {
+          boss.playCutsceneSequence(onBannerReady);
+        } else {
+          boss.playCutsceneSequenceShort(onBannerReady);
+        }
+      },
+    });
+  }
+
+  /** Dismiss the SCARYBOI cutscene (Space key or "Bring it" button) */
+  private dismissScaryboiIntro() {
+    if (!this.scaryboiIntroActive || this.scaryboiDismissing) return;
+    this.scaryboiDismissing = true;
+    this.scaryboiBannerReady = false;
+
+    // Hide React banner immediately
+    hudState.update({ scaryboiIntroActive: false });
+    this.game.canvas.style.pointerEvents = "auto";
+
+    const screenH = this.cameras.main.height;
+    if (this.scaryboiLetterboxBars) {
+      const [topBar, bottomBar] = this.scaryboiLetterboxBars;
+      this.scaryboiLetterboxBars = null;
+      const barH = topBar.height;
+      this.tweens.add({
+        targets: topBar,
+        y: -barH / 2,
+        duration: 350,
+        ease: "Quart.easeIn",
+        onComplete: () => topBar.destroy(),
+      });
+      this.tweens.add({
+        targets: bottomBar,
+        y: screenH + barH / 2,
+        duration: 350,
+        ease: "Quart.easeIn",
+        onComplete: () => bottomBar.destroy(),
+      });
+    }
+
+    // Resume gameplay after bars slide out, then hand off to boss
+    this.time.delayedCall(350, () => {
+      this.scaryboiIntroActive = false;
+      this.scaryboiDismissing = false;
+      this.physics.resume();
+
+      // End cutscene mode and start the actual encounter with grace period
+      if (this.scaryboiCutsceneBoss?.active) {
+        this.scaryboiCutsceneBoss.startEncounterAfterCutscene(
+          this.scaryboiCutsceneGracePeriodMs,
+          this.scaryboiCutsceneIsIndoor
+        );
+      }
+      this.scaryboiCutsceneBoss = null;
+      this.showWeaponMessage("SCARYBOI APPEARS...", "#ff4444");
+    });
   }
 
   /** Spawn RPG pickup at a world position (dropped by SCARYBOI on death) */

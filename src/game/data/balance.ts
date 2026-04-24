@@ -53,9 +53,9 @@ export const BALANCE = {
     spawnStaggerMs: 600,
     // SCARYBOI — 3 encounters, HP/flee tied to encounter ORDER (not location)
     bossEncountersByOrder: [
-      { hpPercent: 1.0,  fleeThreshold: 0.5,  gracePeriodMs: 3000 },  // 1st encounter: full HP, flee at 50%
-      { hpPercent: 0.75, fleeThreshold: 0.25, gracePeriodMs: 3000 },  // 2nd encounter: 75% HP, flee at 25%
-      { hpPercent: 1.0,  fleeThreshold: 0,    gracePeriodMs: 3000 },  // 3rd encounter (estate): full HP, fight to death
+      { hpPercent: 1.0,  fleeThreshold: 0.5,  gracePeriodMs: 500 },   // 1st encounter: brief pause then aggro
+      { hpPercent: 0.75, fleeThreshold: 0.25, gracePeriodMs: 0 },     // 2nd encounter: immediate aggro
+      { hpPercent: 1.0,  fleeThreshold: 0,    gracePeriodMs: 0 },     // 3rd encounter (estate): immediate, fight to death
     ],
   },
 
@@ -181,7 +181,7 @@ export const BALANCE = {
       dropoff: 0.3,
       auto: true,
       knockback: 30,
-      speedPenalty: 0.7,  // 30% movement slow while equipped
+      speedPenalty: 0.9,  // 10% movement slow while equipped
     },
   },
   proficiencyBonus: {
@@ -247,7 +247,7 @@ export const BALANCE = {
   },
 
   // Speed cap
-  maxSpeedMultiplier: 2.5,
+  maxSpeedMultiplier: 1.5,
 
   // RPG Leveling — flat bonuses, not percentages
   leveling: {
@@ -304,14 +304,14 @@ export const BALANCE = {
     },
     boss:  {
       hp: 1300,
-      speed: 40,           // stalking walk
-      runSpeed: 90,        // chasing / sprinting at player
+      speed: 55,           // stalking walk (faster close)
+      runSpeed: 120,       // sprint at player aggressively
       knockbackResist: 0.8,
       attacks: {
-        punchCombo: { damage: 40, range: 70,  cooldown: 1500, knockback: 120 }, // left-right brawler combo
-        fireball:   { damage: 15, range: 400, cooldown: 3000, projectileSpeed: 300 }, // ranged
+        punchCombo: { damage: 40, range: 95,  cooldown: 900,  knockback: 120 }, // range covers collision separation floor (~84px)
+        fireball:   { damage: 15, range: 400, cooldown: 2000, projectileSpeed: 300 }, // frequent ranged pressure
       },
-      backflipCooldown: 3000, // cooldown between backflips
+      backflipCooldown: 2000, // faster disengage-reengage loop
     },
     mason: {
       hp: 2000,
