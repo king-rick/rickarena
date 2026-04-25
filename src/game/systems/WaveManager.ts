@@ -108,14 +108,14 @@ export class WaveManager {
   private readyCountdown = 0;
 
   // SCARYBOI encounter system — HP/flee tied to encounter ORDER, not location
-  private bossActive = false;
+  bossActive = false;
   bossEnemy: Enemy | null = null;
   private scaryboiEncounters = { zone2: false, southBuilding: false, estate: false };
   private scaryboiDefeated = false;
   private scaryboiFirstSeen = false;
   private gateOpenedWave: number | null = null;
   private activeEncounter: "zone2" | "southBuilding" | "estate" = "zone2";
-  private scaryboiEncounterCount = 0; // how many encounters have been completed (0, 1, 2)
+  scaryboiEncounterCount = 0; // how many encounters have been completed (0, 1, 2)
 
 
   // Persistent dog pack system
@@ -220,18 +220,7 @@ export class WaveManager {
       }
 
       case "intermission":
-        if (!this.frozen) {
-          this.stateTimer += delta;
-        }
-        if (this.readyUp) {
-          this.readyCountdown -= delta;
-          if (this.readyCountdown <= 0) {
-            this.readyUp = false;
-            this.startWave();
-          }
-        } else if (this.stateTimer >= this.intermissionDuration) {
-          this.triggerReady();
-        }
+        // No timer — wave starts when player closes the shop
         break;
     }
   }
@@ -298,6 +287,12 @@ export class WaveManager {
 
   onEnemyKilled() {
     this.enemiesAlive = Math.max(0, this.enemiesAlive - 1);
+  }
+
+  /** Called by GameScene when player closes the shop to advance to the next wave */
+  advanceWave() {
+    if (this.state !== "intermission") return;
+    this.startWave();
   }
 
   triggerReady() {
@@ -466,6 +461,7 @@ export class WaveManager {
     }
   }
 
+  getActiveEncounter() { return this.activeEncounter; }
   isScaryboiDefeated(): boolean { return this.scaryboiDefeated; }
   hasSeenScaryboi(): boolean { return this.scaryboiFirstSeen; }
   markScaryboiSeen() { this.scaryboiFirstSeen = true; }

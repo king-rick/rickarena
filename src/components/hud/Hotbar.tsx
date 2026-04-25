@@ -105,7 +105,7 @@ export const Hotbar = memo(function Hotbar() {
               fontSize: 12,
               fontWeight: 700,
               fontFamily: BODY,
-              color: "#ffcc44",
+              color: "#ffffff",
               textShadow: "0 0 4px rgba(255, 150, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.9)",
             }}
           >

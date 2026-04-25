@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, useSyncExternalStore } from "
 import { hudState } from "@/game/HUDState";
 
 const DISMISS_MS = 400;
-const TYPE_SPEED_MS = 35; // ms per character
+const SPEED_MULT = 0.82; // slightly faster than 1:1 voice sync
 
 export function ScaryboiIntro() {
   const [visible, setVisible] = useState(false);
@@ -12,8 +12,10 @@ export function ScaryboiIntro() {
   const [quoteIndex, setQuoteIndex] = useState(0);
   const [displayedChars, setDisplayedChars] = useState(0);
   const [typewriterDone, setTypewriterDone] = useState(false);
+  const [typewriterStarted, setTypewriterStarted] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fadeRafRef = useRef<number | null>(null);
+  const typewriterTimerRef = useRef<number | null>(null);
 
   const sfxVolume = useSyncExternalStore(
     hudState.subscribe,
@@ -23,6 +25,10 @@ export function ScaryboiIntro() {
     hudState.subscribe,
     () => hudState.getField("scaryboiQuotes")
   );
+  const timings = useSyncExternalStore(
+    hudState.subscribe,
+    () => hudState.getField("scaryboiQuoteTimings")
+  );
   const voSrc = useSyncExternalStore(
     hudState.subscribe,
     () => hudState.getField("scaryboiVoSrc")
@@ -30,23 +36,60 @@ export function ScaryboiIntro() {
 
   const currentQuote = quotes[quoteIndex] ?? "";
   const isLastQuote = quoteIndex >= quotes.length - 1;
+  const hasTiming = timings.length > 0;
+
+  // Get type speed for current quote — sync with voice if timing available
+  const getTypeSpeedMs = useCallback(() => {
+    if (!hasTiming || !timings[quoteIndex]) return 35;
+    const t = timings[quoteIndex];
+    const chars = (quotes[quoteIndex] ?? "").length;
+    if (chars <= 0) return 35;
+    return Math.max(15, Math.floor((t.durationMs * SPEED_MULT) / chars));
+  }, [hasTiming, timings, quoteIndex, quotes]);
 
   // Reset typewriter when quote changes
   useEffect(() => {
     setDisplayedChars(0);
     setTypewriterDone(false);
+    setTypewriterStarted(false);
   }, [quoteIndex]);
+
+  // Delay first quote start to match audio lead-in
+  useEffect(() => {
+    if (!visible || typewriterStarted) return;
+
+    if (hasTiming && timings[quoteIndex] && quoteIndex === 0) {
+      const delay = timings[0].startMs;
+      const t = window.setTimeout(() => setTypewriterStarted(true), delay);
+      return () => clearTimeout(t);
+    } else {
+      setTypewriterStarted(true);
+    }
+  }, [visible, typewriterStarted, hasTiming, timings, quoteIndex]);
 
   // Typewriter tick
   useEffect(() => {
-    if (!visible || typewriterDone) return;
+    if (!visible || !typewriterStarted || typewriterDone) return;
     if (displayedChars >= currentQuote.length) {
       setTypewriterDone(true);
+      // Pause audio between quotes so it doesn't race ahead
+      if (!isLastQuote && audioRef.current) {
+        audioRef.current.pause();
+      }
       return;
     }
-    const t = setTimeout(() => setDisplayedChars(prev => prev + 1), TYPE_SPEED_MS);
+    const speed = getTypeSpeedMs();
+    const t = window.setTimeout(() => setDisplayedChars(prev => prev + 1), speed);
+    typewriterTimerRef.current = t;
     return () => clearTimeout(t);
-  }, [visible, displayedChars, currentQuote, typewriterDone]);
+  }, [visible, typewriterStarted, displayedChars, currentQuote, typewriterDone, isLastQuote, getTypeSpeedMs]);
+
+  // Resume audio when user advances to the next quote
+  useEffect(() => {
+    if (quoteIndex > 0 && audioRef.current && audioRef.current.paused) {
+      audioRef.current.play().catch(() => {});
+    }
+  }, [quoteIndex]);
 
   // Slide up after mount
   useEffect(() => {
@@ -54,13 +97,13 @@ export function ScaryboiIntro() {
     return () => clearTimeout(t);
   }, []);
 
-  // Voice-over plays when banner becomes visible (skip if no VO for this encounter)
+  // Voice-over plays when banner becomes visible
   useEffect(() => {
     if (!visible || !voSrc) return;
     const a = new Audio(voSrc);
     a.volume = sfxVolume;
     audioRef.current = a;
-    void a.play().catch(() => { /* autoplay blocked — cutscene still works */ });
+    void a.play().catch(() => {});
     return () => {
       if (fadeRafRef.current !== null) {
         cancelAnimationFrame(fadeRafRef.current);
@@ -101,17 +144,20 @@ export function ScaryboiIntro() {
 
     // If typewriter is still going, skip to end
     if (!typewriterDone) {
+      if (typewriterTimerRef.current) clearTimeout(typewriterTimerRef.current);
       setDisplayedChars(currentQuote.length);
       setTypewriterDone(true);
+      setTypewriterStarted(true);
       return;
     }
 
+    // Advance to next quote
     if (!isLastQuote) {
       setQuoteIndex(prev => prev + 1);
       return;
     }
 
-    // Last quote — dismiss the whole banner
+    // Last quote done — dismiss
     setDismissing(true);
     stopVoFade();
     setTimeout(() => {
@@ -131,7 +177,6 @@ export function ScaryboiIntro() {
     return () => window.removeEventListener("keydown", onKey);
   }, [handleDismiss]);
 
-  // Slide up from bottom, slide down on dismiss
   const translateY = dismissing ? "100%" : visible ? "0%" : "100%";
   const transition = dismissing
     ? `transform ${DISMISS_MS}ms ease-in, opacity ${DISMISS_MS}ms ease-in`
@@ -173,7 +218,7 @@ export function ScaryboiIntro() {
         S C A R Y B O I
       </div>
 
-      {/* Quote — typewriter effect, fixed height for consistency */}
+      {/* Quote — typewriter effect */}
       <div style={{
         fontFamily: "var(--font-special-elite), 'Special Elite', serif",
         fontSize: "clamp(13px, 1.6vw, 20px)",
@@ -193,7 +238,7 @@ export function ScaryboiIntro() {
         )}
       </div>
 
-      {/* Dismiss / advance button — only show after typewriter finishes */}
+      {/* Advance / dismiss button — visible after current quote finishes typing */}
       <button
         type="button"
         onClick={handleDismiss}

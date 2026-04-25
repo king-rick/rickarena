@@ -140,6 +140,14 @@ export class Pathfinder {
     return { w: this.gridW, h: this.gridH };
   }
 
+  /** Mark a tile as walkable or blocked and update the EasyStar grid */
+  setWalkable(col: number, row: number, walkable: boolean): void {
+    if (row < 0 || row >= this.gridH || col < 0 || col >= this.gridW) return;
+    this.grid[row][col] = walkable ? 0 : 1;
+    this.easystar.setGrid(this.grid);
+    this.easystar.setAcceptableTiles([0]);
+  }
+
   /** Must be called each frame (or on a timer) to process queued path requests. */
   calculate(): void {
     this.easystar.calculate();

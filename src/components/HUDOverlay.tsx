@@ -21,6 +21,8 @@ import { DevPanel } from "./hud/DevPanel";
 import { StatsScreen } from "./hud/StatsScreen";
 import { ScaryboiIntro } from "./hud/ScaryboiIntro";
 import { MasonAnnouncement } from "./hud/MasonAnnouncement";
+import { WaveStartConfirm } from "./hud/WaveStartConfirm";
+import { ObjectiveTracker } from "./hud/ObjectiveTracker";
 
 interface Props {
   canvasRect: CanvasRect;
@@ -95,6 +97,7 @@ export function HUDOverlay({ canvasRect }: Props) {
         }}>
           <HealthBar />
           {!gameOver && <StaminaBar />}
+          {!gameOver && <ObjectiveTracker />}
         </div>
       </div>
 
@@ -167,6 +170,13 @@ export function HUDOverlay({ canvasRect }: Props) {
       {shopOpen && !gameOver && (
         <div className="absolute" style={{ ...baseStyle, zIndex: 20 }}>
           <ShopOverlay />
+        </div>
+      )}
+
+      {/* Wave start confirm dialog */}
+      {!gameOver && (
+        <div className="absolute pointer-events-none" style={{ ...baseStyle, zIndex: 22 }}>
+          <WaveStartConfirm />
         </div>
       )}
 

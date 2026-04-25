@@ -155,7 +155,14 @@ export interface HUDData {
   scaryboiIntroActive: boolean;
   scaryboiEncounterIndex: number; // 0, 1, 2 — which encounter cutscene to show
   scaryboiQuotes: string[];      // encounter-specific quote lines (advance through each)
+  scaryboiQuoteTimings: { startMs: number; durationMs: number }[]; // per-quote timing for voice sync
   scaryboiVoSrc: string;         // encounter-specific VO audio path (empty = no VO)
+
+  // Wave start confirmation
+  waveStartConfirmActive: boolean;
+
+  // Objective tracker
+  currentObjective: string | null;
 
   // MASON cinematics
   masonDialogueActive: boolean;
@@ -234,7 +241,10 @@ const DEFAULT_STATE: HUDData = {
   scaryboiIntroActive: false,
   scaryboiEncounterIndex: 0,
   scaryboiQuotes: [],
+  scaryboiQuoteTimings: [],
   scaryboiVoSrc: "",
+  waveStartConfirmActive: false,
+  currentObjective: null,
   masonDialogueActive: false,
   masonDialogueQuote: "",
 };
@@ -275,6 +285,10 @@ class HUDStateStore {
   private scaryboiIntroAction: ActionHandler | null = null;
   registerScaryboiIntroAction(handler: ActionHandler) { this.scaryboiIntroAction = handler; }
   dispatchScaryboiIntroAction(action: string, payload?: any) { this.scaryboiIntroAction?.(action, payload); }
+
+  private waveStartConfirmAction: ActionHandler | null = null;
+  registerWaveStartConfirmAction(handler: ActionHandler) { this.waveStartConfirmAction = handler; }
+  dispatchWaveStartConfirmAction(action: string, payload?: any) { this.waveStartConfirmAction?.(action, payload); }
 
   private masonDialogueAction: ActionHandler | null = null;
   registerMasonDialogueAction(handler: ActionHandler) { this.masonDialogueAction = handler; }

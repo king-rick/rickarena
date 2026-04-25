@@ -130,6 +130,7 @@ export class PreloadScene extends Phaser.Scene {
     this.load.image("item-ammo", "/assets/sprites/items/ammo.png");
     this.load.image("item-ammo-box", "/assets/sprites/items/ammo-box.png");
     this.load.image("item-landmine", "/assets/sprites/items/landmine.png");
+    this.load.image("item-axe", "/assets/sprites/items/axe.png");
     this.load.image("item-bandage", "/assets/sprites/items/bandage.png");
     this.load.image("item-syringe", "/assets/sprites/items/syringe.png");
     this.load.image("trap-spikes", "/assets/sprites/items/trap-spikes.png");

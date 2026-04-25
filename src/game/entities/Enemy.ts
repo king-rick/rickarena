@@ -564,6 +564,29 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     this.healthBarGfx.destroy();
 
+    // SCARYBOI encounters 1 & 2: smoke vanish instead of death animation
+    if (this.enemyType === "boss") {
+      const wm = (this.scene as any).waveManager;
+      const encCount = wm?.scaryboiEncounterCount ?? 0;
+      // Encounters 0 and 1 (first two): vanish in smoke, trigger flee logic
+      if (encCount < 2) {
+        this.fleeing = true;
+        this.dying = false; // not truly dying — fleeing via smoke
+        if (!this.playSmokeVanish()) {
+          this.destroy(); // fallback if no smoke anim
+        }
+        // Let WaveManager know the boss fled
+        wm?.onBossFlee?.();
+        if (wm) {
+          wm.scaryboiEncounterCount++;
+          wm.bossActive = false;
+          wm.bossEnemy = null;
+        }
+        return;
+      }
+      // Encounter 3 (estate): fall through to normal death animation below
+    }
+
     // Mason: dramatic slow death with staggered blood splatters
     if (this.enemyType === "mason") {
       const deathKey = getAnimKey(this.spriteId, "death", this.currentDir);
