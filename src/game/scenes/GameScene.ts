@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import { Player } from "../entities/Player";
-import { Enemy, EnemyType } from "../entities/Enemy";
+import { Enemy, EnemyType, angleToDirection } from "../entities/Enemy";
 import { Projectile, ensureBulletTexture } from "../entities/Projectile";
 import { Trap, TrapType, ensureTrapTextures } from "../entities/Trap";
 import { CHARACTERS, CharacterDef, BASE_STATS } from "../data/characters";
@@ -46,9 +46,13 @@ export class GameScene extends Phaser.Scene {
   private scaryboiSouthTriggered = false;  // prevents re-triggering south building encounter
   private scaryboiEstateTriggered = false; // prevents re-triggering estate encounter
   private pendingScaryboiSpawn: { x: number; y: number; hpPercent: number; gracePeriodMs: number; enc: string } | null = null;
-  private masonIntroActive = false;
-  private masonTriggered = false; // true once Mason intro has fired (one-time)
-  private masonEnemy: Enemy | null = null; // reference to Mason entity
+  private masonRavePhase: "" | "rave_setup" | "cutscene_1" | "zombie_fight" | "dramatic_pause" | "cutscene_2" | "boss_fight" = "";
+  private masonTriggered = false;
+  private masonEnemy: Enemy | null = null;
+  private masonRaveZombies: Enemy[] = [];
+  private masonLetterboxBars: Phaser.GameObjects.Rectangle[] | null = null;
+  private masonBannerReady = false;
+  private masonDismissing = false;
   private damageBoostActive = false;
   private baseDamage = 0;
 
@@ -143,6 +147,7 @@ export class GameScene extends Phaser.Scene {
   private wallsTopLayer?: Phaser.Tilemaps.TilemapLayer;
   private propsLowLayer?: Phaser.Tilemaps.TilemapLayer;
   private propsMidLayer?: Phaser.Tilemaps.TilemapLayer;
+  private propsIndoorLayer?: Phaser.Tilemaps.TilemapLayer;
   private floorInteriorLayer?: Phaser.Tilemaps.TilemapLayer;
 
   // Outdoor-only layers — hidden when player enters a building
@@ -156,6 +161,10 @@ export class GameScene extends Phaser.Scene {
 
   // Interior visibility — toggle outdoor layers when inside a building
   private playerInsideBuilding = true; // player spawns inside the house
+
+  // Spawn reachability — flood fill from player to find tiles zombies can spawn on
+  private reachableTiles: Set<number> = new Set();
+  private reachableDirty = true; // recompute on next spawn check
 
   // Starting room — chest + door before wave 1
   private startingChestOpened = false;
@@ -178,6 +187,14 @@ export class GameScene extends Phaser.Scene {
 
   private roofLayer?: Phaser.Tilemaps.TilemapLayer;
   private roofVisible = true;
+
+  // Signpost interaction
+  private signActive = false;
+  private signOverlay?: Phaser.GameObjects.Container;
+  private signPrompt?: Phaser.GameObjects.Text;
+  private readonly signTileX = 50;
+  private readonly signTileY = 44; // top tile of the 2-tile sign (44-45)
+  private readonly signInteractDist = 60;
 
   // HUD container — scrollFactor(0), scaled 1/zoom so it renders at screen-space
   private hudContainer!: Phaser.GameObjects.Container;
@@ -269,6 +286,7 @@ export class GameScene extends Phaser.Scene {
       map.addTilesetImage("td-basic-props", "ts-td-basic-props")!,
       map.addTilesetImage("td-basic-struct", "ts-td-basic-struct")!,
       map.addTilesetImage("pipoya-basechip", "ts-pipoya-basechip")!,
+      map.addTilesetImage("rickarena-props", "ts-rickarena-props")!,
     ];
     // Main camera background matches grass so tile seams don't show black gaps
     this.cameras.main.setBackgroundColor(0x5a7a2a);
@@ -280,7 +298,34 @@ export class GameScene extends Phaser.Scene {
     this.insideWallsLayer = map.createLayer("inside walls", allTilesets, 0, 0)?.setDepth(0.5) ?? undefined;
     this.wallsTopLayer = map.createLayer("walls_top", allTilesets, 0, 0)?.setDepth(1) ?? undefined;
     this.propsLowLayer = map.createLayer("props_low", allTilesets, 0, 0)?.setDepth(2) ?? undefined;
-    map.createLayer("props_indoor", allTilesets, 0, 0)?.setDepth(2);
+    this.propsIndoorLayer = map.createLayer("props_indoor", allTilesets, 0, 0)?.setDepth(2) ?? undefined;
+
+    // Spawn DJ gear as sprites — the tileset image is missing these tiles
+    // PA speakers (32x64) at tile (42,5) and (53,5) mirrored
+    const paPositions = [
+      { col: 42, row: 5, flipX: false },
+      { col: 53, row: 5, flipX: true },
+    ];
+    for (const pa of paPositions) {
+      const topLeftX = pa.col * 32;
+      const topLeftY = (pa.row + 1) * 32 - 64;
+      const sprite = this.add.image(topLeftX + 16, topLeftY + 32, "prop-pa-speaker");
+      sprite.setScale(1.2);
+      sprite.setDepth(2);
+      if (pa.flipX) sprite.setFlipX(true);
+      this.propsIndoorLayer?.removeTileAt(pa.col, pa.row);
+    }
+    // DJ table (64x32 native) scaled to span 3 tiles (47,6)-(49,6)
+    {
+      const centerX = 48 * 32 + 16; // center of tile 48
+      const centerY = 6 * 32 + 16;
+      const sprite = this.add.image(centerX, centerY, "prop-dj-table");
+      sprite.setScale(1.5); // 64→96px wide (3 tiles), 32→48px tall (proportional)
+      sprite.setDepth(6); // above Mason (depth 5) so he appears behind the booth
+      this.propsIndoorLayer?.removeTileAt(47, 6);
+      this.propsIndoorLayer?.removeTileAt(48, 6);
+      this.propsIndoorLayer?.removeTileAt(49, 6);
+    }
     this.propsMidLayer = map.createLayer("props_mid", allTilesets, 0, 0)?.setDepth(3) ?? undefined;
     this.foliagePaintedLayer = map.createLayer("foliage_painted", allTilesets, 0, 0)?.setDepth(25) ?? undefined;
     this.roofLayer = map.createLayer("roof", allTilesets, 0, 0)?.setDepth(26) ?? undefined;
@@ -355,6 +400,15 @@ export class GameScene extends Phaser.Scene {
           collisionRects.push({ x: obj.x!, y: obj.y!, w: obj.width!, h: obj.height! });
         }
       }
+    }
+
+    // Signpost collision — 2-tile tall sign at (50, 44-45)
+    {
+      const signX = this.signTileX * 32 + 16;
+      const signY = (this.signTileY + 0.5) * 32 + 16; // center of the 2-tile span
+      const signZone = this.add.zone(signX, signY, 32, 64).setOrigin(0.5);
+      this.physics.add.existing(signZone, true);
+      this.obstacles.add(signZone);
     }
 
     // Fence border + tree walls removed — perimeter handled by Tiled map tiles
@@ -447,10 +501,10 @@ export class GameScene extends Phaser.Scene {
           // Remove the Tiled visual tile so we don't get a double sprite
           const chestTileX = Math.floor(obj.x! / 32);
           const chestTileY = Math.floor(obj.y! / 32);
-          for (const layer of [this.propsLowLayer, this.propsMidLayer]) {
+          for (const layer of [this.propsLowLayer, this.propsMidLayer, this.propsIndoorLayer]) {
             layer?.removeTileAt(chestTileX, chestTileY);
           }
-          const sprite = this.add.sprite(cx, cy, "chest", 0).setDepth(2);
+          const sprite = this.add.sprite(cx, cy, "chest", 0).setScale(0.5).setDepth(2);
           this.lootChests.push({ x: cx, y: cy, label, opened: false, sprite });
         } else if (objType === "machine") {
           const name = ((obj as any).name || "").toLowerCase();
@@ -458,6 +512,13 @@ export class GameScene extends Phaser.Scene {
           const label = props?.find((p: any) => p.name === "label")?.value ?? "Machine";
           const cost = BALANCE.economy.machineCost; // uniform price from balance
           const textureKey = `machine-${machineType}-off`;
+          // Remove the Tiled visual tile so we don't get a double sprite (tiles are 64px tall = 2 rows)
+          const machineTileX = Math.floor(obj.x! / 32);
+          const machineTileY = Math.floor(obj.y! / 32);
+          for (const layer of [this.propsLowLayer, this.propsMidLayer, this.propsIndoorLayer]) {
+            layer?.removeTileAt(machineTileX, machineTileY);
+            layer?.removeTileAt(machineTileX, machineTileY + 1);
+          }
           const sprite = this.add.sprite(cx, cy, textureKey).setDepth(3);
           this.machines.push({ machineType, label, cost, x: cx, y: cy, sprite, purchased: false });
         }
@@ -542,7 +603,7 @@ export class GameScene extends Phaser.Scene {
       this.player,
       this.enemies,
       this.handleEnemyContact,
-      undefined,
+      (_player, enemyObj) => (enemyObj as Enemy).visible,
       this
     );
 
@@ -647,7 +708,16 @@ export class GameScene extends Phaser.Scene {
         Phaser.Input.Keyboard.KeyCodes.SPACE
       );
       space.on("down", () => {
-        if (this.gameOver || this.paused || this.masonIntroActive) return;
+        if (this.gameOver || this.paused) return;
+        if (this.signActive) {
+          this.dismissSign();
+          return;
+        }
+        if (this.masonCutsceneActive && this.masonBannerReady) {
+          this.dismissMasonDialogue();
+          return;
+        }
+        if (this.masonCutsceneActive) return;
         if (this.scaryboiIntroActive && this.scaryboiBannerReady) {
           this.dismissScaryboiIntro();
           return;
@@ -670,19 +740,11 @@ export class GameScene extends Phaser.Scene {
         Phaser.Input.Keyboard.KeyCodes.F
       );
       fKey.on("down", () => {
+        if (this.player.isSprinting) return;
         this.fireHeld = true;
         if (!this.gameOver && !this.paused && !this.shopOpen) this.useActiveSlot();
       });
       fKey.on("up", () => { this.fireHeld = false; this.dryFired = false; this.player.stopHoldShoot(); });
-
-      // E: cycle forward through hotbar
-      const eKey = this.input.keyboard.addKey(
-        Phaser.Input.Keyboard.KeyCodes.E
-      );
-      eKey.on("down", () => {
-        if (this.gameOver || this.paused || this.shopOpen) return;
-        this.cycleSlot(1);
-      });
 
       // Q: ability
       const qKey = this.input.keyboard.addKey(
@@ -745,6 +807,7 @@ export class GameScene extends Phaser.Scene {
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
       if (this.gameOver || this.paused || this.shopOpen) return;
       if (pointer.button === 2) {
+        if (this.player.isSprinting) return;
         this.fireHeld = true;
         this.useActiveSlot();
       } else if (pointer.button === 0) {
@@ -752,6 +815,16 @@ export class GameScene extends Phaser.Scene {
       }
     });
     this.input.mouse?.disableContextMenu();
+
+    // Reset stuck input state when browser steals focus (e.g. alt-tab)
+    window.addEventListener("blur", () => {
+      this.fireHeld = false;
+      this.dryFired = false;
+      this.player?.stopHoldShoot();
+      this.grenadeKeyDown = false;
+      this.grenadeAiming = false;
+      this.hideGrenadeAim?.();
+    });
 
     this.input.on("pointerup", (pointer: Phaser.Input.Pointer) => {
       if (pointer.button === 2) {
@@ -780,7 +853,7 @@ export class GameScene extends Phaser.Scene {
         Phaser.Input.Keyboard.KeyCodes.B
       );
       bKey.on("down", () => {
-        if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonIntroActive) return;
+        if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonCutsceneActive || this.signActive) return;
         if (this.shopOpen) {
           this.closeShop();
         } else if (this.devMode || this.waveManager.state === "intermission" || this.waveManager.state === "pre_game") {
@@ -788,16 +861,19 @@ export class GameScene extends Phaser.Scene {
         }
       });
 
-      // E key to interact (chest, starting door, purchasable doors, generator, machines)
+      // E key: interact if near something, otherwise cycle hotbar forward
       const eKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
       eKey.on("down", () => {
         if (this.gameOver || this.paused || this.shopOpen) return;
+        if (this.signActive) return;
+        if (this.trySignInteract()) return;
         if (this.tryStartingChest()) return;
         if (this.tryLootChest()) return;
         if (this.tryStartingDoor()) return;
         if (this.tryInteractGenerator()) return;
         if (this.tryBuyMachine()) return;
-        this.tryBuyNearbyDoor();
+        if (this.tryBuyNearbyDoor()) return;
+        this.cycleSlot(1);
       });
 
       // SPACE to skip/ready up during intermission (overrides melee during intermission)
@@ -809,7 +885,7 @@ export class GameScene extends Phaser.Scene {
         Phaser.Input.Keyboard.KeyCodes.V
       );
       vKey.on("down", () => {
-        if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonIntroActive) return;
+        if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonCutsceneActive || this.signActive) return;
         if (this.activeSlot !== this.barricadeSlot) return; // only when barricade is selected
         this.barricadeVertical = !this.barricadeVertical;
         const orient = this.barricadeVertical ? "VERTICAL" : "HORIZONTAL";
@@ -994,6 +1070,7 @@ export class GameScene extends Phaser.Scene {
       getPlayerPos: () => ({ x: this.player.x, y: this.player.y }),
       isFieldTile,
       isCollisionFree,
+      isSpawnReachable: (wx: number, wy: number) => this.isSpawnReachable(wx, wy),
       isDoorOpen: (label: string) => {
         const door = this.doors.find((d) => d.label === label);
         // Public demo: missing door data = treat as closed so spawns never leak into locked map areas.
@@ -1096,6 +1173,7 @@ export class GameScene extends Phaser.Scene {
           this.getDoorLayer(t.layer)?.removeTileAt(t.col, t.row);
         }
         estateDoor.opened = true;
+        this.reachableDirty = true;
       }
       this.showWeaponMessage("SCARYBOI DEFEATED!", "#44dd44");
     };
@@ -1105,18 +1183,9 @@ export class GameScene extends Phaser.Scene {
       this.dismissScaryboiIntro();
     });
 
-    // Mason announcement callback — player dismissed the intro card
-    hudState.registerMasonAnnouncementAction(() => {
-      this.time.delayedCall(700, () => {
-        this.masonIntroActive = false;
-        this.physics.resume();
-        this.game.canvas.style.pointerEvents = "auto";
-        hudState.update({ masonAnnouncementActive: false });
-        // Activate Mason — he starts fighting
-        if (this.masonEnemy && this.masonEnemy.active) {
-          this.masonEnemy.fleeing = false; // clear idle lock
-        }
-      });
+    // Mason dialogue callback — player dismissed the dialogue card (SPACE or click)
+    hudState.registerMasonDialogueAction(() => {
+      this.dismissMasonDialogue();
     });
 
 
@@ -1149,7 +1218,7 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonIntroActive) return;
+    if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonCutsceneActive || this.signActive) return;
 
     // Freeze gameplay while shop, level-up, or dev panel is open
     const devPanelOpen = this.devMode && hudState.getField("devPanelOpen");
@@ -1169,6 +1238,7 @@ export class GameScene extends Phaser.Scene {
     // Door proximity prompts
     this.updateStartingRoomPrompts();
     this.updateLootChestPrompts();
+    this.updateSignPrompt();
     this.updateDoorPrompts();
     this.updateMachinePrompts();
 
@@ -1182,18 +1252,30 @@ export class GameScene extends Phaser.Scene {
         (ptx === 39 && pty === 11) ||
         (ptx === 39 && pty === 12)
       ) {
-        this.triggerMasonIntro();
+        this.triggerMasonRave();
       }
+    }
+
+    // Mason rave phase checks — cutscene1 triggers when first rave zombie is killed
+    if (this.masonRavePhase === "rave_setup") {
+      const anyKilled = this.masonRaveZombies.some(z => !z.active || z.dying);
+      if (anyKilled) this.triggerMasonCutscene1();
+    }
+    if (this.masonRavePhase === "zombie_fight") {
+      const allDead = this.masonRaveZombies.every(z => !z.active || z.dying);
+      if (allDead) this.triggerDramaticPause();
+    }
+    if (this.masonRavePhase === "dramatic_pause" && this.player.y <= 400) {
+      this.triggerMasonCutscene2();
     }
 
     // SCARYBOI location-based encounter triggers
     if (!this.waveManager.isScaryboiDefeated() && !this.waveManager.isBossActive()) {
       const ptx = Math.floor(this.player.x / 32);
       const pty = Math.floor(this.player.y / 32);
-      // Zone2 (Gate): tile strip just past the gate — triggers same round gate is opened
+      // Zone2 (Gate): tile strip just past the gate — player faces SCARYBOI head-on
       const gateDoor = this.doors.find(d => d.label === "Gate");
       if (!this.scaryboiZone2Triggered && (gateDoor?.opened || gateDoor?.broken) && pty === 37 && ptx >= 18 && ptx <= 22) {
-        this.scaryboiZone2Triggered = true;
         this.waveManager.triggerEncounter("zone2");
       }
       // South Building: player walks inside — only if door opened/purchased
@@ -1210,6 +1292,7 @@ export class GameScene extends Phaser.Scene {
     // Roof fade — hide roof when player is under it
     this.updateRoofVisibility();
     this.updateInteriorDarkness();
+    this.updateEnemyIndoorVisibility();
     this.updateCanopyFade();
 
     // Barricade placement ghost
@@ -1255,7 +1338,7 @@ export class GameScene extends Phaser.Scene {
     this.tryPlayZombieGroan();
 
     // Hold-to-fire: only for auto weapons (SMG) when weapon slot is active.
-    if (this.fireHeld && !this.shopOpen && !this.grenadeAiming && !this.grenadeThrowing && this.isWeaponSlot(this.activeSlot)) {
+    if (this.fireHeld && !this.shopOpen && !this.grenadeAiming && !this.grenadeThrowing && !this.player.isSprinting && this.isWeaponSlot(this.activeSlot)) {
       const wDef = BALANCE.weapons[this.activeWeapon as keyof typeof BALANCE.weapons];
       if (wDef?.auto) this.fireWeapon();
     }
@@ -1826,6 +1909,21 @@ export class GameScene extends Phaser.Scene {
     this.currency += baseReward + meleeFlat + scavengerFlat;
     this.waveManager.onEnemyKilled();
     this.playRandomEnemyDeath();
+
+    // Mason death — re-open estate entrance
+    if (enemy.enemyType === "mason") {
+      const estateDoor = this.doors.find(d => d.label === "Estate Entrance");
+      if (estateDoor && !estateDoor.opened) {
+        (estateDoor.zone.body as Phaser.Physics.Arcade.StaticBody).enable = false;
+        if (estateDoor.promptText) estateDoor.promptText.setVisible(false);
+        for (const t of estateDoor.savedTiles) {
+          this.getDoorLayer(t.layer)?.removeTileAt(t.col, t.row);
+        }
+        estateDoor.opened = true;
+        this.reachableDirty = true;
+      }
+      this.showWeaponMessage("BIGBOSSBABY DEFEATED!", "#44dd44");
+    }
 
     // Blood splat on melee/ability/trap kills (ranged kills handled in handleProjectileHit)
     if (source === "melee" || source === "trap") {
@@ -3562,7 +3660,7 @@ export class GameScene extends Phaser.Scene {
 
   /** Layers that should be hidden when the player is inside a building */
   private get outdoorLayers(): (Phaser.Tilemaps.TilemapLayer | undefined)[] {
-    return [this.groundLayer, this.groundDetailLayer, this.pathsLayer, this.foliagePaintedLayer, this.overhangsLayer, this.vfxMarksLayer, this.propsLowLayer, this.insideWallsLayer];
+    return [this.groundLayer, this.groundDetailLayer, this.pathsLayer, this.foliagePaintedLayer, this.overhangsLayer, this.vfxMarksLayer, this.propsLowLayer, this.propsMidLayer, this.insideWallsLayer];
   }
 
   private updateInteriorDarkness() {
@@ -3582,6 +3680,33 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Hide enemies that aren't in the same indoor/outdoor zone as the player.
+   * When player is inside (under roof tile), hide enemies that are outside (no roof tile), and vice versa.
+   */
+  private updateEnemyIndoorVisibility() {
+    if (!this.roofLayer) return;
+    const playerInside = this.playerInsideBuilding;
+
+    this.enemies.getChildren().forEach((obj) => {
+      const enemy = obj as Enemy;
+      if (!enemy.active) return;
+
+      // Bosses are always visible (SCARYBOI, Mason)
+      const isBoss = enemy.enemyType === "boss" || enemy.enemyType === "mason";
+      if (isBoss) return;
+
+      const etx = Math.floor(enemy.x / 32);
+      const ety = Math.floor(enemy.y / 32);
+      const enemyInside = !!this.roofLayer!.getTileAt(etx, ety);
+
+      // Show enemy only if in same zone as player
+      const shouldShow = playerInside === enemyInside;
+      enemy.setVisible(shouldShow);
+      (enemy as any).healthBarGfx?.setVisible(shouldShow);
+    });
+  }
+
   /** Set outdoor layers visible/hidden immediately (no fade, for game start) */
   private setOutdoorLayersVisible(visible: boolean) {
     const alpha = visible ? 1 : 0;
@@ -3590,6 +3715,88 @@ export class GameScene extends Phaser.Scene {
     }
     // Set camera background to black when inside so hidden ground shows black
     this.cameras.main.setBackgroundColor(visible ? 0x5a7a2a : 0x000000);
+  }
+
+  /**
+   * Flood fill from the player's position on the pathfinding grid to find all
+   * tiles reachable without passing through collision or closed doors.
+   * Cached and recomputed when doors open/close (reachableDirty flag).
+   */
+  private computeReachableTiles() {
+    this.reachableTiles.clear();
+    if (!this.pathfinder) return;
+
+    const { w: gridW, h: gridH } = this.pathfinder.getGridSize();
+    const startCol = Math.floor(this.player.x / 32);
+    const startRow = Math.floor(this.player.y / 32);
+    const key = (col: number, row: number) => row * gridW + col;
+
+    // Build set of tiles blocked by closed doors
+    const doorBlocked = new Set<number>();
+    for (const door of this.doors) {
+      if (door.paid || door.broken) continue; // door is open
+      const zone = door.zone;
+      const body = zone.body as Phaser.Physics.Arcade.StaticBody;
+      if (!body.enable) continue; // collision disabled = open
+      const left = Math.floor((zone.x - zone.width / 2) / 32);
+      const top = Math.floor((zone.y - zone.height / 2) / 32);
+      const right = Math.ceil((zone.x + zone.width / 2) / 32);
+      const bottom = Math.ceil((zone.y + zone.height / 2) / 32);
+      for (let r = top; r < bottom; r++) {
+        for (let c = left; c < right; c++) {
+          doorBlocked.add(key(c, r));
+        }
+      }
+    }
+    // Also block starting door if still closed
+    if (!this.startingDoorOpened && this.startingDoorBody) {
+      const z = this.startingDoorBody;
+      const left = Math.floor((z.x - z.width / 2) / 32);
+      const top = Math.floor((z.y - z.height / 2) / 32);
+      const right = Math.ceil((z.x + z.width / 2) / 32);
+      const bottom = Math.ceil((z.y + z.height / 2) / 32);
+      for (let r = top; r < bottom; r++) {
+        for (let c = left; c < right; c++) {
+          doorBlocked.add(key(c, r));
+        }
+      }
+    }
+
+    // BFS flood fill from player position
+    const queue: number[] = []; // packed as key values
+    const startKey = key(startCol, startRow);
+    this.reachableTiles.add(startKey);
+    queue.push(startKey);
+
+    let head = 0;
+    while (head < queue.length) {
+      const k = queue[head++];
+      const col = k % gridW;
+      const row = (k - col) / gridW;
+      for (const [dc, dr] of [[0,1],[0,-1],[1,0],[-1,0]]) {
+        const nc = col + dc;
+        const nr = row + dr;
+        if (nc < 0 || nc >= gridW || nr < 0 || nr >= gridH) continue;
+        const nk = key(nc, nr);
+        if (this.reachableTiles.has(nk)) continue;
+        if (!this.pathfinder!.isWalkable(nc, nr)) continue;
+        if (doorBlocked.has(nk)) continue;
+        this.reachableTiles.add(nk);
+        queue.push(nk);
+      }
+    }
+
+    this.reachableDirty = false;
+  }
+
+  /** Check if a world position is reachable from the player (for spawn validation) */
+  isSpawnReachable(wx: number, wy: number): boolean {
+    if (this.reachableDirty) this.computeReachableTiles();
+    if (!this.pathfinder) return true;
+    const col = Math.floor(wx / 32);
+    const row = Math.floor(wy / 32);
+    const { w: gridW } = this.pathfinder.getGridSize();
+    return this.reachableTiles.has(row * gridW + col);
   }
 
   /** Fade to black, toggle outdoor layers, then reveal */
@@ -3755,6 +3962,127 @@ export class GameScene extends Phaser.Scene {
     return false;
   }
 
+  // ─── Signpost interaction ───
+
+  private updateSignPrompt() {
+    if (this.signActive) {
+      if (this.signPrompt) this.signPrompt.setVisible(false);
+      return;
+    }
+    const signWorldX = this.signTileX * 32 + 16;
+    const signWorldY = this.signTileY * 32 + 32; // center of the 2-tile sign
+    const dist = Phaser.Math.Distance.Between(
+      this.player.x, this.player.y, signWorldX, signWorldY
+    );
+    if (dist < this.signInteractDist) {
+      if (!this.signPrompt) {
+        this.signPrompt = this.createPromptText(signWorldX, signWorldY + 30, "[E] READ SIGN");
+      }
+      this.signPrompt.setVisible(true);
+    } else {
+      if (this.signPrompt) this.signPrompt.setVisible(false);
+    }
+  }
+
+  private trySignInteract(): boolean {
+    if (this.signActive) return false;
+    const signWorldX = this.signTileX * 32 + 16;
+    const signWorldY = this.signTileY * 32 + 32;
+    const dist = Phaser.Math.Distance.Between(
+      this.player.x, this.player.y, signWorldX, signWorldY
+    );
+    if (dist >= this.signInteractDist) return false;
+
+    this.signActive = true;
+    this.physics.pause();
+    if (this.signPrompt) this.signPrompt.setVisible(false);
+
+    // Build overlay — fixed to screen using scrollFactor(0)
+    const cam = this.cameras.main;
+    const screenCX = cam.width / 2;
+    const screenCY = cam.height / 2;
+    const container = this.add.container(screenCX, screenCY).setDepth(500).setScrollFactor(0);
+
+    // Dark backdrop
+    const backdrop = this.add.rectangle(0, 0, cam.width * 4, cam.height * 4, 0x000000, 0.6);
+    container.add(backdrop);
+
+    // Wooden sign board
+    const boardW = 130;
+    const boardH = 100;
+
+    // Post
+    const post = this.add.rectangle(0, boardH / 2 + 12, 8, 28, 0x5c3a1e);
+    container.add(post);
+
+    // Planks — each angled slightly for a rustic look
+    const planks = [
+      { y: -30, w: 80, angle: -3, text: "↑  Estate", color: "#f5e6c8" },
+      { y: -6, w: 90, angle: 2, text: "←  Library", color: "#f5e6c8" },
+      { y: 18, w: 85, angle: -2, text: "↖  Fountain", color: "#f5e6c8" },
+    ];
+
+    for (const p of planks) {
+      // Plank background
+      const plank = this.add.rectangle(0, p.y, p.w, 18, 0xc9a96e);
+      plank.setStrokeStyle(1, 0x8b6914);
+      plank.setAngle(p.angle);
+      container.add(plank);
+
+      // Plank text
+      const txt = this.add.text(0, p.y, p.text, {
+        fontFamily: "ChakraPetch, sans-serif",
+        fontStyle: "bold",
+        fontSize: "8px",
+        color: "#3b2510",
+        align: "center",
+        resolution: 4,
+      }).setOrigin(0.5).setAngle(p.angle);
+      container.add(txt);
+    }
+
+    // "Press SPACE to close" hint
+    const hint = this.add.text(0, boardH / 2 + 35, "[ SPACE ]", {
+      fontFamily: "ChakraPetch, sans-serif",
+      fontSize: "6px",
+      color: "#aaaaaa",
+      align: "center",
+      resolution: 4,
+    }).setOrigin(0.5);
+    container.add(hint);
+
+    // Fade in
+    container.setAlpha(0);
+    this.tweens.add({ targets: container, alpha: 1, duration: 200, ease: "Sine.easeOut" });
+
+    this.signOverlay = container;
+
+    // Also allow click to dismiss
+    backdrop.setInteractive();
+    backdrop.once("pointerdown", () => this.dismissSign());
+
+    return true;
+  }
+
+  private dismissSign() {
+    if (!this.signActive) return;
+    this.signActive = false;
+    this.physics.resume();
+
+    if (this.signOverlay) {
+      this.tweens.add({
+        targets: this.signOverlay,
+        alpha: 0,
+        duration: 150,
+        ease: "Sine.easeIn",
+        onComplete: () => {
+          this.signOverlay?.destroy();
+          this.signOverlay = undefined;
+        },
+      });
+    }
+  }
+
   private tryStartingDoor(): boolean {
     if (this.startingDoorOpened || !this.startingChestOpened) return false;
     const dist = Phaser.Math.Distance.Between(
@@ -3763,6 +4091,7 @@ export class GameScene extends Phaser.Scene {
     if (dist >= this.startInteractDist) return false;
 
     this.startingDoorOpened = true;
+    this.reachableDirty = true; // recompute spawn reachability
 
     // Remove the door collision body so player can walk through
     if (this.startingDoorBody) {
@@ -3850,34 +4179,231 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /** Spawn Mason behind the DJ table and show intro card */
-  private triggerMasonIntro() {
-    this.masonTriggered = true;
-    this.masonIntroActive = true;
-    this.physics.pause();
-    this.game.canvas.style.pointerEvents = "none";
+  /** Helper: true during cutscene_1 or cutscene_2 (physics paused, player frozen) */
+  private get masonCutsceneActive(): boolean {
+    return this.masonRavePhase === "cutscene_1" || this.masonRavePhase === "cutscene_2";
+  }
 
-    // Spawn Mason behind the DJ table (DJ at x:1512, y:195), facing south
-    const masonX = 1512;
-    const masonY = 170; // just north of the DJ table
+  /** Phase 0: Spawn Mason + dancing zombies, seal estate, player walks freely */
+  private triggerMasonRave() {
+    this.masonTriggered = true;
+    this.masonRavePhase = "rave_setup";
+
+    // Seal estate entrance
+    const estateDoor = this.doors.find(d => d.label === "Estate Entrance");
+    if (estateDoor && estateDoor.opened) {
+      (estateDoor.zone.body as Phaser.Physics.Arcade.StaticBody).enable = true;
+      for (const t of estateDoor.savedTiles) {
+        this.getDoorLayer(t.layer)?.putTileAt(t.gid, t.col, t.row);
+      }
+      estateDoor.opened = false;
+      this.reachableDirty = true;
+    }
+
+    // Spawn Mason behind the DJ table, facing south, breathing-idle
+    const masonX = 48 * 32 + 16; // center of tile 48, aligned with DJ table
+    const masonY = 170;
     const mason = new Enemy(this, masonX, masonY, "mason", 1, 1);
     this.enemies.add(mason);
     mason.setDepth(5);
-
-    // Lock Mason in place with breathing idle, facing south
-    mason.fleeing = true; // prevents updateMason from running
+    mason.fleeing = true;
+    mason.setFacing("south");
     mason.body.setVelocity(0, 0);
     mason.body.setImmovable(true);
-
+    const masonIdleKey = getAnimKey("mason", "breathing-idle", "south");
+    if (this.anims.exists(masonIdleKey)) mason.play(masonIdleKey, true);
     this.masonEnemy = mason;
 
-    // Show the intro card
-    hudState.update({ masonAnnouncementActive: true });
+    // Spawn dancing zombies scattered across the ballroom
+    this.masonRaveZombies = [];
+    const directions: Array<"south" | "south-east" | "south-west" | "east" | "west"> = ["south", "south-east", "south-west", "east", "west"];
+    const speedTiers: Array<"shamble" | "jog" | "run"> = ["jog", "jog", "run"];
+    for (let i = 0; i < 35; i++) {
+      const zx = 1250 + Math.random() * 500;
+      const zy = 220 + Math.random() * 280;
+      const tier = speedTiers[i % speedTiers.length];
+      const zombie = new Enemy(this, zx, zy, "basic", 1.5, 2, tier);
+      this.enemies.add(zombie);
+      zombie.raveZombie = true;
+      zombie.setScale(0.34);
+      zombie.body.setImmovable(true);
+      zombie.startDancing(directions[i % directions.length]);
+      this.masonRaveZombies.push(zombie);
+    }
+  }
+
+  /** Phase 1: Camera pan to Mason, show first dialogue card */
+  private triggerMasonCutscene1() {
+    this.masonRavePhase = "cutscene_1";
+    this.physics.pause();
+    this.game.canvas.style.pointerEvents = "none";
+
+    // Switch player to breathing-idle
+    const idleKey = getAnimKey(this.characterDef.id, "breathing-idle", this.player.currentDir);
+    if (this.anims.exists(idleKey)) this.player.play(idleKey, true);
+
+    // Letterbox bars
+    const screenW = this.cameras.main.width;
+    const screenH = this.cameras.main.height;
+    const barH = Math.round(screenH * 0.13);
+    const topBar = this.add.rectangle(screenW / 2, -barH / 2, screenW, barH, 0x000000)
+      .setScrollFactor(0).setDepth(290).setAlpha(1);
+    const bottomBar = this.add.rectangle(screenW / 2, screenH + barH / 2, screenW, barH, 0x000000)
+      .setScrollFactor(0).setDepth(290).setAlpha(1);
+    this.masonLetterboxBars = [topBar, bottomBar];
+
+    this.tweens.add({ targets: topBar, y: barH / 2, duration: 500, ease: "Quart.easeOut" });
+    this.tweens.add({ targets: bottomBar, y: screenH - barH / 2, duration: 500, ease: "Quart.easeOut" });
+
+    // Camera pan to Mason
+    this.cameras.main.stopFollow();
+    const masonPanX = 48 * 32 + 16;
+    this.cameras.main.pan(masonPanX, 170, 1500, "Sine.easeInOut", false, (_cam: Phaser.Cameras.Scene2D.Camera, progress: number) => {
+      if (progress >= 1) {
+        this.masonBannerReady = true;
+        hudState.update({
+          masonDialogueActive: true,
+          masonDialogueQuote: "You dare interrupt my rave? This is MY dancefloor.",
+        });
+      }
+    });
+  }
+
+  /** Dismiss the Mason dialogue card (Space or click) and proceed */
+  private dismissMasonDialogue() {
+    if (!this.masonCutsceneActive || this.masonDismissing) return;
+    this.masonDismissing = true;
+    this.masonBannerReady = false;
+
+    // Hide React banner
+    hudState.update({ masonDialogueActive: false });
+    this.game.canvas.style.pointerEvents = "auto";
+
+    // Camera pan back to player
+    this.cameras.main.pan(this.player.x, this.player.y, 1000, "Sine.easeInOut", false, (_cam: Phaser.Cameras.Scene2D.Camera, progress: number) => {
+      if (progress < 1) return;
+      this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
+
+      // Retract letterbox bars
+      this.retractMasonLetterbox(() => {
+        this.physics.resume();
+        this.masonDismissing = false;
+
+        if (this.masonRavePhase === "cutscene_1") {
+          // Activate zombies — they stop dancing and attack
+          this.masonRavePhase = "zombie_fight";
+          for (const z of this.masonRaveZombies) {
+            if (z.active && !z.dying) {
+              z.stopDancing();
+              z.body.setImmovable(false);
+            }
+          }
+          this.showWeaponMessage("KILL THE ZOMBIES!", "#ff4444");
+        } else if (this.masonRavePhase === "cutscene_2") {
+          // Mason jumps in to fight
+          this.masonRavePhase = "boss_fight";
+          if (this.masonEnemy?.active) {
+            this.playMasonJumpEntry(this.masonEnemy);
+          }
+        }
+      });
+    });
+  }
+
+  /** Retract Mason letterbox bars with tween, then call onComplete */
+  private retractMasonLetterbox(onComplete: () => void) {
+    if (!this.masonLetterboxBars) { onComplete(); return; }
+    const [topBar, bottomBar] = this.masonLetterboxBars;
+    this.masonLetterboxBars = null;
+    const barH = topBar.height;
+    const screenH = this.cameras.main.height;
+    this.tweens.add({
+      targets: topBar,
+      y: -barH / 2,
+      duration: 350,
+      ease: "Quart.easeIn",
+      onComplete: () => topBar.destroy(),
+    });
+    this.tweens.add({
+      targets: bottomBar,
+      y: screenH + barH / 2,
+      duration: 350,
+      ease: "Quart.easeIn",
+      onComplete: () => { bottomBar.destroy(); onComplete(); },
+    });
+  }
+
+  /** All rave zombies dead — brief dramatic pause, then player walks north */
+  private triggerDramaticPause() {
+    this.masonRavePhase = "dramatic_pause";
+    this.showWeaponMessage("...", "#aaaaaa");
+  }
+
+  /** Phase 2: Second cutscene — camera pan to Mason, second dialogue */
+  private triggerMasonCutscene2() {
+    this.masonRavePhase = "cutscene_2";
+    this.physics.pause();
+    this.game.canvas.style.pointerEvents = "none";
+
+    const idleKey = getAnimKey(this.characterDef.id, "breathing-idle", this.player.currentDir);
+    if (this.anims.exists(idleKey)) this.player.play(idleKey, true);
+
+    const screenW = this.cameras.main.width;
+    const screenH = this.cameras.main.height;
+    const barH = Math.round(screenH * 0.13);
+    const topBar = this.add.rectangle(screenW / 2, -barH / 2, screenW, barH, 0x000000)
+      .setScrollFactor(0).setDepth(290).setAlpha(1);
+    const bottomBar = this.add.rectangle(screenW / 2, screenH + barH / 2, screenW, barH, 0x000000)
+      .setScrollFactor(0).setDepth(290).setAlpha(1);
+    this.masonLetterboxBars = [topBar, bottomBar];
+
+    this.tweens.add({ targets: topBar, y: barH / 2, duration: 500, ease: "Quart.easeOut" });
+    this.tweens.add({ targets: bottomBar, y: screenH - barH / 2, duration: 500, ease: "Quart.easeOut" });
+
+    this.cameras.main.stopFollow();
+    const masonPanX2 = 48 * 32 + 16;
+    this.cameras.main.pan(masonPanX2, 170, 1500, "Sine.easeInOut", false, (_cam: Phaser.Cameras.Scene2D.Camera, progress: number) => {
+      if (progress >= 1) {
+        this.masonBannerReady = true;
+        hudState.update({
+          masonDialogueActive: true,
+          masonDialogueQuote: "Fine. You want a fight? I'll show you how a DJ drops the beat.",
+        });
+      }
+    });
+  }
+
+  /** Mason jump-lands near the player and activates combat AI */
+  private playMasonJumpEntry(mason: Enemy) {
+    const targetX = this.player.x;
+    const targetY = this.player.y - 60; // land just north of player
+
+    // Tween Mason from DJ table to near player
+    this.tweens.add({
+      targets: mason,
+      x: targetX,
+      y: targetY,
+      duration: 800,
+      ease: "Quad.easeIn",
+      onComplete: () => {
+        // Camera shake on landing
+        this.cameras.main.shake(300, 0.012);
+
+        // Face the player
+        const angle = Phaser.Math.Angle.Between(mason.x, mason.y, this.player.x, this.player.y);
+        mason.setFacing(angleToDirection(angle) as any);
+
+        // Activate combat AI
+        mason.fleeing = false;
+        mason.body.setImmovable(false);
+        this.showWeaponMessage("BIGBOSSBABY WANTS TO FIGHT!", "#7c3aed");
+      },
+    });
   }
 
   // Fixed spawn positions per encounter (tile coords × 32, centered in tile)
   private readonly SCARYBOI_SPAWN: Record<"zone2" | "southBuilding" | "estate", { x: number; y: number }> = {
-    zone2:         { x: 20 * 32 + 16, y: 36 * 32 + 16 },
+    zone2:         { x: 20 * 32 + 16, y: 35 * 32 + 16 },
     southBuilding: { x: 12 * 32 + 16, y: 45 * 32 + 16 },
     estate:        { x: 33 * 32 + 16, y: 22 * 32 + 16 },
   };
@@ -3885,16 +4411,16 @@ export class GameScene extends Phaser.Scene {
   // Per-encounter cutscene data — quote and VO are easy to swap later
   private readonly SCARYBOI_CUTSCENE_DATA: Record<"zone2" | "southBuilding" | "estate", { quote: string; voSrc: string }> = {
     zone2: {
-      quote: "You've lasted longer than the others. Admirable, but mistaken...",
-      voSrc: "/assets/audio/voice/rickarena-scaryboi-intro-vo.mp3",
+      quote: "You know, there's a big party going on inside... but your name isn't on the guest list.",
+      voSrc: "/assets/audio/voice/scaryboi-vo-zone2.mp3",
     },
     southBuilding: {
-      quote: "You thought hiding in here would save you?",
-      voSrc: "", // TODO: wire in VO when recorded
+      quote: "The righteous BigBaby will bless us all with his tasty beats tonight... You will not reach him. You are not worthy.",
+      voSrc: "/assets/audio/voice/scaryboi-vo-south.mp3",
     },
     estate: {
-      quote: "This ends now. No more running.",
-      voSrc: "", // TODO: wire in VO when recorded
+      quote: "BigBaby's dancefloor has no tolerance for Jabronis and haters... and neither do I.",
+      voSrc: "/assets/audio/voice/scaryboi-vo-estate.mp3",
     },
   };
 
@@ -3903,6 +4429,7 @@ export class GameScene extends Phaser.Scene {
     const encConfig = this.waveManager.getCurrentEncounterConfig();
 
     // Mark location triggers so they don't re-fire
+    if (enc === "zone2") this.scaryboiZone2Triggered = true;
     if (enc === "southBuilding") this.scaryboiSouthTriggered = true;
     if (enc === "estate") this.scaryboiEstateTriggered = true;
 
@@ -3922,6 +4449,7 @@ export class GameScene extends Phaser.Scene {
           this.getDoorLayer(t.layer)?.putTileAt(t.gid, t.col, t.row);
         }
         estateDoor.opened = false;
+        this.reachableDirty = true;
       }
     }
   }
@@ -3946,7 +4474,6 @@ export class GameScene extends Phaser.Scene {
       boss.playSmokeAppear();
     }
 
-    this.showWeaponMessage("SCARYBOI APPEARS...", "#ff4444");
   }
 
   /**
@@ -4068,7 +4595,6 @@ export class GameScene extends Phaser.Scene {
         );
       }
       this.scaryboiCutsceneBoss = null;
-      this.showWeaponMessage("SCARYBOI APPEARS...", "#ff4444");
     });
   }
 
@@ -4174,7 +4700,7 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private tryBuyNearbyDoor() {
+  private tryBuyNearbyDoor(): boolean {
     for (const door of this.doors) {
       if (door.opened || door.locked || door.broken) continue;
       const dist = Phaser.Math.Distance.Between(
@@ -4191,7 +4717,7 @@ export class GameScene extends Phaser.Scene {
               if (door.promptText) this.applyPromptGradient(door.promptText, false);
             });
           }
-          return;
+          return true; // near a door, consumed the input
         }
         // Purchase — remove collision, clear door tiles, hide prompt
         if (!door.paid) {
@@ -4199,6 +4725,7 @@ export class GameScene extends Phaser.Scene {
           door.paid = true;
         }
         door.opened = true;
+        this.reachableDirty = true; // recompute spawn reachability
         // Disable collision (don't destroy — we'll re-enable when door closes)
         (door.zone.body as Phaser.Physics.Arcade.StaticBody).enable = false;
         if (door.promptText) {
@@ -4214,9 +4741,10 @@ export class GameScene extends Phaser.Scene {
         if (door.label === "Gate") {
           this.waveManager.notifyGateOpened();
         }
-        return;
+        return true;
       }
     }
+    return false;
   }
 
   // ─── Zombie door-breaking ───
@@ -4270,6 +4798,7 @@ export class GameScene extends Phaser.Scene {
     door.broken = true;
     door.opened = true;
     door.health = 0;
+    this.reachableDirty = true; // recompute spawn reachability
 
     // Remove collision permanently
     (door.zone.body as Phaser.Physics.Arcade.StaticBody).enable = false;

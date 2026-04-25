@@ -24,6 +24,7 @@ export class Pathfinder {
   private easystar: EasyStar.js;
   private gridW: number; // columns
   private gridH: number; // rows
+  private grid: number[][]; // 0 = walkable, 1 = blocked
 
   constructor(
     mapWidthPx: number,
@@ -35,10 +36,11 @@ export class Pathfinder {
     this.gridH = Math.ceil(mapHeightPx / TILE_SIZE);
 
     // Build grid: 0 = walkable, 1 = blocked
-    const grid: number[][] = [];
+    this.grid = [];
     for (let row = 0; row < this.gridH; row++) {
-      grid[row] = new Array(this.gridW).fill(0);
+      this.grid[row] = new Array(this.gridW).fill(0);
     }
+    const grid = this.grid;
 
     // Stamp collision rects onto grid
     for (const rect of collisionRects) {
@@ -126,6 +128,16 @@ export class Pathfinder {
         callback(worldPath);
       }
     );
+  }
+
+  /** Check if a tile is walkable (not blocked by collision) */
+  isWalkable(col: number, row: number): boolean {
+    if (col < 0 || col >= this.gridW || row < 0 || row >= this.gridH) return false;
+    return this.grid[row][col] === 0;
+  }
+
+  getGridSize(): { w: number; h: number } {
+    return { w: this.gridW, h: this.gridH };
   }
 
   /** Must be called each frame (or on a timer) to process queued path requests. */

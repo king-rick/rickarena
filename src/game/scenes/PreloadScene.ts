@@ -68,10 +68,8 @@ export class PreloadScene extends Phaser.Scene {
         `zombiedog-${dir}`,
         `/assets/sprites/zombiedog/rotations/${dir}.png`
       );
-      this.load.image(
-        `mason-${dir}`,
-        `/assets/sprites/mason/rotations/${dir}.png`
-      );
+      // Mason rotations not yet created — skip to avoid 404 spam
+      // this.load.image(`mason-${dir}`, `/assets/sprites/mason/rotations/${dir}.png`);
     }
 
     // Generator + machine props (on/off states)
@@ -106,6 +104,10 @@ export class PreloadScene extends Phaser.Scene {
     this.load.image("ts-td-basic-props", "/assets/tilesets/td-basic-props.png");
     this.load.image("ts-td-basic-struct", "/assets/tilesets/td-basic-struct.png");
     this.load.image("ts-pipoya-basechip", "/assets/tilesets/pipoya/pipoya-basechip.png");
+    this.load.image("ts-rickarena-props", "/assets/tilesets/rickarena-props.png");
+    // DJ gear props (spawned as sprites, not tiles — mixed tile heights break Phaser rendering)
+    this.load.image("prop-dj-table", "/assets/sprites/props/dj-table.png");
+    this.load.image("prop-pa-speaker", "/assets/sprites/props/pa-speaker.png");
     // Tree spritesheets (64x64 per frame, used as individual sprites for overlap)
     this.load.spritesheet("trees-64", "/assets/tilesets/bloompixel/bp-trees-64.png", { frameWidth: 64, frameHeight: 64 });
     this.load.spritesheet("dark-trees-64", "/assets/tilesets/bloompixel/bp-dark-trees-64.png", { frameWidth: 64, frameHeight: 64 });
@@ -315,6 +317,10 @@ export class PreloadScene extends Phaser.Scene {
     this.load.audio("sfx-voice1", "/assets/audio/voice/voice-line-liam-1.mp3");
     this.load.audio("sfx-voice2", "/assets/audio/voice/voice-line-liam-2.mp3");
     this.load.audio("sfx-voice3", "/assets/audio/voice/voice-line-liam-3.mp3");
+    // SCARYBOI encounter VO
+    this.load.audio("sfx-scaryboi-vo-zone2", "/assets/audio/voice/scaryboi-vo-zone2.mp3");
+    this.load.audio("sfx-scaryboi-vo-south", "/assets/audio/voice/scaryboi-vo-south.mp3");
+    this.load.audio("sfx-scaryboi-vo-estate", "/assets/audio/voice/scaryboi-vo-estate.mp3");
   }
 
   async create() {

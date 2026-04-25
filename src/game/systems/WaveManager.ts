@@ -60,9 +60,9 @@ const DOG_SPAWN_POINTS = [
 ];
 
 // Spawn radius around the player (25 tiles = 800px)
-const SPAWN_RADIUS = 800;
+const SPAWN_RADIUS = 400;
 // Minimum distance from player (don't spawn right on top of them)
-const SPAWN_MIN_DIST = 250;
+const SPAWN_MIN_DIST = 160;
 
 export type WaveState =
   | "pre_game" // Brief countdown before wave 1
@@ -78,6 +78,7 @@ interface WaveManagerConfig {
   isFieldTile?: (tileX: number, tileY: number) => boolean; // true if tile is open field (ground only, no buildings/props)
   isDoorOpen?: (label: string) => boolean; // true if the named door has been opened or broken
   isCollisionFree?: (wx: number, wy: number) => boolean; // true if world position doesn't overlap a collision object
+  isSpawnReachable?: (wx: number, wy: number) => boolean; // true if world position is reachable from player (flood fill)
 }
 
 export class WaveManager {
@@ -122,7 +123,8 @@ export class WaveManager {
   private dogRespawnQueue: number[] = []; // timestamps when each dead dog can respawn
   private isFieldTile: (tileX: number, tileY: number) => boolean;
   private isDoorOpen: (label: string) => boolean;
-  private isCollisionFree: (wx: number, wy: number) => boolean;
+  isCollisionFree: (wx: number, wy: number) => boolean;
+  isSpawnReachable: (wx: number, wy: number) => boolean;
 
   // Room pressure — flanking spawns when player camps in a room
   playerInRoom = false;
@@ -150,6 +152,7 @@ export class WaveManager {
     this.isFieldTile = config.isFieldTile ?? (() => true);
     this.isDoorOpen = config.isDoorOpen ?? (() => true);
     this.isCollisionFree = config.isCollisionFree ?? (() => true);
+    this.isSpawnReachable = config.isSpawnReachable ?? (() => true);
   }
 
   update(delta: number) {
@@ -394,6 +397,7 @@ export class WaveManager {
       const enemy = e as Enemy;
       if (enemy.enemyType === "fast") return false; // dogs never block
       if (enemy.fleeing) return false; // fleeing boss never blocks
+      if (enemy.raveZombie) return false; // rave zombies never block wave progression
       return true;
     }).length;
     return this.enemiesToSpawn + alive;
@@ -496,6 +500,8 @@ export class WaveManager {
     const pos = this.getPlayerPos();
 
     // Spawn within 25-tile radius of player, but not too close
+    // Inset by 4 tiles to stay inside the perimeter collision fence
+    const spawnMargin = 4 * 32;
     let sx = 0, sy = 0;
     let valid = false;
     for (let attempt = 0; attempt < 20; attempt++) {
@@ -504,24 +510,25 @@ export class WaveManager {
       sx = pos.x + Math.cos(angle) * dist;
       sy = pos.y + Math.sin(angle) * dist;
 
-      // Clamp to surface play area
-      sx = Phaser.Math.Clamp(sx, 60, SURFACE_WIDTH - 60);
-      sy = Phaser.Math.Clamp(sy, 60, MAP_HEIGHT - 60);
+      // Clamp to surface play area (inside perimeter fence)
+      sx = Phaser.Math.Clamp(sx, spawnMargin, SURFACE_WIDTH - spawnMargin);
+      sy = Phaser.Math.Clamp(sy, spawnMargin, MAP_HEIGHT - spawnMargin);
 
-      if (!isExcluded(sx, sy) && !this.isGated(sx, sy)) {
+      if (!isExcluded(sx, sy) && !this.isGated(sx, sy) && this.isCollisionFree(sx, sy) && this.isSpawnReachable(sx, sy)) {
         valid = true;
         break;
       }
     }
 
-    // If all attempts failed, try map edges in unlocked areas
+    // If all attempts failed, try map edges in unlocked areas (inset by 4 tiles to stay inside perimeter)
     if (!valid) {
+      const edgeMargin = 4 * 32; // 4 tiles — inside the perimeter fence
       const edges = [
-        { x: Phaser.Math.Clamp(pos.x, 60, SURFACE_WIDTH - 60), y: 60 },
-        { x: Phaser.Math.Clamp(pos.x, 60, SURFACE_WIDTH - 60), y: MAP_HEIGHT - 60 },
-        { x: 60, y: Phaser.Math.Clamp(pos.y, 60, MAP_HEIGHT - 60) },
-        { x: SURFACE_WIDTH - 60, y: Phaser.Math.Clamp(pos.y, 60, MAP_HEIGHT - 60) },
-      ].filter(e => !isExcluded(e.x, e.y) && !this.isGated(e.x, e.y));
+        { x: Phaser.Math.Clamp(pos.x, edgeMargin, SURFACE_WIDTH - edgeMargin), y: edgeMargin },
+        { x: Phaser.Math.Clamp(pos.x, edgeMargin, SURFACE_WIDTH - edgeMargin), y: MAP_HEIGHT - edgeMargin },
+        { x: edgeMargin, y: Phaser.Math.Clamp(pos.y, edgeMargin, MAP_HEIGHT - edgeMargin) },
+        { x: SURFACE_WIDTH - edgeMargin, y: Phaser.Math.Clamp(pos.y, edgeMargin, MAP_HEIGHT - edgeMargin) },
+      ].filter(e => !isExcluded(e.x, e.y) && !this.isGated(e.x, e.y) && this.isCollisionFree(e.x, e.y) && this.isSpawnReachable(e.x, e.y));
       if (edges.length > 0) {
         const edge = edges[Math.floor(Math.random() * edges.length)];
         sx = edge.x;
@@ -530,16 +537,16 @@ export class WaveManager {
       }
     }
 
-    // Last resort: random offsets from player — must still respect exclusion + gates (never bypass)
+    // Last resort: random offsets from player — must still respect all spawn checks (never bypass)
     if (!valid) {
       for (let attempt = 0; attempt < 50; attempt++) {
         const angle = Math.random() * Math.PI * 2;
         const dist = SPAWN_MIN_DIST + 40 + Math.random() * 250;
         sx = pos.x + Math.cos(angle) * dist;
         sy = pos.y + Math.sin(angle) * dist;
-        sx = Phaser.Math.Clamp(sx, 60, SURFACE_WIDTH - 60);
-        sy = Phaser.Math.Clamp(sy, 60, MAP_HEIGHT - 60);
-        if (!isExcluded(sx, sy) && !this.isGated(sx, sy)) {
+        sx = Phaser.Math.Clamp(sx, spawnMargin, SURFACE_WIDTH - spawnMargin);
+        sy = Phaser.Math.Clamp(sy, spawnMargin, MAP_HEIGHT - spawnMargin);
+        if (!isExcluded(sx, sy) && !this.isGated(sx, sy) && this.isCollisionFree(sx, sy) && this.isSpawnReachable(sx, sy)) {
           valid = true;
           break;
         }
@@ -553,9 +560,9 @@ export class WaveManager {
           const angle = (k / 16) * Math.PI * 2;
           sx = pos.x + Math.cos(angle) * dist;
           sy = pos.y + Math.sin(angle) * dist;
-          sx = Phaser.Math.Clamp(sx, 60, SURFACE_WIDTH - 60);
-          sy = Phaser.Math.Clamp(sy, 60, MAP_HEIGHT - 60);
-          if (!isExcluded(sx, sy) && !this.isGated(sx, sy)) {
+          sx = Phaser.Math.Clamp(sx, spawnMargin, SURFACE_WIDTH - spawnMargin);
+          sy = Phaser.Math.Clamp(sy, spawnMargin, MAP_HEIGHT - spawnMargin);
+          if (!isExcluded(sx, sy) && !this.isGated(sx, sy) && this.isCollisionFree(sx, sy) && this.isSpawnReachable(sx, sy)) {
             valid = true;
             break;
           }
@@ -571,6 +578,11 @@ export class WaveManager {
     const enemy = new Enemy(this.scene, sx, sy, type, hpMultiplier, dmgMultiplier, speedTier);
     enemy.body.setCollideWorldBounds(true);
     this.enemies.add(enemy);
+
+    // ~50% of basic zombies play ground-spawn animation, rest walk in normally
+    if (type === "basic" && Math.random() < 0.5) {
+      enemy.playGroundSpawn();
+    }
 
     this.enemiesToSpawn--;
     this.enemiesAlive++;
@@ -774,9 +786,9 @@ export class WaveManager {
           case 2: sx = pos.x - halfW - margin; sy = pos.y + (Math.random() - 0.5) * halfH * 2; break;
           default: sx = pos.x + halfW + margin; sy = pos.y + (Math.random() - 0.5) * halfH * 2; break;
         }
-        sx = Phaser.Math.Clamp(sx, 60, SURFACE_WIDTH - 60);
-        sy = Phaser.Math.Clamp(sy, 60, MAP_HEIGHT - 60);
-        if (!isExcluded(sx, sy) && !this.isGated(sx, sy)) {
+        sx = Phaser.Math.Clamp(sx, 4 * 32, SURFACE_WIDTH - 4 * 32);
+        sy = Phaser.Math.Clamp(sy, 4 * 32, MAP_HEIGHT - 4 * 32);
+        if (!isExcluded(sx, sy) && !this.isGated(sx, sy) && this.isCollisionFree(sx, sy) && this.isSpawnReachable(sx, sy)) {
           ok = true;
           break;
         }

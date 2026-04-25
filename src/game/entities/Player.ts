@@ -60,10 +60,12 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private holdingShoot = false; // true for auto weapons holding last frame
   private locked = false; // true during hurt/death — blocks all input
   private sprinting = false;
-  private shiftKey!: Phaser.Input.Keyboard.Key;
+  private sprintKey!: Phaser.Input.Keyboard.Key;
 
   /** True while punch animation is active — grants i-frames */
   get isPunching(): boolean { return this.punching; }
+  /** True while player is actively sprinting */
+  get isSprinting(): boolean { return this.sprinting; }
 
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd!: {
@@ -114,7 +116,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
         S: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
         D: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
       };
-      this.shiftKey = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
+      this.sprintKey = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
     }
   }
 
@@ -133,16 +135,18 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       }
     }
 
-    // Stamina regen
+    // Stamina regen — faster when idle, slower when walking
     if (
       !this.burnedOut &&
       this.stats.stamina < this.stats.maxStamina
     ) {
       const timeSinceUse = this.scene.time.now - this.lastStaminaUse;
       if (timeSinceUse >= BALANCE.stamina.regenDelay) {
+        const isIdle = !this.body?.velocity.x && !this.body?.velocity.y;
+        const regenMult = isIdle ? BALANCE.stamina.idleRegenMultiplier : 1;
         this.stats.stamina = Math.min(
           this.stats.maxStamina,
-          this.stats.stamina + this.stats.regen * (delta / 1000)
+          this.stats.stamina + this.stats.regen * regenMult * (delta / 1000)
         );
       }
     }
@@ -173,7 +177,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     const isMoving = vx !== 0 || vy !== 0;
 
     // Sprint: hold shift while moving, drains stamina
-    const wantsSprint = this.shiftKey?.isDown && isMoving && !this.burnedOut;
+    const wantsSprint = this.sprintKey?.isDown && isMoving && !this.burnedOut;
     this.sprinting = wantsSprint && this.stats.stamina > 0;
 
     if (this.sprinting) {

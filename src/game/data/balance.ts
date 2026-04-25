@@ -8,10 +8,11 @@ export const BALANCE = {
     damageMultiplier: 0.5,
   },
   stamina: {
-    regenDelay: 1200, // ms before stamina starts regenerating
+    regenDelay: 600, // ms before stamina starts regenerating
     punchCost: 9,
-    sprintCostPerSecond: 10,
-    baseRegen: 8, // per second (overrides character regen when used)
+    sprintCostPerSecond: 7,
+    baseRegen: 8, // per second while walking (overrides character regen when used)
+    idleRegenMultiplier: 1.8, // regen is 80% faster when standing still
   },
 
   // Combat
@@ -290,7 +291,7 @@ export const BALANCE = {
 
   // Enemy base stats — WaW-style scaling (exponential HP, speed tiers, flat damage)
   enemies: {
-    basic: { hp: 50, damage: 20, speed: 60, jogSpeed: 80, runSpeed: 105 },
+    basic: { hp: 33, damage: 20, speed: 60, jogSpeed: 80, runSpeed: 105 },
     fast:  {
       hp: 30, damage: 12, speed: 115, attackCooldown: 400,  // dog: fragile but fast when aggro
       roamSpeed: 30,           // slow idle wander on grass

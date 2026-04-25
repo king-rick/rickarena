@@ -1,5 +1,50 @@
 # RickArena Changelog
 
+## 2026-04-24 — Mason Rave Cutscene, DJ Booth, Dancing Zombies
+
+**Mason boss fight gets a multi-phase rave cutscene in the estate ballroom. Player discovers a zombie dance party, triggers a cinematic confrontation, then fights Mason personally.**
+
+### Mason Rave Cutscene — Full Phase System
+- Replaced single `masonIntroActive` boolean with `masonRavePhase` state machine (6 phases: `rave_setup`, `cutscene_1`, `zombie_fight`, `dramatic_pause`, `cutscene_2`, `boss_fight`)
+- **rave_setup**: Player enters estate → Mason spawns behind DJ booth in breathing-idle, 35 zombies spawn dancing. Player walks freely and explores the rave. Estate entrance sealed behind player.
+- **cutscene_1**: Triggered when player kills first dancing zombie. Letterbox bars slide in, camera pans to Mason, dialogue card appears: "You dare interrupt my rave? This is MY dancefloor."
+- **zombie_fight**: Player dismisses card (SPACE/click) → camera pans back, letterbox retracts, all 35 zombies stop dancing and attack aggressively (2/3 joggers, 1/3 runners, 1.5x HP, 2x damage)
+- **dramatic_pause**: All rave zombies dead → brief "..." message
+- **cutscene_2**: Player walks north (y<=400) → second letterbox + camera pan to Mason, second dialogue: "Fine. You want a fight? I'll show you how a DJ drops the beat."
+- **boss_fight**: Mason tweens from DJ booth to near player with camera shake on landing, combat AI activates
+
+### Dancing Zombie System (Enemy.ts)
+- New `dancing` and `raveZombie` public properties on Enemy
+- `startDancing(dir)` / `stopDancing()` methods
+- Zombies use `zombie-dancing` animation (16 frames, all 8 directions) — was incorrectly falling back to walk anim, fixed
+- **Wander-dance behavior**: zombies alternate between dancing in place (2-5s) and short walks (0.4-1s) in random directions at slow speed (25). Leashed within ~1.5 tiles of spawn point to prevent drift.
+- `raveZombie` flag excludes rave zombies from wave progression blocking count (WaveManager)
+
+### DJ Booth & Stage Setup
+- DJ table scaled from 1.2x to 1.5x (now 3 tiles wide, proportional height)
+- DJ table depth raised from 2 to 6 — renders above Mason (depth 5) so he appears behind it
+- Mason spawn position centered on tile 48 to align with widened booth
+- Camera pan targets updated to match new Mason position
+
+### HUD Dialogue System Refactor
+- Replaced 3 mason HUD booleans (`masonAnnouncementActive`, `masonFightIntroActive`, `masonFinalIntroActive`) with 2 fields: `masonDialogueActive` + `masonDialogueQuote`
+- Action handler renamed: `masonAnnouncementAction` → `masonDialogueAction`
+- `MasonAnnouncement.tsx` redesigned from full-screen portrait to bottom slide-up card (matches ScaryboiIntro pattern)
+- Purple theme (#7c3aed), title "B I G B O S S B A B Y", reads quote dynamically from HUDState
+- Dismiss button: "Bring it · [ SPACE ]"
+
+### Bug Fixes
+- **Mason drift**: Mason would slide off-map when player bumped into him during rave_setup. Fixed by zeroing velocity every frame in the `fleeing` early-return path (Enemy.ts update)
+- **Mason breathing-idle**: Mason was playing walk anim on spawn instead of breathing-idle. Fixed by explicitly playing `getAnimKey("mason", "breathing-idle", "south")` on spawn.
+- **Mason death**: Now re-opens estate entrance door (same pattern as SCARYBOI defeat) and shows "BIGBOSSBABY DEFEATED!" message
+
+### Code Cleanup
+- Exported `angleToDirection()` from Enemy.ts for use in GameScene (Mason jump facing)
+- `masonCutsceneActive` getter replaces scattered boolean checks — returns true only during cutscene_1/cutscene_2
+- All input guards (SPACE, B, V keys) and update() loop updated to use new phase system
+
+---
+
 ## 2026-04-23 — SCARYBOI Overhaul, Physics Fix, Balance Caps
 
 **SCARYBOI boss fight completely reworked — all 3 encounters now cinematic, aggressive AI, physics bugs fixed.**

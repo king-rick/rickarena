@@ -32,7 +32,7 @@ Top-down wave survival game (Call of Duty Zombies inspired). Phaser 3 game engin
 - `basic` — zombies with speed tiers (shamble/jog/run), A* pathfinding
 - `fast` — dogs, pack AI, stealth aggro mechanics
 - `boss` — SCARYBOI, recurring villain, 4-attack moveset, flee/reappear encounter system
-- `mason` — BigBossBaby, 2-phase AI (phase 2 at 50% HP unlocks fire breath), 4 attacks: lead-jab, boom-box soundwave, jump-slam, fire-breath
+- `mason` — BigBossBaby, 2-phase AI (phase 2 at 50% HP unlocks fire breath), 4 attacks: lead-jab, boom-box soundwave, jump-slam, fire-breath. Rave cutscene: 6-phase state machine (`masonRavePhase`) with dancing zombies, letterbox cinematics, dialogue cards
 
 ### Systems
 - Economy: kill rewards, wave bonuses, interest, price inflation — all in balance.ts
@@ -45,12 +45,14 @@ Top-down wave survival game (Call of Duty Zombies inspired). Phaser 3 game engin
 - Use `getAnimKey(spriteId, animType, direction)` for animation keys
 - Use `getFrameKey(spriteId, animType, direction, frameIndex)` for individual frame textures
 - Mason attacks set `masonBusy = true` and zero velocity every frame while busy (prevents knockback skating)
-- `angleToDirection(angle)` is a module-level function in Enemy.ts, not a class method — call it directly, cast result `as Direction`
+- `angleToDirection(angle)` is an exported function in Enemy.ts — import and call directly, cast result `as Direction`
+- Mason rave cutscene uses `masonRavePhase` state machine — never set phase directly, use the trigger methods (`triggerMasonRave`, `triggerMasonCutscene1`, etc.)
+- `masonCutsceneActive` getter returns true during cutscene_1/cutscene_2 — use this for input/update guards
 - Blood splatters are triggered from GameScene, not Enemy — call `(this.scene as any).spawnBloodSplat()`
 
 ## Things to avoid
 - Don't add features to GameScene.ts if they can live elsewhere — it's already 3,900 lines
-- Don't use `this.angleToDirection()` — it's a standalone function `angleToDirection()`
+- Don't use `this.angleToDirection()` — it's an exported function, import from Enemy.ts
 - Don't set velocity directly on Mason during attacks — the masonBusy velocity lock in updateMason will fight it
 - Don't use `setImmovable()` alone to prevent knockback — GameScene applies knockback via direct `setVelocity()` calls which bypass immovable
 - Don't assume sprite directories exist — always check `this.scene.anims.exists(key)` or `this.scene.textures.exists(key)` before playing
@@ -61,7 +63,9 @@ Top-down wave survival game (Call of Duty Zombies inspired). Phaser 3 game engin
 - Leaderboard requires DATABASE_URL env var (Neon Postgres)
 - Game runs fully client-side without the database
 
-## Current state (updated 2026-04-22)
-- Building toward Klaviyo Builders submission
-- Mason boss fight actively being developed — sprites, AI, VFX
+## Current state (updated 2026-04-24)
+- Building toward Klaviyo Builders submission (due Friday 2026-04-25)
+- Mason rave cutscene implemented — 6-phase state machine with dancing zombies, letterbox cinematics, dialogue cards
+- Mason boss fight AI complete — 4 attacks, 2-phase system
+- SCARYBOI cinematic overhaul done — all 3 encounters
 - README.md is the submission document — numbers need updating before final submit

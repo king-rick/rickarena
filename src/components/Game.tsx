@@ -54,6 +54,9 @@ export default function Game() {
         }
       });
 
+      // Block right-click context menu on the entire page (canvas, overlays, everywhere)
+      document.addEventListener("contextmenu", (e) => { e.preventDefault(); }, true);
+
       // Focus the canvas so keyboard input works immediately
       gameRef.current.events.once("ready", () => {
         gameRef.current?.canvas?.focus();

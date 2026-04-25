@@ -47,9 +47,9 @@ export function HUDOverlay({ canvasRect }: Props) {
     hudState.subscribe,
     () => hudState.getField("scaryboiIntroActive")
   );
-  const masonAnnouncementActive = useSyncExternalStore(
+  const masonDialogueActive = useSyncExternalStore(
     hudState.subscribe,
-    () => hudState.getField("masonAnnouncementActive")
+    () => hudState.getField("masonDialogueActive")
   );
 
   if (!hudVisible && !gameOver) return null;
@@ -77,8 +77,8 @@ export function HUDOverlay({ canvasRect }: Props) {
         </div>
       )}
 
-      {/* MASON announcement cinematic — wave 5 cutscene */}
-      {masonAnnouncementActive && !gameOver && (
+      {/* MASON dialogue card — rave cutscene */}
+      {masonDialogueActive && !gameOver && (
         <div className="absolute" style={{ ...baseStyle, zIndex: 44 }}>
           <MasonAnnouncement />
         </div>

@@ -21,7 +21,7 @@ function isExcludedZone(px: number, py: number): boolean {
   return false;
 }
 
-function angleToDirection(angle: number): string {
+export function angleToDirection(angle: number): string {
   const deg = Phaser.Math.RadToDeg(angle);
   const norm = ((deg % 360) + 360) % 360;
 
@@ -46,7 +46,7 @@ const VARIANT_SCALES: Record<EnemyType, number> = {
   basic: 0.28,
   fast: 0.33,
   boss: 0.45,
-  mason: 0.52,
+  mason: 0.624,
 };
 
 export class Enemy extends Phaser.Physics.Arcade.Sprite {
@@ -75,6 +75,13 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private leaping = false;
   dying = false;
   fleeing = false;
+  dancing = false;
+  raveZombie = false;
+  private danceSpawnX = 0;
+  private danceSpawnY = 0;
+  private danceTimer = 0;       // ms until next state change (dance↔walk)
+  private danceWalking = false;  // true when taking a few steps between dances
+  private danceWalkDir: Direction = "south";
   private takingPunch = false;
   private leapBiteCombo = false; // true when leap chains into bite for 1.5x damage
   private leapCooldown = 0; // ms until next leap allowed
@@ -89,6 +96,10 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private spriteId: string; // "creepyzombie", "zombiedog", or "scaryboi"
   private walkAnimType: string;
   private idleAnimType: string;
+
+  // Ground-spawn state — zombie is climbing out of the ground
+  spawning = false;
+  private hasGroundSpawnAnim: boolean = false;
 
   // Stuck detection (basic zombies only — prevents round-blocking)
   private stuckTimer = 0; // ms spent barely moving
@@ -209,6 +220,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.hasBeingShotAnim = hasAnimation(spriteId, "being-shot");
     this.hasChoppedInHalf = hasAnimation(spriteId, "chopped-in-half");
     this.hasBeingShotDeath = hasAnimation(spriteId, "being-shot-death");
+    this.hasGroundSpawnAnim = hasAnimation(spriteId, "ground-spawn");
     this.leapCooldown = 2000 + Math.random() * 2000; // stagger initial leap timing
     this.lastX = x;
     this.lastY = y;
@@ -231,6 +243,25 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   preDestroy() {
     if (this.healthBarGfx) {
       this.healthBarGfx.destroy();
+    }
+  }
+
+  /** Play ground-spawn animation — zombie is invulnerable and immobile until complete */
+  playGroundSpawn() {
+    if (!this.hasGroundSpawnAnim) return;
+    this.spawning = true;
+    this.body?.setEnable(false);
+    const dir = this.currentDir || "south";
+    const animKey = getAnimKey(this.spriteId, "ground-spawn", dir);
+    if (this.scene.anims.exists(animKey)) {
+      this.play(animKey);
+      this.once("animationcomplete", () => {
+        this.spawning = false;
+        this.body?.setEnable(true);
+      });
+    } else {
+      this.spawning = false;
+      this.body?.setEnable(true);
     }
   }
 
@@ -352,6 +383,33 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   /** Set the facing direction (used to orient boss on spawn before grace period idle) */
   setFacing(dir: Direction) {
     this.currentDir = dir;
+  }
+
+  /** Start dancing in place (rave zombies) — will wander slightly between dances */
+  startDancing(dir: Direction) {
+    this.dancing = true;
+    this.currentDir = dir;
+    this.danceSpawnX = this.x;
+    this.danceSpawnY = this.y;
+    this.danceWalking = false;
+    this.danceTimer = 2000 + Math.random() * 3000; // dance 2-5s before first wander
+    this.body.setVelocity(0, 0);
+    this.playDanceAnim(dir);
+  }
+
+  private playDanceAnim(dir: Direction) {
+    const key = getAnimKey(this.spriteId, "zombie-dancing", dir);
+    if (this.scene.anims.exists(key)) {
+      this.play(key, true);
+    } else {
+      const fallback = getAnimKey(this.spriteId, this.walkAnimType, dir);
+      if (this.scene.anims.exists(fallback)) this.play(fallback, true);
+    }
+  }
+
+  /** Stop dancing and return to normal AI */
+  stopDancing() {
+    this.dancing = false;
   }
 
   /** Initialize boss encounter — called by GameScene after spawn */
@@ -2215,7 +2273,57 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   // ---- End dog AI ----
 
   update(_time: number, delta: number) {
-    if (!this.active || !this.body || this.dying || this.fleeing) return;
+    if (!this.active || !this.body || this.dying) return;
+    if (this.spawning) return; // climbing out of ground — no movement/AI
+    if (this.fleeing) {
+      // Zero velocity every frame to prevent drift from player collisions
+      this.body.setVelocity(0, 0);
+      return;
+    }
+
+    // Dancing — alternate between dancing in place and short wanders
+    if (this.dancing) {
+      this.danceTimer -= delta;
+      if (this.danceTimer <= 0) {
+        if (this.danceWalking) {
+          // Done walking — stop and dance again
+          this.danceWalking = false;
+          this.body.setVelocity(0, 0);
+          this.playDanceAnim(this.currentDir);
+          this.danceTimer = 2000 + Math.random() * 3000; // dance 2-5s
+        } else {
+          // Done dancing — pick a random direction and walk briefly
+          const dirs: Direction[] = ["north", "south", "east", "west", "north-east", "north-west", "south-east", "south-west"];
+          this.danceWalkDir = dirs[Math.floor(Math.random() * dirs.length)];
+          this.currentDir = this.danceWalkDir;
+          this.danceWalking = true;
+          this.danceTimer = 400 + Math.random() * 600; // walk 0.4-1s (~1-2 steps)
+          const walkKey = getAnimKey(this.spriteId, this.walkAnimType, this.danceWalkDir);
+          if (this.scene.anims.exists(walkKey)) this.play(walkKey, true);
+        }
+      }
+      if (this.danceWalking) {
+        // Move slowly in the walk direction
+        const walkSpeed = 25;
+        const rad = Phaser.Math.Angle.Between(0, 0,
+          this.danceWalkDir.includes("east") ? 1 : this.danceWalkDir.includes("west") ? -1 : 0,
+          this.danceWalkDir.includes("south") ? 1 : this.danceWalkDir.includes("north") ? -1 : 0,
+        );
+        this.body.setVelocity(Math.cos(rad) * walkSpeed, Math.sin(rad) * walkSpeed);
+        // Leash — if too far from spawn, snap back to dancing
+        const dist = Phaser.Math.Distance.Between(this.x, this.y, this.danceSpawnX, this.danceSpawnY);
+        if (dist > 48) { // ~1.5 tiles max
+          this.danceWalking = false;
+          this.body.setVelocity(0, 0);
+          this.playDanceAnim(this.currentDir);
+          this.danceTimer = 2000 + Math.random() * 3000;
+        }
+      } else {
+        this.body.setVelocity(0, 0);
+      }
+      this.updateVisuals(delta);
+      return;
+    }
 
     // Electrocuting — frozen in place, no AI, just visuals
     if (this.electrocuting) {
@@ -2289,7 +2397,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.walkAnimType = "walk";
     }
 
-    // Stuck detection — if zombie barely moved in 5s, teleport; if still stuck after 3s more, auto-kill
+    // Stuck detection — progressive: 1s repath, 5s teleport, 8s auto-kill
     // Skip when stunned, leaping, biting, or near the player (attacking is not stuck)
     const nearPlayer = dist < 60;
     if (this.stunTimer > 0 || this.leaping || this.biting || nearPlayer) {
@@ -2298,13 +2406,13 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.stuckCheckX = this.x;
       this.stuckCheckY = this.y;
     } else {
-      // Sample position every 1s — a shambler at 50px/s moves ~50px per sample
+      // Sample position every 500ms for faster stuck detection
       this.stuckSampleTimer += delta;
-      if (this.stuckSampleTimer >= 1000) {
+      if (this.stuckSampleTimer >= 500) {
         this.stuckSampleTimer = 0;
         const movedDist = Phaser.Math.Distance.Between(this.x, this.y, this.stuckCheckX, this.stuckCheckY);
-        if (movedDist < 10) {
-          this.stuckTimer += 1000;
+        if (movedDist < 6) {
+          this.stuckTimer += 500;
         } else {
           this.stuckTimer = 0;
           this.stuckTeleported = false;
@@ -2313,6 +2421,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         this.stuckCheckY = this.y;
       }
 
+      const STUCK_REPATH_MS = 1000;
       const STUCK_TELEPORT_MS = 5000;
       const STUCK_KILL_MS = 8000;
 
@@ -2323,18 +2432,46 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         this.die("ranged");
         return;
       } else if (this.stuckTimer >= STUCK_TELEPORT_MS && !this.stuckTeleported) {
-        // First attempt: teleport near the player
+        // Second attempt: teleport near the player (with full spawn validation)
         this.stuckTeleported = true;
-        const tpAngle = Math.random() * Math.PI * 2;
-        const tpDist = 200 + Math.random() * 150;
-        const tx = player.x + Math.cos(tpAngle) * tpDist;
-        const ty = player.y + Math.sin(tpAngle) * tpDist;
         const wm = (this.scene as any).waveManager;
-        if (!isExcludedZone(tx, ty) && !(wm?.isGated?.(tx, ty))) {
-          this.setPosition(tx, ty);
-          this.pathWaypoints = [];
-          this.pathRefreshTimer = 0; // recalc path immediately
+        let teleported = false;
+        // Determine player's facing angle to avoid teleporting into their view
+        const p = player as any;
+        const facingAngle = p.facing === "up" ? -Math.PI / 2
+          : p.facing === "down" ? Math.PI / 2
+          : p.facing === "left" ? Math.PI
+          : 0; // right
+        // Try up to 12 random positions to find a valid one
+        for (let i = 0; i < 12; i++) {
+          const tpAngle = Math.random() * Math.PI * 2;
+          // Skip if teleport would land in the 90° arc the player is facing
+          const angleDiff = Math.abs(Phaser.Math.Angle.Wrap(tpAngle - facingAngle));
+          if (angleDiff < Math.PI / 4) continue;
+          const tpDist = 250 + Math.random() * 150;
+          const tx = player.x + Math.cos(tpAngle) * tpDist;
+          const ty = player.y + Math.sin(tpAngle) * tpDist;
+          if (
+            !isExcludedZone(tx, ty) &&
+            !(wm?.isGated?.(tx, ty)) &&
+            (wm?.isCollisionFree ? wm.isCollisionFree(tx, ty) : true) &&
+            (wm?.isSpawnReachable ? wm.isSpawnReachable(tx, ty) : true)
+          ) {
+            this.setPosition(tx, ty);
+            this.pathWaypoints = [];
+            this.pathRefreshTimer = 0; // recalc path immediately
+            teleported = true;
+            break;
+          }
         }
+        // If no valid position found, skip — auto-kill at 8s will handle it
+        if (!teleported) {
+          this.stuckTimer = STUCK_KILL_MS; // fast-forward to auto-kill
+        }
+      } else if (this.stuckTimer >= STUCK_REPATH_MS && this.pathRefreshTimer > 0) {
+        // First attempt: force immediate path recalc to unstick
+        this.pathWaypoints = [];
+        this.pathRefreshTimer = 0;
       }
     }
 
@@ -2374,10 +2511,18 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
             Math.sin(wpAngle) * moveSpeed
           );
         }
-      } else {
+      } else if (dist < 80) {
+        // Close range with no path — charge directly (within melee range, no obstacles expected)
         this.body.setVelocity(
           Math.cos(angle) * moveSpeed,
           Math.sin(angle) * moveSpeed
+        );
+      } else {
+        // No path and not close — slow-move toward player while waiting for next pathfind
+        // Use reduced speed to avoid ramming into walls at full speed
+        this.body.setVelocity(
+          Math.cos(angle) * moveSpeed * 0.3,
+          Math.sin(angle) * moveSpeed * 0.3
         );
       }
     }
@@ -2429,22 +2574,20 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       }
     }
 
-    // Health bar (only when damaged and alive)
+    // Health bar (bosses only)
     this.healthBarGfx.clear();
-    if (this.health > 0 && this.health < this.maxHealth) {
-      const isBoss = this.enemyType === "boss" || this.enemyType === "mason";
-      const barW = isBoss ? 40 : 24;
-      const barH = isBoss ? 4 : 2;
+    const isBoss = this.enemyType === "boss" || this.enemyType === "mason";
+    if (isBoss && this.health > 0 && this.health < this.maxHealth) {
+      const barW = 40;
+      const barH = 4;
       const barX = this.x - barW / 2;
-      const barY = this.y - (isBoss ? 45 : 30);
+      const barY = this.y - 45;
 
       this.healthBarGfx.fillStyle(0x000000, 0.6);
       this.healthBarGfx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
 
       const pct = this.health / this.maxHealth;
-      const color = isBoss
-        ? (pct > 0.5 ? 0xcc3333 : pct > 0.25 ? 0xff6600 : 0xff0000)
-        : (pct > 0.5 ? 0x33cc33 : pct > 0.25 ? 0xcccc33 : 0xcc3333);
+      const color = pct > 0.5 ? 0xcc3333 : pct > 0.25 ? 0xff6600 : 0xff0000;
       this.healthBarGfx.fillStyle(color, 1);
       this.healthBarGfx.fillRect(barX, barY, barW * pct, barH);
     }

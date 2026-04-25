@@ -99,6 +99,7 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "electrified-stun", frames: 9 },
     { type: "chopped-in-half", frames: 9 },
     { type: "zombie-dancing", frames: 16 },
+    { type: "ground-spawn", frames: 9 },
   ],
   zombiedog: [
     { type: "walk", frames: 8 },
