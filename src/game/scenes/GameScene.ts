@@ -266,6 +266,43 @@ export class GameScene extends Phaser.Scene {
     this.grenadeAiming = false;
     this.grenadeThrowing = false;
 
+    // SCARYBOI encounter state
+    this.scaryboiIntroActive = false;
+    this.scaryboiBannerReady = false;
+    this.scaryboiDismissing = false;
+    this.scaryboiLetterboxBars = null;
+    this.scaryboiCutsceneBoss = null;
+    this.scaryboiCutsceneGracePeriodMs = 2000;
+    this.scaryboiCutsceneIsIndoor = false;
+    this.scaryboiZone2Triggered = false;
+    this.scaryboiSouthTriggered = false;
+    this.scaryboiEstateTriggered = false;
+    this.pendingScaryboiSpawn = null;
+
+    // Mason encounter state
+    this.masonRavePhase = "";
+    this.masonTriggered = false;
+    this.masonEnemy = null;
+    this.masonRaveZombies = [];
+    this.masonLetterboxBars = null;
+    this.masonBannerReady = false;
+    this.masonDismissing = false;
+
+    // Misc state
+    this.damageBoostActive = false;
+    this.baseDamage = 0;
+    this.levelUpActive = false;
+    this.signActive = false;
+    this.signOverlay = undefined;
+    this.signPrompt = undefined;
+    this.lastFireTime = 0;
+    this.dryFired = false;
+    this.shopSelectedIndex = 0;
+    this.shopNavCol = 0;
+    this.shopNavRow = 0;
+    this.barricadeVertical = false;
+    this.lootChests = [];
+
     // Slow gameplay by 25%
     this.time.timeScale = 0.75;
     this.physics.world.timeScale = 1 / 0.75; // physics timeScale is inverted (higher = slower)
@@ -4662,17 +4699,7 @@ export class GameScene extends Phaser.Scene {
         door.zone.x, door.zone.y
       );
 
-      // If door is open and player walked away, close it (skip if paid — paid doors stay open)
-      if (door.opened && !door.paid && dist > closeDist) {
-        door.opened = false;
-        // Restore door tiles to their original layers
-        for (const t of door.savedTiles) {
-          this.getDoorLayer(t.layer)?.putTileAt(t.gid, t.col, t.row);
-        }
-        // Re-enable collision
-        (door.zone.body as Phaser.Physics.Arcade.StaticBody).enable = true;
-        continue;
-      }
+      // Doors stay open permanently once opened (paid or bashed)
 
       if (door.opened) {
         if (door.promptText) { door.promptText.setVisible(false); }
