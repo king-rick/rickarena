@@ -719,7 +719,7 @@ export class GameScene extends Phaser.Scene {
         }
         if (this.masonCutsceneActive) return;
         if (this.scaryboiIntroActive && this.scaryboiBannerReady) {
-          this.dismissScaryboiIntro();
+          // React component handles quote advancement via its own Space listener
           return;
         }
         if (this.levelUpActive) return; // Don't punch while picking buffs
@@ -4409,17 +4409,26 @@ export class GameScene extends Phaser.Scene {
   };
 
   // Per-encounter cutscene data — quote and VO are easy to swap later
-  private readonly SCARYBOI_CUTSCENE_DATA: Record<"zone2" | "southBuilding" | "estate", { quote: string; voSrc: string }> = {
+  private readonly SCARYBOI_CUTSCENE_DATA: Record<"zone2" | "southBuilding" | "estate", { quotes: string[]; voSrc: string }> = {
     zone2: {
-      quote: "You know, there's a big party going on inside... but your name isn't on the guest list.",
+      quotes: [
+        "You know, there's a big party going on inside...",
+        "But your name isn't on the guest list.",
+      ],
       voSrc: "/assets/audio/voice/scaryboi-vo-zone2.mp3",
     },
     southBuilding: {
-      quote: "The righteous BigBaby will bless us all with his tasty beats tonight... You will not reach him. You are not worthy.",
+      quotes: [
+        "The righteous BigBaby will bless us all with his tasty beats tonight...",
+        "You will not reach him. You are not worthy.",
+      ],
       voSrc: "/assets/audio/voice/scaryboi-vo-south.mp3",
     },
     estate: {
-      quote: "BigBaby's dancefloor has no tolerance for Jabronis and haters... and neither do I.",
+      quotes: [
+        "BigBaby's dancefloor has no tolerance for Jabronis and haters...",
+        "And neither do I.",
+      ],
       voSrc: "/assets/audio/voice/scaryboi-vo-estate.mp3",
     },
   };
@@ -4537,7 +4546,7 @@ export class GameScene extends Phaser.Scene {
           hudState.update({
             scaryboiIntroActive: true,
             scaryboiEncounterIndex: isFirst ? 0 : enc === "southBuilding" ? 1 : 2,
-            scaryboiQuote: cutsceneData.quote,
+            scaryboiQuotes: cutsceneData.quotes,
             scaryboiVoSrc: cutsceneData.voSrc,
           });
         };
@@ -5046,7 +5055,7 @@ export class GameScene extends Phaser.Scene {
         const totalMax = wDef.magazineSize * wDef.totalClips;
         if (wAmmo.mag + wAmmo.reserve >= totalMax) return;
         this.currency -= price;
-        const addAmmo = wDef.magazineSize * 2;
+        const addAmmo = 6; // 6 shells per purchase
         wAmmo.reserve = Math.min(wAmmo.reserve + addAmmo, totalMax - wAmmo.mag);
         break;
       }

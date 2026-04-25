@@ -122,7 +122,7 @@ export const BALANCE = {
       pellets: 7,
       magazineSize: 2,
       totalClips: 8, // 8 clips of 2 = 16 total shells (double barrel)
-      reloadMs: 1800,
+      reloadMs: 2200,
       price: 350,
       proficiency: "Shotguns",
       dropoff: 0,

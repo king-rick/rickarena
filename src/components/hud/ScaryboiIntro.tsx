@@ -4,10 +4,14 @@ import { useState, useEffect, useRef, useCallback, useSyncExternalStore } from "
 import { hudState } from "@/game/HUDState";
 
 const DISMISS_MS = 400;
+const TYPE_SPEED_MS = 35; // ms per character
 
 export function ScaryboiIntro() {
   const [visible, setVisible] = useState(false);
   const [dismissing, setDismissing] = useState(false);
+  const [quoteIndex, setQuoteIndex] = useState(0);
+  const [displayedChars, setDisplayedChars] = useState(0);
+  const [typewriterDone, setTypewriterDone] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fadeRafRef = useRef<number | null>(null);
 
@@ -15,14 +19,34 @@ export function ScaryboiIntro() {
     hudState.subscribe,
     () => hudState.getField("sfxVolume")
   );
-  const quote = useSyncExternalStore(
+  const quotes = useSyncExternalStore(
     hudState.subscribe,
-    () => hudState.getField("scaryboiQuote")
+    () => hudState.getField("scaryboiQuotes")
   );
   const voSrc = useSyncExternalStore(
     hudState.subscribe,
     () => hudState.getField("scaryboiVoSrc")
   );
+
+  const currentQuote = quotes[quoteIndex] ?? "";
+  const isLastQuote = quoteIndex >= quotes.length - 1;
+
+  // Reset typewriter when quote changes
+  useEffect(() => {
+    setDisplayedChars(0);
+    setTypewriterDone(false);
+  }, [quoteIndex]);
+
+  // Typewriter tick
+  useEffect(() => {
+    if (!visible || typewriterDone) return;
+    if (displayedChars >= currentQuote.length) {
+      setTypewriterDone(true);
+      return;
+    }
+    const t = setTimeout(() => setDisplayedChars(prev => prev + 1), TYPE_SPEED_MS);
+    return () => clearTimeout(t);
+  }, [visible, displayedChars, currentQuote, typewriterDone]);
 
   // Slide up after mount
   useEffect(() => {
@@ -72,14 +96,40 @@ export function ScaryboiIntro() {
     fadeRafRef.current = requestAnimationFrame(tick);
   }, []);
 
-  const handleDismiss = () => {
+  const handleDismiss = useCallback(() => {
     if (dismissing) return;
+
+    // If typewriter is still going, skip to end
+    if (!typewriterDone) {
+      setDisplayedChars(currentQuote.length);
+      setTypewriterDone(true);
+      return;
+    }
+
+    if (!isLastQuote) {
+      setQuoteIndex(prev => prev + 1);
+      return;
+    }
+
+    // Last quote — dismiss the whole banner
     setDismissing(true);
     stopVoFade();
     setTimeout(() => {
       hudState.dispatchScaryboiIntroAction("dismissed");
     }, DISMISS_MS);
-  };
+  }, [dismissing, isLastQuote, stopVoFade, typewriterDone, currentQuote.length]);
+
+  // Listen for Space key to advance/dismiss
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code === "Space") {
+        e.preventDefault();
+        handleDismiss();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [handleDismiss]);
 
   // Slide up from bottom, slide down on dismiss
   const translateY = dismissing ? "100%" : visible ? "0%" : "100%";
@@ -87,6 +137,8 @@ export function ScaryboiIntro() {
     ? `transform ${DISMISS_MS}ms ease-in, opacity ${DISMISS_MS}ms ease-in`
     : "transform 400ms cubic-bezier(0.16, 1, 0.3, 1), opacity 300ms ease-out";
   const opacity = dismissing ? 0 : visible ? 1 : 0;
+
+  const visibleText = currentQuote.slice(0, displayedChars);
 
   return (
     <div
@@ -106,6 +158,7 @@ export function ScaryboiIntro() {
         opacity,
         transition,
         zIndex: 100,
+        minHeight: 140,
       }}
     >
       {/* Name */}
@@ -120,21 +173,27 @@ export function ScaryboiIntro() {
         S C A R Y B O I
       </div>
 
-      {/* Quote */}
+      {/* Quote — typewriter effect, fixed height for consistency */}
       <div style={{
         fontFamily: "var(--font-special-elite), 'Special Elite', serif",
         fontSize: "clamp(13px, 1.6vw, 20px)",
         color: "rgba(215, 195, 175, 0.92)",
         textAlign: "center",
-        fontStyle: "italic",
         maxWidth: 520,
+        minHeight: 52,
         lineHeight: 1.65,
         textShadow: "0 1px 6px rgba(0,0,0,1)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
       }}>
-        &quot;{quote}&quot;
+        {visibleText}
+        {!typewriterDone && (
+          <span style={{ opacity: 0.6, animation: "blink 0.5s step-end infinite" }}>▌</span>
+        )}
       </div>
 
-      {/* Dismiss button */}
+      {/* Dismiss / advance button — only show after typewriter finishes */}
       <button
         type="button"
         onClick={handleDismiss}
@@ -149,9 +208,9 @@ export function ScaryboiIntro() {
           padding: "6px 20px",
           cursor: "pointer",
           textTransform: "uppercase",
-          opacity: visible && !dismissing ? 1 : 0,
-          transition: visible && !dismissing
-            ? "opacity 400ms ease-out 500ms, background 150ms, color 150ms, border-color 150ms"
+          opacity: typewriterDone && visible && !dismissing ? 1 : 0,
+          transition: typewriterDone && visible && !dismissing
+            ? "opacity 300ms ease-out, background 150ms, color 150ms, border-color 150ms"
             : "opacity 200ms ease-out",
         }}
         onMouseEnter={(e) => {
@@ -167,8 +226,10 @@ export function ScaryboiIntro() {
           el.style.borderColor = "rgba(160,30,30,0.55)";
         }}
       >
-        Bring it &nbsp;&middot;&nbsp; [ SPACE ]
+        {isLastQuote ? "Bring it" : "..."}
       </button>
+
+      <style>{`@keyframes blink { 50% { opacity: 0; } }`}</style>
     </div>
   );
 }

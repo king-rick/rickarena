@@ -154,7 +154,7 @@ export interface HUDData {
   // SCARYBOI intro cinematic
   scaryboiIntroActive: boolean;
   scaryboiEncounterIndex: number; // 0, 1, 2 — which encounter cutscene to show
-  scaryboiQuote: string;         // encounter-specific quote text
+  scaryboiQuotes: string[];      // encounter-specific quote lines (advance through each)
   scaryboiVoSrc: string;         // encounter-specific VO audio path (empty = no VO)
 
   // MASON cinematics
@@ -233,7 +233,7 @@ const DEFAULT_STATE: HUDData = {
   devSpawningDisabled: false,
   scaryboiIntroActive: false,
   scaryboiEncounterIndex: 0,
-  scaryboiQuote: "",
+  scaryboiQuotes: [],
   scaryboiVoSrc: "",
   masonDialogueActive: false,
   masonDialogueQuote: "",
