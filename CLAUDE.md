@@ -12,7 +12,7 @@ Top-down wave survival game (Call of Duty Zombies inspired). Phaser 3 game engin
 ## Architecture
 
 ### Key files by size/importance
-- `src/game/scenes/GameScene.ts` (~3,900 lines) — God Class. Main gameplay loop, input, spawning, combat, economy, HUD. Too large for single context window — use Cursor+Codex for edits here.
+- `src/game/scenes/GameScene.ts` (~5,700 lines) — God Class. Main gameplay loop, input, spawning, combat, economy, HUD. Too large for single context window — use Cursor+Codex for edits here.
 - `src/game/entities/Enemy.ts` (~2,100 lines) — All enemy AI: basic zombies, dogs, SCARYBOI boss, Mason boss. Each enemy type has its own update method.
 - `src/game/systems/WaveManager.ts` (~880 lines) — Wave progression, enemy composition, spawn timing, intermission phases.
 - `src/game/entities/Player.ts` (~640 lines) — Movement, weapons, abilities, stamina.
@@ -20,6 +20,18 @@ Top-down wave survival game (Call of Duty Zombies inspired). Phaser 3 game engin
 - `src/game/data/balance.ts` (~270 lines) — ALL tunable numbers. Change balance here, never in game logic.
 - `src/game/data/animations.ts` — Frame counts per character/animation. Must match sprite files on disk.
 - `src/game/data/characters.ts` — Character definitions + abilities.
+- `src/game/HUDState.ts` — Bridge singleton between Phaser and React. Phaser writes, React reads via `useSyncExternalStore`.
+- `src/game/systems/LevelingSystem.ts` — XP, level-up, buff selection. Level-up capped at 1 per wave.
+
+### React HUD components
+- `src/components/MainMenu.tsx` — Title screen with group concept art, PLAY/CONTROLS/LEADERBOARD
+- `src/components/CharacterSelect.tsx` — Per-character concept art backgrounds, action-pose sprites, ability info
+- `src/components/LoadingScreen.tsx` — Character concept art + loading bar (2s)
+- `src/components/hud/InventoryScreen.tsx` — 8-slot grid, equipped weapon, stats, buffs, XP bar, level-up integration
+- `src/components/hud/ShopOverlay.tsx` — Single-column shop, items defined in balance.ts
+- `src/components/hud/PauseMenu.tsx` — Inventory/Controls/Settings/Restart/Quit
+- `src/components/HUDOverlay.tsx` — Orchestrates all HUD layers
+- `src/game/scenes/MainMenuScene.ts` — Phaser scene that manages title→charSelect→loading→game flow
 
 ### Sprite pipeline
 - Sprites live in `public/assets/sprites/{character}/{animation}/{direction}/frame_XXX.png`
@@ -63,9 +75,17 @@ Top-down wave survival game (Call of Duty Zombies inspired). Phaser 3 game engin
 - Leaderboard requires DATABASE_URL env var (Neon Postgres)
 - Game runs fully client-side without the database
 
-## Current state (updated 2026-04-24)
-- Building toward Klaviyo Builders submission (due Friday 2026-04-25)
+### Menu flow
+- MainMenuScene (Phaser) → React MainMenu (title) → React CharacterSelect → React LoadingScreen → GameScene
+- HUDState actions: `dispatchMainMenuAction("play")`, `dispatchMenuAction("prev"/"next"/"start"/"back")`, `dispatchInventoryAction("close")`
+- I key opens inventory (pauses physics), ESC closes inventory or opens pause menu
+- Level-up opens inventory with buff selection banner at top
+
+## Current state (updated 2026-04-25)
+- Full UI overhaul complete — main menu, character select, inventory, shop, pause menu
 - Mason rave cutscene implemented — 6-phase state machine with dancing zombies, letterbox cinematics, dialogue cards
 - Mason boss fight AI complete — 4 attacks, 2-phase system
 - SCARYBOI cinematic overhaul done — all 3 encounters
-- README.md is the submission document — numbers need updating before final submit
+- Jason renamed to Muff (display only, sprite id stays "jason")
+- Shop simplified: 8 items (First Aid Kit, 3 ammo types, landmine, grenade, shotgun, SMG)
+- Level-up capped at 1 per wave

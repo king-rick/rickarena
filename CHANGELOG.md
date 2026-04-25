@@ -1,5 +1,90 @@
 # RickArena Changelog
 
+## 2026-04-25 — Full UI Overhaul: Menus, Inventory, Shop, Character Select
+
+**Complete UI redesign across all menus and overlays. New main menu, character select, inventory system, shop simplification, and font/style consistency pass.**
+
+### Main Menu (NEW)
+- Group concept art background (4 heroes + Mason silhouette), full-bleed, no blur
+- RICKARENA title in chainsaw font with red glow
+- PLAY / CONTROLS / LEADERBOARD buttons with hover effects
+- Controls sub-view in bordered panel matching inventory style
+- Version number (v0.9.0) bottom-right
+
+### Character Select (REWRITTEN)
+- Per-character concept art as full-bleed background (switches with character)
+- Action-pose animated sprites: Rick shoots pistol, Dan electric fist, PJ katana slash, Muff smokes joint
+- Slowed animation speeds for cinematic feel (PJ 400ms, Muff 350ms)
+- Clean vertical layout: name → sprite → ability name → ability description
+- Removed class subtitles (Brawler, Engineer, etc.)
+- Removed [R] key badge from ability display
+- ESC goes back to main menu
+- Dot indicators + bordered ENTER TO PLAY button
+
+### Character Loading Screen (NEW)
+- Character-specific concept art (full bleed) with dark gradient overlay
+- 2-second loading bar animation at bottom
+- Auto-advances to game scene
+
+### Inventory Screen (NEW — I key)
+- 8-slot inventory grid (4x2) for items like landmines, ammo
+- Equipped weapon display with ammo count
+- Stats panel: Health, Damage, Speed, Stamina, Regen (no percentages)
+- Active buffs list with tier-colored dots (green/red/gold)
+- Level/XP progress bar
+- Special items section (Axe, Grenades) shown separately
+- Level-up buff selection banner integrates into inventory when triggered
+
+### Level-Up System Changes
+- Level-up capped at 1 per wave (XP caps at needed-1 if already leveled this wave)
+- Level-up now opens inventory screen with buff choices at top
+- Removed standalone LevelUpOverlay component
+
+### Shop Overhaul (REWRITTEN)
+- Single-column layout (was 3-column grid)
+- Removed items: Adrenaline, Barricade, Assault Rifle, RPG, separate Medkit/Bandage
+- Added: First Aid Kit (heals 50 HP, $60), Heavy Ammo
+- Unhid Landmine
+- Order: First Aid Kit, ammo types, landmine, grenade, then guns at bottom
+- Final items: First Aid Kit, Light Ammo, Shotgun Shells, Heavy Ammo, Landmine, Grenade, Shotgun, SMG
+
+### Pause Menu (REWRITTEN)
+- Removed inline controls grid from main pause view
+- Buttons: Inventory / Controls / Settings / Restart / Quit
+- Controls opens dedicated panel with ESC to go back
+- Volume display shows number without % sign
+
+### Input Changes
+- TAB disabled (was stats screen, now does nothing)
+- I key opens inventory screen
+- E cycles weapon slots (was Q/E, Q is now ability only)
+
+### Character & Ability Updates
+- Jason display name changed to "Muff" (sprite id stays "jason")
+- Jason ability renamed: "Sledgehammer Slam" → "Sledgehammer Drop"
+- All ability descriptions rewritten for accuracy:
+  - Rick Superkick: "High-damage kick to one or two enemies in a tight cone with heavy knockback"
+  - Dan Electric Fist: "Punch that stuns the target and chains lightning to nearby enemies"
+  - PJ Katana Slash: "Wide 140-degree slash that cuts through all enemies in range"
+  - Muff Sledgehammer Drop: "360-degree slam that damages and stuns all nearby enemies"
+
+### HUD & Style
+- Objective tracker text enlarged (13px → 18px) for readability
+- Font consistency: Special Elite for body text, ChainsawCarnage for headers only
+- White text with red outline (`WebkitTextStroke`) throughout all menus
+- Controls lists updated: "Shoot/Use Item" for right-click, E for Cycle Slots
+
+### Fade-to-Black Rave Entrance
+- 500ms camera fade to black when player reaches mason stair trigger
+- All wave zombies killed during blackout
+- Rave zombies spawned during blackout
+- 500ms fade back in
+
+### Bug Fixes
+- Fixed TypeError crash in `showWeaponMessage` — text destroyed before tween completes, added `if (!txt.active) return` guard
+
+---
+
 ## 2026-04-24 — Mason Rave Cutscene, DJ Booth, Dancing Zombies
 
 **Mason boss fight gets a multi-phase rave cutscene in the estate ballroom. Player discovers a zombie dance party, triggers a cinematic confrontation, then fights Mason personally.**
