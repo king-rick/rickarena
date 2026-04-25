@@ -76,20 +76,15 @@ export const BALANCE = {
   // Shop
   shop: {
     items: [
-      { id: "heal", name: "Bandages", desc: "Heal 30 HP", basePrice: 40 },
-      { id: "medkit", name: "Medkit", desc: "Heal 80 HP", basePrice: 120 },
-      { id: "dmgBoost", name: "Adrenaline", desc: "+5 damage next wave", basePrice: 100 },
-      // Pistol is a starting weapon — not sold in shop
-      { id: "shotgun", name: "Shotgun", desc: "8 shells, spread", basePrice: 350 },
-      { id: "smg", name: "SMG", desc: "50 rounds, rapid fire", basePrice: 500 },
+      { id: "firstaid", name: "First Aid Kit", desc: "Heal 50 HP", basePrice: 60 },
       { id: "ammo_light", name: "Light Ammo", desc: "+2 clips (pistol & SMG)", basePrice: 75 },
       { id: "ammo_shotgun", name: "Shotgun Shells", desc: "+2 shotgun clips", basePrice: 80 },
       { id: "ammo_heavy", name: "Heavy Ammo", desc: "+2 assault rifle mags", basePrice: 100 },
-      { id: "barricade", name: "Barricade", desc: "Blocks enemies, 300 HP", basePrice: 30, hidden: true },
-      { id: "landmine", name: "Landmine", desc: "AoE explosion on contact", basePrice: 40, hidden: true },
+      { id: "landmine", name: "Landmine", desc: "AoE explosion on contact", basePrice: 40 },
       { id: "grenade", name: "Grenade", desc: "Throwable explosive (max 3)", basePrice: 60 },
-      { id: "rpg", name: "RPG", desc: "2 rockets, massive AoE", basePrice: 800, devOnly: true },
-      { id: "assault_rifle", name: "Assault Rifle", desc: "2x50rd mags, high damage", basePrice: 650, devOnly: true },
+      // Weapons at the bottom
+      { id: "shotgun", name: "Shotgun", desc: "8 shells, spread", basePrice: 350 },
+      { id: "smg", name: "SMG", desc: "50 rounds, rapid fire", basePrice: 500 },
     ],
   },
 

@@ -50,17 +50,15 @@ export const ObjectiveTracker = memo(function ObjectiveTracker() {
   return (
     <div
       style={{
-        width: 200,
         marginTop: 4,
-        display: "flex",
-        justifyContent: "center",
+        textAlign: "center" as const,
       }}
     >
       <span
         style={{
           fontFamily: "var(--font-special-elite), 'Special Elite', serif",
-          fontSize: "13px",
-          lineHeight: "16px",
+          fontSize: "18px",
+          lineHeight: "22px",
           whiteSpace: "nowrap",
           color: "#ffffff",
           WebkitTextStroke: "2px rgba(180, 20, 20, 0.85)",

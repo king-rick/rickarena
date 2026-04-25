@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { HUDOverlay } from "./HUDOverlay";
 import { CharacterSelect } from "./CharacterSelect";
+import { MainMenu } from "./MainMenu";
+import { LoadingScreen } from "./LoadingScreen";
 
 export interface CanvasRect {
   left: number;
@@ -107,7 +109,9 @@ export default function Game() {
     <div id="game-container" style={{ width: "100vw", height: "100vh", position: "relative" }}>
       {canvasRect && (
         <>
+          <MainMenu canvasRect={canvasRect} />
           <CharacterSelect canvasRect={canvasRect} />
+          <LoadingScreen canvasRect={canvasRect} />
           <HUDOverlay canvasRect={canvasRect} />
         </>
       )}

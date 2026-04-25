@@ -7,14 +7,6 @@ import type { ShopItemData } from "@/game/HUDState";
 const BODY = "var(--font-special-elite), 'Special Elite', serif";
 const DISPLAY = "ChainsawCarnage, HorrorPixel, monospace";
 
-const WEAPON_ICONS: Record<string, string> = {
-  pistol: "/assets/sprites/items/pistol.png",
-  shotgun: "/assets/sprites/items/shotgun.png",
-  smg: "/assets/sprites/items/smg.png",
-  rpg: "/assets/sprites/items/rpg.png",
-  assault_rifle: "/assets/sprites/items/assault-rifle.png",
-};
-
 export const ShopOverlay = memo(function ShopOverlay() {
   const shopOpen = useSyncExternalStore(hudState.subscribe, () => hudState.getField("shopOpen"));
   const items = useSyncExternalStore(hudState.subscribe, () => hudState.getField("shopItems"));
@@ -22,9 +14,6 @@ export const ShopOverlay = memo(function ShopOverlay() {
   const selectedIndex = useSyncExternalStore(hudState.subscribe, () => hudState.getField("shopSelectedIndex"));
   const message = useSyncExternalStore(hudState.subscribe, () => hudState.getField("shopMessage"));
   const messageColor = useSyncExternalStore(hudState.subscribe, () => hudState.getField("shopMessageColor"));
-  const equippedWeapon = useSyncExternalStore(hudState.subscribe, () => hudState.getField("equippedWeapon"));
-  const ammo = useSyncExternalStore(hudState.subscribe, () => hudState.getField("ammo"));
-  const reserveAmmo = useSyncExternalStore(hudState.subscribe, () => hudState.getField("reserveAmmo"));
 
   const handleBuy = useCallback((idx: number) => {
     hudState.dispatchShopAction("buy", idx);
@@ -40,24 +29,12 @@ export const ShopOverlay = memo(function ShopOverlay() {
       if (e.key === "Enter") { hudState.dispatchShopAction("buySelected"); return; }
       if (e.key === "ArrowUp" || e.key === "w" || e.key === "W") { hudState.dispatchShopAction("nav", 0); return; }
       if (e.key === "ArrowDown" || e.key === "s" || e.key === "S") { hudState.dispatchShopAction("nav", 1); return; }
-      if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") { hudState.dispatchShopAction("nav", 2); return; }
-      if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") { hudState.dispatchShopAction("nav", 3); return; }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [shopOpen]);
 
   if (!shopOpen || items.length === 0) return null;
-
-  const supplies = items.filter((i) => i.category === "supplies");
-  const weapons = items.filter((i) => i.category === "weapons");
-  const traps = items.filter((i) => i.category === "traps");
-
-  const columns: { title: string; items: ShopItemData[] }[] = [
-    { title: "SUPPLIES", items: supplies },
-    { title: "WEAPONS", items: weapons },
-    { title: "TRAPS", items: traps },
-  ];
 
   return (
     <div
@@ -69,8 +46,8 @@ export const ShopOverlay = memo(function ShopOverlay() {
       <div
         className="relative"
         style={{
-          width: "min(92%, 960px)",
-          maxHeight: "min(88%, 620px)",
+          width: "min(88%, 480px)",
+          maxHeight: "min(90%, 580px)",
           backgroundImage: "url(/assets/sprites/ui/horror/panel-frame.png)",
           backgroundSize: "100% 100%",
           imageRendering: "pixelated",
@@ -81,15 +58,15 @@ export const ShopOverlay = memo(function ShopOverlay() {
       >
         <div
           className="absolute"
-          style={{ inset: 10, background: "rgba(8, 8, 16, 0.85)", borderRadius: 2 }}
+          style={{ inset: 10, background: "rgba(8, 8, 16, 0.90)", borderRadius: 2 }}
         />
 
         {/* Header */}
-        <div className="relative flex items-center justify-between" style={{ marginBottom: 10, padding: "0 8px" }}>
+        <div className="relative flex items-center justify-between" style={{ marginBottom: 12, padding: "0 4px" }}>
           <span
             style={{
               fontFamily: DISPLAY,
-              fontSize: 48,
+              fontSize: 42,
               color: "#ff2244",
               letterSpacing: "0.1em",
               textShadow: "0 0 12px rgba(255, 34, 68, 0.5)",
@@ -97,81 +74,43 @@ export const ShopOverlay = memo(function ShopOverlay() {
           >
             SHOP
           </span>
-          <div className="flex items-center" style={{ gap: 20 }}>
-            {equippedWeapon && (
-              <div className="flex items-center" style={{ gap: 6 }}>
-                <img
-                  src={WEAPON_ICONS[equippedWeapon] ?? ""}
-                  alt=""
-                  style={{ width: 28, height: 28, imageRendering: "pixelated", opacity: 0.9 }}
-                />
-                <span
-                  style={{
-                    fontFamily: BODY,
-                    fontSize: 22,
-                    color: "#aaaacc",
-                    textShadow: "0 0 6px rgba(170, 170, 204, 0.2)",
-                  }}
-                >
-                  {ammo}/{reserveAmmo}
-                </span>
-              </div>
-            )}
-            <span
-              style={{
-                fontFamily: BODY,
-                fontSize: 36,
-                color: "#ffffff",
-                textShadow: "0 0 8px rgba(255, 255, 255, 0.2)",
-              }}
-            >
-              ${currency}
-            </span>
-          </div>
+          <span
+            style={{
+              fontFamily: BODY,
+              fontSize: 28,
+              color: "#ffffff",
+              textShadow: "0 0 8px rgba(255, 255, 255, 0.2)",
+            }}
+          >
+            ${currency}
+          </span>
         </div>
 
         {/* Divider */}
         <div
           className="relative"
           style={{
-            height: 6,
-            marginBottom: 16,
+            height: 4,
+            marginBottom: 12,
             backgroundImage: "url(/assets/sprites/ui/horror/divider.png)",
             backgroundSize: "100% 100%",
             imageRendering: "pixelated",
           }}
         />
 
-        {/* Three columns */}
-        <div className="relative flex gap-3" style={{ flex: 1, minHeight: 0 }}>
-          {columns.map((col) => (
-            <div key={col.title} className="flex flex-col" style={{ flex: 1, gap: 8 }}>
-              <span
-                style={{
-                  fontFamily: BODY,
-                  fontSize: 15,
-                  color: "#775566",
-                  letterSpacing: "0.15em",
-                  marginBottom: 4,
-                  paddingLeft: 4,
-                }}
-              >
-                {col.title}
-              </span>
-              {col.items.map((item) => {
-                const globalIdx = items.indexOf(item);
-                const isSelected = globalIdx === selectedIndex;
-                return (
-                  <ShopCard
-                    key={item.id}
-                    item={item}
-                    selected={isSelected}
-                    onBuy={() => handleBuy(globalIdx)}
-                    onHover={() => handleHover(globalIdx)}
-                  />
-                );
-              })}
-            </div>
+        {/* Single column item list */}
+        <div
+          className="relative flex flex-col"
+          style={{ flex: 1, minHeight: 0, overflowY: "auto", gap: 6 }}
+        >
+          {items.map((item, i) => (
+            <ShopRow
+              key={item.id}
+              item={item}
+              selected={i === selectedIndex}
+              onBuy={() => handleBuy(i)}
+              onHover={() => handleHover(i)}
+            />
           ))}
         </div>
 
@@ -180,92 +119,90 @@ export const ShopOverlay = memo(function ShopOverlay() {
           <div className="relative flex justify-center" style={{ marginTop: 8 }}>
             <span
               style={{
-                fontSize: 22,
-                color: messageColor || "#44cc44",
-                fontFamily: DISPLAY,
-                textShadow: `0 0 8px ${messageColor || "#44cc44"}55`,
+                fontSize: 18,
+                fontFamily: BODY,
+                color: "#ffffff",
+                WebkitTextStroke: "1px rgba(180, 20, 20, 0.85)",
+                paintOrder: "stroke fill" as const,
+                textShadow: "0 0 6px rgba(255, 34, 68, 0.4)",
               }}
             >
               {message}
             </span>
           </div>
         )}
-
       </div>
     </div>
   );
 });
 
-const ShopCard = memo(function ShopCard({
+const ShopRow = memo(function ShopRow({
   item, selected, onBuy, onHover,
 }: {
   item: ShopItemData; selected: boolean; onBuy: () => void; onHover: () => void;
 }) {
-  const borderColor = selected ? "rgba(255, 34, 68, 0.6)" : "transparent";
-  const bgColor = selected ? "rgba(26, 10, 16, 0.9)" : "rgba(12, 12, 20, 0.8)";
-
-  let nameColor = "#e0daf0";
-  let descColor = "#8a8aaa";
-  let priceText = `$${item.price}`;
-  let priceColor = item.canAfford ? "#ffffff" : "#663333";
-  let iconAlpha = item.canAfford ? 1 : 0.5;
-
-  if (item.locked) {
-    nameColor = "#444055";
-    descColor = "#333044";
-    priceText = `WAVE ${item.unlockWave}`;
-    priceColor = "#553333";
-    iconAlpha = 0.3;
-  } else if (item.equipped) {
-    nameColor = "#ff4466";
-    priceText = "EQUIPPED";
-    priceColor = "#ff4466";
-    iconAlpha = 1;
-  }
+  const canBuy = item.canAfford && !item.equipped && !item.locked;
 
   return (
     <div
       className="flex items-center"
       style={{
         fontFamily: "var(--font-special-elite), 'Special Elite', serif",
-        background: bgColor,
-        border: `1px solid ${borderColor}`,
+        background: selected
+          ? "rgba(255, 34, 68, 0.08)"
+          : "rgba(255, 255, 255, 0.02)",
+        border: selected
+          ? "1px solid rgba(255, 34, 68, 0.45)"
+          : "1px solid rgba(255, 255, 255, 0.06)",
         borderRadius: 4,
-        padding: "8px 10px",
-        cursor: "pointer",
-        gap: 10,
-        minHeight: 72,
-        transition: "border-color 100ms ease",
+        padding: "8px 12px",
+        cursor: canBuy ? "pointer" : "default",
+        gap: 12,
+        transition: "border-color 100ms ease, background 100ms ease",
+        opacity: item.canAfford || item.equipped ? 1 : 0.5,
       }}
       onClick={onBuy}
       onMouseEnter={onHover}
     >
+      {/* Icon */}
       {item.icon && (
         <img
           src={item.icon}
           alt=""
-          style={{ width: 40, height: 40, imageRendering: "pixelated", opacity: iconAlpha, flexShrink: 0 }}
+          style={{
+            width: 36,
+            height: 36,
+            imageRendering: "pixelated",
+            flexShrink: 0,
+          }}
         />
       )}
+
+      {/* Name + desc */}
       <div className="flex flex-col" style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ fontSize: 18, color: nameColor, lineHeight: 1.2 }}>
+        <span style={{
+          fontSize: 17,
+          color: item.equipped ? "#ff4466" : "#e0daf0",
+          lineHeight: 1.2,
+        }}>
           {item.name.toUpperCase()}
         </span>
-        <span style={{ fontSize: 14, color: descColor, lineHeight: 1.3 }}>
-          {item.locked ? "???" : item.desc}
+        <span style={{ fontSize: 13, color: "#777799", lineHeight: 1.3 }}>
+          {item.desc}
         </span>
       </div>
+
+      {/* Price */}
       <span
         style={{
-          fontSize: 20,
-          color: priceColor,
+          fontSize: 18,
+          color: item.equipped ? "#ff4466" : item.canAfford ? "#ffffff" : "#553333",
           flexShrink: 0,
           textAlign: "right",
-          minWidth: 70,
-          textShadow: "none",
+          minWidth: 60,
         }}
       >
-        {priceText}
+        {item.equipped ? "OWNED" : `$${item.price}`}
       </span>
     </div>
   );

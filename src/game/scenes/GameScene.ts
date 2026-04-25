@@ -48,6 +48,7 @@ export class GameScene extends Phaser.Scene {
   private pendingScaryboiSpawn: { x: number; y: number; hpPercent: number; gracePeriodMs: number; enc: string } | null = null;
   private masonRavePhase: "" | "rave_setup" | "cutscene_1" | "zombie_fight" | "dramatic_pause" | "cutscene_2" | "boss_fight" = "";
   private masonTriggered = false;
+  private stairBlockerZone?: Phaser.GameObjects.Zone;
   private masonEnemy: Enemy | null = null;
   private masonRaveZombies: Enemy[] = [];
   private masonLetterboxBars: Phaser.GameObjects.Rectangle[] | null = null;
@@ -312,6 +313,7 @@ export class GameScene extends Phaser.Scene {
     // Mason encounter state
     this.masonRavePhase = "";
     this.masonTriggered = false;
+    this.stairBlockerZone = undefined;
     this.masonEnemy = null;
     this.masonRaveZombies = [];
     this.masonLetterboxBars = null;
@@ -553,6 +555,12 @@ export class GameScene extends Phaser.Scene {
     this.physics.add.existing(startDoorZone, true);
     this.obstacles.add(startDoorZone);
     this.startingDoorBody = startDoorZone;
+
+    // Stair blocker — prevents going upstairs until SCARYBOI is defeated
+    // Tiles (39,18)-(39,19) are the stair trigger area; block at row 18 (2 tiles wide)
+    this.stairBlockerZone = this.add.zone(39 * 32 + 16, 18 * 32, 64, 16).setOrigin(0.5);
+    this.physics.add.existing(this.stairBlockerZone, true);
+    this.obstacles.add(this.stairBlockerZone);
 
     // Purchasable doors — read from Tiled interactables layer
     this.doors = [];
@@ -871,6 +879,7 @@ export class GameScene extends Phaser.Scene {
       );
       fKey.on("down", () => {
         if (this.player.isSprinting) return;
+        if (this.scaryboiIntroActive || this.masonCutsceneActive) return;
         this.fireHeld = true;
         if (!this.gameOver && !this.paused && !this.shopOpen) this.useActiveSlot();
       });
@@ -917,7 +926,7 @@ export class GameScene extends Phaser.Scene {
         Phaser.Input.Keyboard.KeyCodes.G
       );
       gKey.on("down", () => {
-        if (this.gameOver || this.paused || this.shopOpen || this.grenadeThrowing) return;
+        if (this.gameOver || this.paused || this.shopOpen || this.grenadeThrowing || this.scaryboiIntroActive || this.masonCutsceneActive) return;
         if (this.grenadeCount <= 0) return;
         this.grenadeKeyDown = true;
         this.grenadeKeyDownTime = this.time.now;
@@ -935,7 +944,7 @@ export class GameScene extends Phaser.Scene {
     }
     // Left click = melee punch, Right click = use active item slot
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
-      if (this.gameOver || this.paused || this.shopOpen) return;
+      if (this.gameOver || this.paused || this.shopOpen || this.scaryboiIntroActive || this.masonCutsceneActive) return;
       if (pointer.button === 2) {
         if (this.player.isSprinting) return;
         this.fireHeld = true;
@@ -972,6 +981,7 @@ export class GameScene extends Phaser.Scene {
       pKey.on("down", () => {
         if (this.gameOver) return;
         if (this.shopOpen) { this.closeShop(); return; }
+        if (this.inventoryOpen) { this.dismissInventory(); return; }
         if (this.statsOpen) { this.statsOpen = false; hudState.update({ statsOpen: false }); return; }
         if (this.settingsOpen) { this.settingsOpen = false; hudState.update({ settingsOpen: false }); return; }
         if (this.paused) this.resumeGame();
@@ -1024,16 +1034,10 @@ export class GameScene extends Phaser.Scene {
         this.showWeaponMessage(orient, "#44dd44");
       });
 
-      // TAB key to toggle stats screen
+      // TAB key — disabled (inventory moved to I key)
       const tabKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.TAB);
       tabKey.on("down", (event: KeyboardEvent) => {
         event?.preventDefault?.();
-        if (this.gameOver) return;
-        this.statsOpen = !this.statsOpen;
-        hudState.update({ statsOpen: this.statsOpen });
-        if (this.statsOpen && !this.paused) {
-          this.pauseGame();
-        }
       });
 
       // I key to toggle inventory
@@ -1234,6 +1238,8 @@ export class GameScene extends Phaser.Scene {
     this.waveManager.onWaveStart = (wave) => {
       this.currentWave = wave;
       this.closeShop();
+      // Reset level-up cap for new wave
+      this.levelingSystem.resetWaveLevelCap();
       // Church bell toll on wave start
       this.playSound("sfx-church-bell", 0.6);
       // Layer in rain ambience starting wave 5
@@ -1380,6 +1386,10 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
+    // Always process pathfinding queue — even during cutscenes — so callbacks
+    // don't pile up and leave enemies with stale/empty paths after resume
+    this.pathfinder.calculate();
+
     if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonCutsceneActive || this.signActive || this.axePickupActive || this.inventoryOpen) return;
 
     // Freeze gameplay while shop, level-up, or dev panel is open
@@ -1395,7 +1405,6 @@ export class GameScene extends Phaser.Scene {
     }
     this.player.update();
     this.waveManager.update(delta);
-    this.pathfinder.calculate();
 
     // Door proximity prompts
     this.updateStartingRoomPrompts();
@@ -1416,7 +1425,28 @@ export class GameScene extends Phaser.Scene {
         (ptx === 39 && pty === 11) ||
         (ptx === 39 && pty === 12)
       ) {
-        this.triggerMasonRave();
+        this.masonTriggered = true;
+        // Fade to black → kill all zombies → spawn rave → fade in
+        this.cameras.main.fadeOut(500, 0, 0, 0);
+        this.cameras.main.once("camerafadeoutcomplete", () => {
+          // Kill all wave zombies
+          this.enemies.getChildren().forEach((e) => {
+            if (e.active) {
+              (e as Enemy).takeDamage(999999);
+              if (e.active) e.destroy();
+            }
+          });
+          (this.waveManager as any).enemiesToSpawn = 0;
+          (this.waveManager as any).enemiesAlive = 0;
+
+          // Spawn rave (mason + dancing zombies)
+          this.triggerMasonRave();
+
+          // Brief blackout hold, then fade back in
+          this.time.delayedCall(500, () => {
+            this.cameras.main.fadeIn(500, 0, 0, 0);
+          });
+        });
       }
     }
 
@@ -2972,60 +3002,56 @@ export class GameScene extends Phaser.Scene {
 
   private activeWeaponMsg?: Phaser.GameObjects.Text;
 
-  private showWeaponMessage(msg: string, color: string) {
+  private showWeaponMessage(msg: string, _color: string) {
     // Destroy previous message so only 1 shows at a time
     if (this.activeWeaponMsg) {
       this.activeWeaponMsg.destroy();
       this.activeWeaponMsg = undefined;
     }
 
-    const isGreen = color === "#44dd44";
     const txt = this.add.text(
       this.player.x, this.player.y - 40, msg,
       {
-        fontFamily: "ChakraPetch, sans-serif",
-        fontSize: "36px",
+        fontFamily: "'Special Elite', serif",
+        fontSize: "28px",
         fontStyle: "bold",
-        stroke: "#000000",
-        strokeThickness: 6,
+        color: "#ffffff",
+        stroke: "rgba(180, 20, 20, 0.85)",
+        strokeThickness: 4,
         shadow: {
-          offsetX: 0, offsetY: 0,
-          color: isGreen ? "#00ff88" : "#ff2200",
-          blur: 6, fill: true, stroke: false,
+          offsetX: 0, offsetY: 1,
+          color: "rgba(0,0,0,0.9)",
+          blur: 3, fill: true, stroke: false,
         },
       }
     ).setDepth(100).setOrigin(0.5).setScale(0.25).setAlpha(0);
 
-    // Horizontal gradient
-    const g = txt.context.createLinearGradient(0, 0, txt.width, 0);
-    if (isGreen) {
-      g.addColorStop(0, "#ffffff");
-      g.addColorStop(0.3, "#44ff88");
-      g.addColorStop(0.7, "#44ff88");
-      g.addColorStop(1, "#ffffff");
-    } else {
-      g.addColorStop(0, "#ffffff");
-      g.addColorStop(0.3, "#ff4444");
-      g.addColorStop(0.7, "#ff4444");
-      g.addColorStop(1, "#ffffff");
-    }
-    txt.setFill(g);
-
     this.activeWeaponMsg = txt;
 
+    // Fade in
     this.tweens.add({
       targets: txt,
       alpha: 1,
       duration: 150,
       ease: "Power1",
       onComplete: () => {
+        // Hold, then dissolve: glow red, fade up and out
         this.tweens.add({
           targets: txt,
           y: this.player.y - 60,
           alpha: 0,
-          duration: 400,
-          delay: 300,
+          duration: 600,
+          delay: 400,
           ease: "Power2",
+          onUpdate: () => {
+            if (!txt.active) return;
+            // Shift color from white to red as it fades
+            const progress = 1 - txt.alpha;
+            const r = 255;
+            const g = Math.round(255 - progress * 225);
+            const b = Math.round(255 - progress * 235);
+            txt.setColor(`rgb(${r},${g},${b})`);
+          },
           onComplete: () => {
             txt.destroy();
             if (this.activeWeaponMsg === txt) this.activeWeaponMsg = undefined;
@@ -3491,12 +3517,11 @@ export class GameScene extends Phaser.Scene {
           break;
         case "resume": this.resumeGame(); break;
         case "openStats":
-          this.statsOpen = true;
-          this.updateHUD(); // push stats data immediately (game loop is paused)
+          // Opens the inventory/stats screen from pause menu
+          this.openInventory();
           break;
         case "closeStats":
-          this.statsOpen = false;
-          hudState.update({ statsOpen: false });
+          this.dismissInventory();
           break;
         case "openSettings":
           this.settingsOpen = true;
@@ -3550,6 +3575,11 @@ export class GameScene extends Phaser.Scene {
       if (action === "select") this.selectLevelUpBuff(payload as number);
     });
 
+    // Inventory actions from React
+    hudState.registerInventoryAction((action: string) => {
+      if (action === "close") this.dismissInventory();
+    });
+
     // Game-over actions from React
     hudState.registerGameOverAction((action: string, payload?: any) => {
       if (action === "submitName") {
@@ -3585,18 +3615,14 @@ export class GameScene extends Phaser.Scene {
   // ------- Shop (React overlay — data push only) -------
 
   private readonly shopIconMap: Record<string, string> = {
-    pistol: "/assets/sprites/items/pistol.png",
+    firstaid: "/assets/sprites/items/bandage.png",
     shotgun: "/assets/sprites/items/shotgun.png",
     smg: "/assets/sprites/items/smg.png",
     ammo_light: "/assets/sprites/items/ammo.png",
     ammo_shotgun: "/assets/sprites/items/ammo.png",
-    barricade: "/assets/sprites/items/trap-barricade.png",
+    ammo_heavy: "/assets/sprites/items/ammo.png",
     landmine: "/assets/sprites/items/landmine.png",
     grenade: "/assets/sprites/items/grenade.png",
-    heal: "/assets/sprites/items/bandage.png",
-    dmgBoost: "/assets/sprites/items/syringe.png",
-    rpg: "/assets/sprites/items/rpg.png",
-    assault_rifle: "/assets/sprites/items/assault-rifle.png",
   };
 
   private initShop() {
@@ -3634,8 +3660,8 @@ export class GameScene extends Phaser.Scene {
       if ((item as any).devOnly && !this.devMode) return;
       if ((item as any).hidden && !this.devMode) return;
       const id = item.id;
-      if (id === "heal" || id === "medkit" || id === "dmgBoost") columns[0].push(idx);
-      else if (["shotgun", "smg", "ammo_light", "ammo_shotgun", "ammo_heavy", "rpg", "assault_rifle"].includes(id)) columns[1].push(idx);
+      if (id === "firstaid") columns[0].push(idx);
+      else if (["shotgun", "smg", "ammo_light", "ammo_shotgun", "ammo_heavy"].includes(id)) columns[1].push(idx);
       else columns[2].push(idx);
     });
     this.shopGrid = columns;
@@ -3681,11 +3707,12 @@ export class GameScene extends Phaser.Scene {
       const originalIdx = items.indexOf(item);
       const price = this.getItemPrice(originalIdx);
       const canAfford = this.currency >= price;
-      const isEquipped = ["shotgun", "smg", "rpg", "assault_rifle"].includes(item.id) && this.weapons.includes(item.id);
+      const isEquipped = ["shotgun", "smg"].includes(item.id) && this.weapons.includes(item.id);
       const id = item.id;
       let category: "supplies" | "weapons" | "traps" = "supplies";
-      if (["shotgun", "smg", "ammo_light", "ammo_shotgun", "ammo_heavy", "rpg", "assault_rifle"].includes(id)) category = "weapons";
-      else if (["barricade", "landmine", "grenade"].includes(id)) category = "traps";
+      if (["shotgun", "smg"].includes(id)) category = "weapons";
+      else if (["ammo_light", "ammo_shotgun", "ammo_heavy"].includes(id)) category = "supplies";
+      else if (["landmine", "grenade"].includes(id)) category = "traps";
 
       return {
         id: item.id,
@@ -4378,89 +4405,51 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private inventoryOverlay?: Phaser.GameObjects.Container;
-
   private openInventory() {
     if (this.inventoryOpen) return;
     this.inventoryOpen = true;
     this.physics.pause();
-
-    const cam = this.cameras.main;
-    const screenCX = cam.width / 2;
-    const screenCY = cam.height / 2;
-    const container = this.add.container(screenCX, screenCY).setDepth(500).setScrollFactor(0);
-
-    const backdrop = this.add.rectangle(0, 0, cam.width * 4, cam.height * 4, 0x000000, 0.65);
-    container.add(backdrop);
-
-    // Title
-    const title = this.add.text(0, -40, "INVENTORY", {
-      fontFamily: "ChakraPetch, sans-serif",
-      fontStyle: "bold",
-      fontSize: "10px",
-      color: "#ff4466",
-      align: "center",
-      resolution: 4,
-    }).setOrigin(0.5);
-    container.add(title);
-
-    if (this.hasAxe) {
-      const axeImg = this.add.image(0, 0, "item-axe").setScale(40 / 128).setOrigin(0.5);
-      container.add(axeImg);
-      const axeLabel = this.add.text(0, 26, "Axe", {
-        fontFamily: "ChakraPetch, sans-serif",
-        fontSize: "7px",
-        color: "#f5e6c8",
-        align: "center",
-        resolution: 4,
-      }).setOrigin(0.5);
-      container.add(axeLabel);
-    } else {
-      const empty = this.add.text(0, 0, "Empty", {
-        fontFamily: "ChakraPetch, sans-serif",
-        fontSize: "7px",
-        color: "#666666",
-        align: "center",
-        resolution: 4,
-      }).setOrigin(0.5);
-      container.add(empty);
-    }
-
-    const hint = this.add.text(0, 48, "[ I ] to close", {
-      fontFamily: "ChakraPetch, sans-serif",
-      fontSize: "5px",
-      color: "#aaaaaa",
-      align: "center",
-      resolution: 4,
-    }).setOrigin(0.5);
-    container.add(hint);
-
-    container.setAlpha(0);
-    this.tweens.add({ targets: container, alpha: 1, duration: 150, ease: "Sine.easeOut" });
-
-    this.inventoryOverlay = container;
-
-    backdrop.setInteractive();
-    backdrop.once("pointerdown", () => this.dismissInventory());
+    this.pushInventoryData();
+    hudState.update({ inventoryOpen: true });
   }
 
   private dismissInventory() {
     if (!this.inventoryOpen) return;
     this.inventoryOpen = false;
     this.physics.resume();
+    hudState.update({ inventoryOpen: false });
+  }
 
-    if (this.inventoryOverlay) {
-      this.tweens.add({
-        targets: this.inventoryOverlay,
-        alpha: 0,
-        duration: 100,
-        ease: "Sine.easeIn",
-        onComplete: () => {
-          this.inventoryOverlay?.destroy();
-          this.inventoryOverlay = undefined;
-        },
-      });
+  private pushInventoryData() {
+    const slots: { id: string; name: string; icon: string; count?: number }[] = [];
+
+    // Landmines
+    const mineCount = this.trapInventory.get("landmine" as any) ?? 0;
+    if (mineCount > 0) {
+      slots.push({ id: "landmine", name: "Landmine", icon: "/assets/sprites/items/landmine.png", count: mineCount });
     }
+
+    // Pad to 8
+    while (slots.length < 8) {
+      slots.push({ id: "", name: "", icon: "" });
+    }
+
+    // Push stats data too
+    const effective = this.levelingSystem.getEffectiveStats(this.characterDef.stats);
+    const buffList = this.levelingSystem.appliedBuffs.map(b => ({
+      category: b.category,
+      tier: b.tier,
+      name: b.name,
+    }));
+
+    hudState.update({
+      inventorySlots: slots,
+      inventoryHasAxe: this.hasAxe,
+      statsEffective: effective,
+      statsBuffs: buffList,
+      statsXp: this.levelingSystem.xp,
+      statsXpNeeded: this.levelingSystem.xpToNextLevel(),
+    });
   }
 
   private fenceHintShown = false;
@@ -4531,6 +4520,13 @@ export class GameScene extends Phaser.Scene {
     if (this.objectivesComplete.power_on && this.objectivesComplete.explore_library) {
       const gate2 = this.doors.find(d => d.label === "Gate 2");
       if (gate2 && gate2.locked) gate2.locked = false;
+    }
+
+    // Remove stair blocker when SCARYBOI is defeated — allows access to rave
+    if (id === "defeat_scaryboi" && this.stairBlockerZone) {
+      this.obstacles.remove(this.stairBlockerZone);
+      this.stairBlockerZone.destroy();
+      this.stairBlockerZone = undefined;
     }
   }
 
@@ -4639,7 +4635,7 @@ export class GameScene extends Phaser.Scene {
 
   /** Phase 0: Spawn Mason + dancing zombies, seal estate, player walks freely */
   private triggerMasonRave() {
-    this.masonTriggered = true;
+    if (!this.masonTriggered) this.masonTriggered = true;
     this.masonRavePhase = "rave_setup";
 
     // Seal estate entrance
@@ -5431,35 +5427,17 @@ export class GameScene extends Phaser.Scene {
     const itemId = item.id;
 
     switch (itemId) {
-      case "heal": {
+      case "firstaid": {
         if (this.player.stats.health >= this.player.stats.maxHealth) return;
         this.currency -= price;
         this.player.stats.health = Math.min(
           this.player.stats.maxHealth,
-          this.player.stats.health + 30
+          this.player.stats.health + 50
         );
-        break;
-      }
-      case "medkit": {
-        if (this.player.stats.health >= this.player.stats.maxHealth) return;
-        this.currency -= price;
-        this.player.stats.health = Math.min(
-          this.player.stats.maxHealth,
-          this.player.stats.health + 80
-        );
-        break;
-      }
-      case "dmgBoost": {
-        if (this.damageBoostActive) return;
-        this.currency -= price;
-        this.damageBoostActive = true;
-        this.player.stats.damage += 5;
         break;
       }
       case "shotgun":
-      case "smg":
-      case "rpg":
-      case "assault_rifle": {
+      case "smg": {
         const weaponDef = BALANCE.weapons[itemId as keyof typeof BALANCE.weapons];
         // Already own this weapon — refill ammo
         if (this.weapons.includes(itemId)) {
@@ -5530,7 +5508,6 @@ export class GameScene extends Phaser.Scene {
         arAmmo.reserve = Math.min(arAmmo.reserve + addHeavy, arTotalMax - arAmmo.mag);
         break;
       }
-      case "barricade":
       case "landmine": {
         const trapType = itemId as TrapType;
         const current = this.trapInventory.get(trapType) ?? 0;
@@ -5652,8 +5629,8 @@ export class GameScene extends Phaser.Scene {
       sfxVolume: this.sfxVolume,
       zoomEnabled: this.zoomEnabled,
       statsOpen: this.statsOpen,
-      // Stats screen data (only computed when open)
-      ...(this.statsOpen ? {
+      // Stats data (computed when inventory or stats is open)
+      ...((this.statsOpen || this.inventoryOpen) ? {
         statsEffective: this.levelingSystem.getEffectiveStats({
           damage: BASE_STATS.damage,
           hp: BASE_STATS.hp,
@@ -5688,6 +5665,12 @@ export class GameScene extends Phaser.Scene {
     this.levelUpActive = true;
     this.waveManager.setFrozen(true);
     hudState.update({ levelUpActive: true, levelUpLevel: level, levelUpOptions: options });
+    // Open inventory screen to show buff choices alongside stats
+    if (!this.inventoryOpen) {
+      this.inventoryOpen = true;
+      this.pushInventoryData();
+      hudState.update({ inventoryOpen: true });
+    }
   }
 
   private selectLevelUpBuff(index: number) {
@@ -5711,6 +5694,8 @@ export class GameScene extends Phaser.Scene {
     this.levelUpActive = false;
     this.waveManager.setFrozen(false);
     hudState.update({ levelUpActive: false });
+    // Close inventory screen after buff selection
+    this.dismissInventory();
     this.showWeaponMessage(buff.name.toUpperCase(), "#44dd44");
 
     this.time.delayedCall(300, () => {

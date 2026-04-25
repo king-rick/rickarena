@@ -79,6 +79,7 @@ export interface HUDData {
   shopMessageColor: string;
 
   // Menu state
+  mainMenuVisible: boolean;
   menuVisible: boolean;
   menuCharIndex: number;
 
@@ -167,6 +168,22 @@ export interface HUDData {
   // MASON cinematics
   masonDialogueActive: boolean;
   masonDialogueQuote: string;
+
+  // Loading screen
+  loadingScreenVisible: boolean;
+  loadingScreenCharId: string;
+
+  // Inventory screen (I key)
+  inventoryOpen: boolean;
+  inventorySlots: InventorySlot[];
+  inventoryHasAxe: boolean;
+}
+
+export interface InventorySlot {
+  id: string;       // item id or empty string
+  name: string;
+  icon: string;
+  count?: number;   // for stackable items like ammo
 }
 
 const DEFAULT_STATE: HUDData = {
@@ -202,6 +219,7 @@ const DEFAULT_STATE: HUDData = {
   shopSelectedIndex: 0,
   shopMessage: "",
   shopMessageColor: "",
+  mainMenuVisible: false,
   menuVisible: false,
   menuCharIndex: 0,
   hudVisible: false,
@@ -247,6 +265,11 @@ const DEFAULT_STATE: HUDData = {
   currentObjective: null,
   masonDialogueActive: false,
   masonDialogueQuote: "",
+  loadingScreenVisible: false,
+  loadingScreenCharId: "",
+  inventoryOpen: false,
+  inventorySlots: [],
+  inventoryHasAxe: false,
 };
 
 type Listener = () => void;
@@ -268,6 +291,10 @@ class HUDStateStore {
 
   registerMenuAction(handler: ActionHandler) { this.menuAction = handler; }
   dispatchMenuAction(action: string, payload?: any) { this.menuAction?.(action, payload); }
+
+  private mainMenuAction: ActionHandler | null = null;
+  registerMainMenuAction(handler: ActionHandler) { this.mainMenuAction = handler; }
+  dispatchMainMenuAction(action: string, payload?: any) { this.mainMenuAction?.(action, payload); }
 
   registerPauseAction(handler: ActionHandler) { this.pauseAction = handler; }
   dispatchPauseAction(action: string, payload?: any) { this.pauseAction?.(action, payload); }
@@ -293,6 +320,10 @@ class HUDStateStore {
   private masonDialogueAction: ActionHandler | null = null;
   registerMasonDialogueAction(handler: ActionHandler) { this.masonDialogueAction = handler; }
   dispatchMasonDialogueAction(action: string, payload?: any) { this.masonDialogueAction?.(action, payload); }
+
+  private inventoryAction: ActionHandler | null = null;
+  registerInventoryAction(handler: ActionHandler) { this.inventoryAction = handler; }
+  dispatchInventoryAction(action: string, payload?: any) { this.inventoryAction?.(action, payload); }
 
   /** Called by Phaser every frame (or on change) to push new state */
   update(partial: Partial<HUDData>) {

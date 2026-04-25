@@ -39,6 +39,7 @@ export class LevelingSystem {
 
   private pendingLevelUp = false;
   private buffOptions: BuffOption[] = [];
+  private leveledUpThisWave = false;
 
   /** Callback when level-up triggers — GameScene should pause and show UI */
   onLevelUp?: (level: number, options: BuffOption[]) => void;
@@ -47,15 +48,25 @@ export class LevelingSystem {
   addXP(amount: number): boolean {
     this.xp += amount;
     const needed = this.xpToNextLevel();
-    if (this.xp >= needed) {
+    if (this.xp >= needed && !this.leveledUpThisWave) {
       this.xp -= needed;
       this.level++;
       this.pendingLevelUp = true;
+      this.leveledUpThisWave = true;
       this.buffOptions = this.rollBuffOptions();
       this.onLevelUp?.(this.level, this.buffOptions);
       return true;
     }
+    // Cap XP at threshold if already leveled this wave
+    if (this.leveledUpThisWave && this.xp >= needed) {
+      this.xp = needed - 1;
+    }
     return false;
+  }
+
+  /** Call at the start of each new wave to allow leveling again */
+  resetWaveLevelCap() {
+    this.leveledUpThisWave = false;
   }
 
   /** XP required to reach the next level */

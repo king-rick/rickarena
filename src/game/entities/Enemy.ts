@@ -286,7 +286,12 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
    * @param source "melee" for punches, "ranged" for bullets/projectiles
    */
   takeDamage(amount: number, source: "melee" | "ranged" | "katana" = "melee"): boolean {
-    if (this.dying || this.fleeing) return false; // already dead or fleeing — don't process
+    if (this.dying || this.fleeing || this.bossCutscene) return false; // dead, fleeing, or in cutscene
+    // Mason is invulnerable until boss_fight phase
+    if (this.enemyType === "mason") {
+      const gs = this.scene as any;
+      if (gs.masonRavePhase && gs.masonRavePhase !== "boss_fight") return false;
+    }
     this.health -= amount;
     this.hitFlashTimer = 100;
     this.setTint(0xffffff);
@@ -410,6 +415,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   /** Stop dancing and return to normal AI */
   stopDancing() {
     this.dancing = false;
+    this.pathWaypoints = [];
+    this.pathIndex = 0;
+    this.pathRefreshTimer = 0; // force immediate path recalculation
   }
 
   /** Initialize boss encounter — called by GameScene after spawn */
@@ -533,7 +541,25 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   /** End cutscene mode and start the actual encounter (called on banner dismiss) */
   startEncounterAfterCutscene(gracePeriodMs: number, isIndoor: boolean) {
     this.bossCutscene = false;
-    this.initBossEncounter(gracePeriodMs, isIndoor);
+    // Immediate evasive backflip to avoid getting burst down on cutscene dismiss
+    this.backflipping = true;
+    // Face the player, then flip sideways (left or right of player)
+    const player = (this.scene as any).player;
+    if (player) {
+      const angle = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
+      // Pick a perpendicular direction (left or right, random)
+      const perpAngle = angle + (Math.random() < 0.5 ? Math.PI / 2 : -Math.PI / 2);
+      const flipSpeed = 180;
+      this.body.setVelocity(Math.cos(perpAngle) * flipSpeed, Math.sin(perpAngle) * flipSpeed);
+    }
+    const flipKey = getAnimKey(this.spriteId, "backflip", this.currentDir);
+    if (this.scene.anims.exists(flipKey)) this.play(flipKey);
+    this.scene.time.delayedCall(600, () => {
+      if (!this.active) return;
+      this.backflipping = false;
+      this.body.setVelocity(0, 0);
+      this.initBossEncounter(gracePeriodMs, isIndoor);
+    });
   }
 
   /** Play taking-punch flinch, then resume walk */

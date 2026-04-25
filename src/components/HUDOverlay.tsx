@@ -12,13 +12,12 @@ import { WaveAnnouncement } from "./hud/WaveAnnouncement";
 import { Countdown } from "./hud/Countdown";
 import { IntermissionOverlay } from "./hud/IntermissionOverlay";
 import { PauseMenu } from "./hud/PauseMenu";
-import { LevelUpOverlay } from "./hud/LevelUpOverlay";
 import { GameOverOverlay } from "./hud/GameOverOverlay";
 import { Hotbar } from "./hud/Hotbar";
 import { HealthBar } from "./hud/HealthBar";
 import { StaminaBar } from "./hud/StaminaBar";
 import { DevPanel } from "./hud/DevPanel";
-import { StatsScreen } from "./hud/StatsScreen";
+import { InventoryScreen } from "./hud/InventoryScreen";
 import { ScaryboiIntro } from "./hud/ScaryboiIntro";
 import { MasonAnnouncement } from "./hud/MasonAnnouncement";
 import { WaveStartConfirm } from "./hud/WaveStartConfirm";
@@ -180,24 +179,13 @@ export function HUDOverlay({ canvasRect }: Props) {
         </div>
       )}
 
-      {/* Level-up overlay */}
-      {!gameOver && (
-        <div className="absolute pointer-events-none" style={{ ...baseStyle, zIndex: 25 }}>
-          <LevelUpOverlay />
-        </div>
-      )}
+      {/* Inventory screen (I key + level-up + pause menu Inventory button) */}
+      {!gameOver && <InventoryScreen />}
 
       {/* Pause menu */}
       {paused && !gameOver && (
         <div className="absolute" style={{ ...baseStyle, zIndex: 30 }}>
           <PauseMenu />
-        </div>
-      )}
-
-      {/* Stats screen */}
-      {paused && !gameOver && (
-        <div className="absolute pointer-events-none" style={{ ...baseStyle, zIndex: 31 }}>
-          <StatsScreen />
         </div>
       )}
 

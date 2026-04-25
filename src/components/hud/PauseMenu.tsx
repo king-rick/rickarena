@@ -12,23 +12,30 @@ export const PauseMenu = memo(function PauseMenu() {
   const statsOpen = useSyncExternalStore(hudState.subscribe, () => hudState.getField("statsOpen"));
   const sfxVolume = useSyncExternalStore(hudState.subscribe, () => hudState.getField("sfxVolume"));
   const zoomEnabled = useSyncExternalStore(hudState.subscribe, () => hudState.getField("zoomEnabled"));
+  const [controlsOpen, setControlsOpen] = useState(false);
+
+  // Reset controls panel when unpausing
+  useEffect(() => {
+    if (!paused) setControlsOpen(false);
+  }, [paused]);
 
   useEffect(() => {
     if (!paused) return;
     const handler = (e: KeyboardEvent) => {
-      if (statsOpen) return; // stats screen handles its own input
+      if (statsOpen) return;
+      if (controlsOpen) {
+        if (e.key === "Escape") setControlsOpen(false);
+        return;
+      }
       if (settingsOpen) {
         if (e.key === "Escape") hudState.dispatchPauseAction("closeSettings");
         return;
       }
-      if (e.key === "q" || e.key === "Q") hudState.dispatchPauseAction("quit");
-      if (e.key === "r" || e.key === "R") hudState.dispatchPauseAction("restart");
-      if (e.key === "s" || e.key === "S") hudState.dispatchPauseAction("openSettings");
       if (e.key === "Escape") hudState.dispatchPauseAction("resume");
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [paused, settingsOpen, statsOpen]);
+  }, [paused, settingsOpen, statsOpen, controlsOpen]);
 
   if (!paused || statsOpen) return null;
 
@@ -41,8 +48,10 @@ export const PauseMenu = memo(function PauseMenu() {
 
       {settingsOpen ? (
         <SettingsPanel sfxVolume={sfxVolume} zoomEnabled={zoomEnabled} />
+      ) : controlsOpen ? (
+        <ControlsFullPanel onBack={() => setControlsOpen(false)} />
       ) : (
-        <div className="relative flex flex-col items-center gap-6">
+        <div className="relative flex flex-col items-center gap-5">
           <span
             style={{
               fontFamily: DISPLAY,
@@ -50,22 +59,23 @@ export const PauseMenu = memo(function PauseMenu() {
               color: "#ff2244",
               letterSpacing: "0.1em",
               textShadow: "0 0 16px rgba(255, 34, 68, 0.5)",
+              marginBottom: 8,
             }}
           >
             PAUSED
           </span>
-          <ControlsPanel />
-          <PauseButton label="Stats" action="openStats" />
-          <PauseButton label="Quit to Menu" action="quit" />
-          <PauseButton label="Restart" action="restart" />
+          <PauseButton label="Inventory" action="openStats" />
+          <PauseButton label="Controls" action="controls" onClick={() => setControlsOpen(true)} />
           <PauseButton label="Settings" action="openSettings" />
+          <PauseButton label="Restart" action="restart" />
+          <PauseButton label="Quit" action="quit" />
         </div>
       )}
     </div>
   );
 });
 
-function PauseButton({ label, action }: { label: string; action: string }) {
+function PauseButton({ label, action, onClick }: { label: string; action: string; onClick?: () => void }) {
   const [state, setState] = useState<"normal" | "hover" | "pressed">("normal");
 
   const bgMap = {
@@ -98,10 +108,94 @@ function PauseButton({ label, action }: { label: string; action: string }) {
       onMouseLeave={() => setState("normal")}
       onMouseDown={() => setState("pressed")}
       onMouseUp={() => setState("hover")}
-      onClick={() => hudState.dispatchPauseAction(action)}
+      onClick={() => {
+        if (onClick) onClick();
+        else hudState.dispatchPauseAction(action);
+      }}
     >
       {label}
     </button>
+  );
+}
+
+function ControlsFullPanel({ onBack }: { onBack: () => void }) {
+  const controls = [
+    ["WASD", "Move"],
+    ["SHIFT", "Sprint"],
+    ["CLICK / SPACE", "Punch"],
+    ["RIGHT-CLICK / F", "Shoot/Use Item"],
+    ["E", "Cycle Slots"],
+    ["R", "Reload"],
+    ["Q", "Ability"],
+    ["G", "Grenade"],
+    ["B", "Shop"],
+    ["I", "Inventory"],
+    ["ESC", "Pause"],
+  ];
+
+  return (
+    <div
+      data-hud-interactive
+      className="relative flex flex-col"
+      style={{
+        width: 540,
+        padding: "40px 50px",
+        backgroundImage: "url(/assets/sprites/ui/horror/panel-frame.png)",
+        backgroundSize: "100% 100%",
+        imageRendering: "pixelated",
+      }}
+    >
+      <div
+        className="absolute"
+        style={{ inset: 10, background: "rgba(12, 12, 24, 0.92)", borderRadius: 2 }}
+      />
+
+      <span
+        className="relative"
+        style={{
+          fontFamily: DISPLAY,
+          fontSize: 42,
+          color: "#ff2244",
+          letterSpacing: "0.1em",
+          textAlign: "center",
+          marginBottom: 32,
+        }}
+      >
+        CONTROLS
+      </span>
+
+      <div
+        className="relative"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "auto auto",
+          gap: "12px 32px",
+          marginBottom: 32,
+        }}
+      >
+        {controls.map(([key, action]) => (
+          <Fragment key={key! + action!}>
+            <span style={{
+              fontFamily: BODY,
+              fontSize: 18,
+              color: "#ffffff",
+              WebkitTextStroke: "1px rgba(180, 20, 20, 0.85)",
+              paintOrder: "stroke fill" as const,
+              textAlign: "right",
+            }}>
+              {key}
+            </span>
+            <span style={{ fontFamily: BODY, fontSize: 18, color: "#cccccc" }}>
+              {action}
+            </span>
+          </Fragment>
+        ))}
+      </div>
+
+      <div className="relative flex justify-center">
+        <BackButton onBack={onBack} />
+      </div>
+    </div>
   );
 }
 
@@ -149,7 +243,7 @@ function SettingsPanel({ sfxVolume, zoomEnabled }: { sfxVolume: number; zoomEnab
       <div className="relative flex items-center justify-between" style={{ marginBottom: 12 }}>
         <span style={{ fontFamily: BODY, fontSize: 26, color: "#cccccc" }}>Sound Volume</span>
         <span style={{ fontFamily: BODY, fontSize: 26, color: "#ffffff" }}>
-          {Math.round(sfxVolume * 100)}%
+          {Math.round(sfxVolume * 100)}
         </span>
       </div>
       <input
@@ -202,52 +296,13 @@ function SettingsPanel({ sfxVolume, zoomEnabled }: { sfxVolume: number; zoomEnab
 
       {/* Back button */}
       <div className="relative flex justify-center">
-        <SettingsBackButton />
+        <BackButton onBack={() => hudState.dispatchPauseAction("closeSettings")} />
       </div>
     </div>
   );
 }
 
-function ControlsPanel() {
-  const controls = [
-    ["WASD", "Move"],
-    ["SHIFT", "Sprint"],
-    ["CLICK / SPACE", "Punch"],
-    ["RIGHT-CLICK / F", "Use Item"],
-    ["Q / E", "Cycle Slots"],
-    ["R", "Reload"],
-    ["Q", "Ability"],
-    ["G", "Grenade"],
-    ["B", "Shop"],
-    ["V", "Rotate Barricade"],
-    ["TAB", "Stats"],
-    ["ESC", "Pause"],
-  ];
-
-  return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "auto auto",
-        gap: "8px 24px",
-        marginBottom: 8,
-      }}
-    >
-      {controls.map(([key, action]) => (
-        <Fragment key={key}>
-          <span style={{ fontFamily: DISPLAY, fontSize: 16, color: "#ff4466", textAlign: "right" }}>
-            {key}
-          </span>
-          <span style={{ fontFamily: BODY, fontSize: 16, color: "#cccccc" }}>
-            {action}
-          </span>
-        </Fragment>
-      ))}
-    </div>
-  );
-}
-
-function SettingsBackButton() {
+function BackButton({ onBack }: { onBack: () => void }) {
   const [hovered, setHovered] = useState(false);
   return (
     <button
@@ -262,7 +317,7 @@ function SettingsBackButton() {
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      onClick={() => hudState.dispatchPauseAction("closeSettings")}
+      onClick={onBack}
     >
       [ ESC ]  Back
     </button>
