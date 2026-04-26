@@ -46,7 +46,7 @@ export const CHARACTERS: CharacterDef[] = [
     weaponSpecialty: "None",
     specialtyDesc: "",
     stats: { ...BASE_STATS },
-    ability: { name: "Superkick", desc: "High-damage kick to one or two enemies in a tight cone with heavy knockback", cooldown: 20 },
+    ability: { name: "Superkick", desc: "Devastating kick with heavy knockback. Ideal for precision kicks on bosses", cooldown: 20 },
     pixelLabId: "d24fa173-9c58-4df6-bdba-40b883b1e59a",
   },
   {
@@ -81,7 +81,7 @@ export const CHARACTERS: CharacterDef[] = [
     weaponSpecialty: "None",
     specialtyDesc: "",
     stats: { ...BASE_STATS },
-    ability: { name: "Sledgehammer Drop", desc: "360-degree slam that damages and stuns all nearby enemies", cooldown: 16 },
+    ability: { name: "Sledgehammer Drop", desc: "Ground slam that heavily damages all nearby enemies", cooldown: 16 },
     pixelLabId: "5cc951c4-ef30-49a1-8136-8b2fdb3baec0",
   },
 ];

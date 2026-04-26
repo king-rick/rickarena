@@ -24,12 +24,13 @@ Top-down wave survival game (Call of Duty Zombies inspired). Phaser 3 game engin
 - `src/game/systems/LevelingSystem.ts` — XP, level-up, buff selection. Level-up capped at 1 per wave.
 
 ### React HUD components
-- `src/components/MainMenu.tsx` — Title screen with group concept art, PLAY/CONTROLS/LEADERBOARD
-- `src/components/CharacterSelect.tsx` — Per-character concept art backgrounds, action-pose sprites, ability info
-- `src/components/LoadingScreen.tsx` — Character concept art + loading bar (2s)
+- `src/components/MainMenu.tsx` — Cinematic intro screen (fade-in tagline, gates on `assetsReady`) + main menu (PLAY/CONTROLS/LEADERBOARD). Intro plays once per session.
+- `src/components/CharacterSelect.tsx` — Full-bleed concept art per character, bottom info panel with name + ability card, nav dots + arrows
+- `src/components/LoadingScreen.tsx` — Character concept art + subtle 2px loading bar (2s)
 - `src/components/hud/InventoryScreen.tsx` — 8-slot grid, equipped weapon, stats, buffs, XP bar, level-up integration
 - `src/components/hud/ShopOverlay.tsx` — Single-column shop, items defined in balance.ts
 - `src/components/hud/PauseMenu.tsx` — Inventory/Controls/Settings/Restart/Quit
+- `src/components/hud/ScaryboiIntro.tsx` — SCARYBOI encounter cutscene: continuous audio playback, timing-based auto-advancing quotes, dev mode skip
 - `src/components/HUDOverlay.tsx` — Orchestrates all HUD layers
 - `src/game/scenes/MainMenuScene.ts` — Phaser scene that manages title→charSelect→loading→game flow
 
@@ -63,7 +64,7 @@ Top-down wave survival game (Call of Duty Zombies inspired). Phaser 3 game engin
 - Blood splatters are triggered from GameScene, not Enemy — call `(this.scene as any).spawnBloodSplat()`
 
 ## Things to avoid
-- Don't add features to GameScene.ts if they can live elsewhere — it's already 3,900 lines
+- Don't add features to GameScene.ts if they can live elsewhere — it's already ~5,700 lines
 - Don't use `this.angleToDirection()` — it's an exported function, import from Enemy.ts
 - Don't set velocity directly on Mason during attacks — the masonBusy velocity lock in updateMason will fight it
 - Don't use `setImmovable()` alone to prevent knockback — GameScene applies knockback via direct `setVelocity()` calls which bypass immovable
@@ -76,16 +77,21 @@ Top-down wave survival game (Call of Duty Zombies inspired). Phaser 3 game engin
 - Game runs fully client-side without the database
 
 ### Menu flow
-- MainMenuScene (Phaser) → React MainMenu (title) → React CharacterSelect → React LoadingScreen → GameScene
+- BootScene → sets `mainMenuVisible` immediately → React IntroScreen (cinematic tagline, gates on `assetsReady`) → MainMenu → CharacterSelect → LoadingScreen → GameScene
+- PreloadScene loads assets in parallel while intro plays; sets `assetsReady: true` when done
 - HUDState actions: `dispatchMainMenuAction("play")`, `dispatchMenuAction("prev"/"next"/"start"/"back")`, `dispatchInventoryAction("close")`
 - I key opens inventory (pauses physics), ESC closes inventory or opens pause menu
 - Level-up opens inventory with buff selection banner at top
 
 ## Current state (updated 2026-04-25)
-- Full UI overhaul complete — main menu, character select, inventory, shop, pause menu
+- Full UI overhaul complete — cinematic intro, main menu, character select, loading screen, inventory, shop, pause menu
+- Cinematic intro: fade-in tagline on black, plays during asset loading, once per session
+- Character select: full-bleed concept art, no pixel sprites, ability info panel
+- SCARYBOI south encounter: new V2 audio, continuous playback with timing-based auto-advancing quotes
 - Mason rave cutscene implemented — 6-phase state machine with dancing zombies, letterbox cinematics, dialogue cards
 - Mason boss fight AI complete — 4 attacks, 2-phase system
 - SCARYBOI cinematic overhaul done — all 3 encounters
 - Jason renamed to Muff (display only, sprite id stays "jason")
 - Shop simplified: 8 items (First Aid Kit, 3 ammo types, landmine, grenade, shotgun, SMG)
 - Level-up capped at 1 per wave
+- Removed redundant text banners ("SCARYBOI RETREATS", "BIGBOSSBABY WANTS TO FIGHT!")

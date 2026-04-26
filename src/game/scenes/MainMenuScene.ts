@@ -21,9 +21,10 @@ export class MainMenuScene extends Phaser.Scene {
     bg.fillStyle(0x080810, 1);
     bg.fillRect(0, 0, width, height);
 
-    // Show main menu title screen
+    // Assets are loaded — signal React and show main menu
     hudState.update({
       mainMenuVisible: true,
+      assetsReady: true,
       menuVisible: false,
       menuCharIndex: this.selectedIndex,
       hudVisible: false,

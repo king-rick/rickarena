@@ -467,14 +467,14 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     return false;
   }
 
-  /** Cinematic smoke-appear for the first-encounter cutscene — slower, smoother fade */
+  /** Cinematic smoke-appear for the first-encounter cutscene — slightly faster, smoother fade */
   playSmokeAppearCutscene(onComplete: () => void) {
     const key = getAnimKey(this.spriteId, "smoke-appear", this.currentDir);
     this.setAlpha(0);
     if (this.scene.anims.exists(key)) {
-      // Slow fade-in over the full smoke duration for a cinematic feel
-      this.scene.tweens.add({ targets: this, alpha: 1, duration: 800, ease: "Sine.easeIn" });
-      this.play(key);
+      // Fade-in over the smoke duration for a cinematic feel
+      this.scene.tweens.add({ targets: this, alpha: 1, duration: 700, ease: "Sine.easeIn" });
+      this.play({ key, frameRate: 4 }); // slightly faster than default 3fps
       this.once("animationcomplete", () => {
         if (this.active) onComplete();
       });

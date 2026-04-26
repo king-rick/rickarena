@@ -51,7 +51,7 @@ export const LoadingScreen = memo(function LoadingScreen({ canvasRect }: Props) 
         overflow: "hidden",
       }}
     >
-      {/* Character concept art — full bleed */}
+      {/* Same concept art as character select — seamless transition */}
       <img
         src={artSrc}
         alt=""
@@ -61,51 +61,50 @@ export const LoadingScreen = memo(function LoadingScreen({ canvasRect }: Props) 
           width: "100%",
           height: "100%",
           objectFit: "cover",
-          opacity: 0.8,
+          objectPosition: "center",
+          opacity: 0.6,
         }}
+        draggable={false}
       />
 
-      {/* Dark gradient overlay at bottom for loading bar readability */}
+      {/* Bottom gradient for loading bar */}
       <div style={{
         position: "absolute",
-        bottom: 0,
-        left: 0,
-        right: 0,
-        height: "30%",
-        background: "linear-gradient(transparent, rgba(0, 0, 0, 0.85))",
+        bottom: 0, left: 0, right: 0, height: "25%",
+        background: "linear-gradient(transparent, rgba(0, 0, 0, 0.9))",
       }} />
 
-      {/* Loading bar */}
+      {/* Loading bar — subtle, bottom */}
       <div style={{
         position: "absolute",
-        bottom: 40,
-        left: "15%",
-        right: "15%",
+        bottom: 36,
+        left: "20%",
+        right: "20%",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        gap: 10,
+        gap: 8,
       }}>
         <span style={{
           fontFamily: BODY,
-          fontSize: 16,
-          color: "#cccccc",
-          letterSpacing: "0.15em",
+          fontSize: 12,
+          color: "rgba(255, 255, 255, 0.35)",
+          letterSpacing: "0.2em",
         }}>
           LOADING
         </span>
         <div style={{
           width: "100%",
-          height: 4,
-          background: "rgba(255, 255, 255, 0.1)",
-          borderRadius: 2,
+          height: 2,
+          background: "rgba(255, 255, 255, 0.08)",
+          borderRadius: 1,
           overflow: "hidden",
         }}>
           <div style={{
             width: `${progress * 100}%`,
             height: "100%",
-            background: "linear-gradient(90deg, #ff2244, #ff6644)",
-            borderRadius: 2,
+            background: "linear-gradient(90deg, rgba(200, 20, 20, 0.6), rgba(255, 34, 68, 0.8))",
+            borderRadius: 1,
             transition: "width 50ms linear",
           }} />
         </div>

@@ -1,5 +1,53 @@
 # RickArena Changelog
 
+## 2026-04-25 — Cinematic Intro, UI Polish, SCARYBOI Audio/Cutscene Rework
+
+**Cinematic intro screen, character select redesign, SCARYBOI cutscene overhaul, and text banner cleanup.**
+
+### Cinematic Intro Screen (NEW)
+- Black screen with tagline text fading in from darkness, letterbox bars, red accent line
+- Plays during asset loading — serves as both intro and loading screen (no dead black screen)
+- Holds for ~9 seconds, skippable with Space/Enter/Click
+- Only plays once per session; returning to menu after death skips it
+- HUDState `assetsReady` flag gates transition to menu until Phaser assets are loaded
+
+### Main Menu Updates
+- Removed tagline text from main menu (moved to intro screen)
+- All menu text uses white + red stroke style (matching in-game objective tracker)
+- Removed Phaser PreloadScene splash art — replaced with black background
+
+### Character Select (REDESIGNED)
+- Removed pixel sprite overlay — concept art is now the sole character showcase
+- Concept art opacity raised to 0.75 for stronger presence
+- Bottom info panel: character name (left) + ability card (right)
+- Ability card shows "ABILITY · Q" label, ability name, description, and cooldown
+- Cleaner nav arrows at screen edges, minimal dot indicators
+- "PLAY" button replaces "ENTER TO PLAY"
+- Updated ability descriptions:
+  - Rick: "Devastating kick with heavy knockback. Ideal for precision kicks on bosses"
+  - Muff: "Ground slam that heavily damages all nearby enemies"
+
+### Loading Screen
+- Now shows selected character's concept art (seamless transition from character select)
+- Subtle loading bar and "LOADING" text at bottom
+
+### SCARYBOI Cutscene Rework
+- South building VO replaced with ElevenLabs V2 clip
+- Second quote updated: "Unfortunately, you will not live to hear them.."
+- ScaryboiIntro.tsx rewritten for continuous playback:
+  - Audio plays start-to-finish with no pausing between quotes
+  - Quotes auto-advance on timing (no Space between quotes)
+  - Dismiss blocked until audio finishes (unless dev mode)
+  - Dev mode: Space skips entire cutscene instantly
+- Smoke-appear cutscene animation slightly faster (3fps → 4fps, fade 800ms → 700ms)
+
+### Text Banner Cleanup
+- Removed "SCARYBOI RETREATS..." weapon message
+- Removed "BIGBOSSBABY WANTS TO FIGHT!" weapon message
+- Kept "SCARYBOI DEFEATED!" and "BIGBOSSBABY DEFEATED!" victory messages
+
+---
+
 ## 2026-04-25 — Full UI Overhaul: Menus, Inventory, Shop, Character Select
 
 **Complete UI redesign across all menus and overlays. New main menu, character select, inventory system, shop simplification, and font/style consistency pass.**

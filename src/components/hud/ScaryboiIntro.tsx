@@ -13,6 +13,7 @@ export function ScaryboiIntro() {
   const [displayedChars, setDisplayedChars] = useState(0);
   const [typewriterDone, setTypewriterDone] = useState(false);
   const [typewriterStarted, setTypewriterStarted] = useState(false);
+  const [audioEnded, setAudioEnded] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fadeRafRef = useRef<number | null>(null);
   const typewriterTimerRef = useRef<number | null>(null);
@@ -33,19 +34,24 @@ export function ScaryboiIntro() {
     hudState.subscribe,
     () => hudState.getField("scaryboiVoSrc")
   );
+  const devMode = useSyncExternalStore(
+    hudState.subscribe,
+    () => hudState.getField("devMode")
+  );
 
   const currentQuote = quotes[quoteIndex] ?? "";
   const isLastQuote = quoteIndex >= quotes.length - 1;
-  const hasTiming = timings.length > 0;
+  const allQuotesDone = isLastQuote && typewriterDone;
+  const canDismiss = (allQuotesDone && audioEnded) || devMode;
 
   // Get type speed for current quote — sync with voice if timing available
   const getTypeSpeedMs = useCallback(() => {
-    if (!hasTiming || !timings[quoteIndex]) return 35;
+    if (timings.length === 0 || !timings[quoteIndex]) return 35;
     const t = timings[quoteIndex];
     const chars = (quotes[quoteIndex] ?? "").length;
     if (chars <= 0) return 35;
     return Math.max(15, Math.floor((t.durationMs * SPEED_MULT) / chars));
-  }, [hasTiming, timings, quoteIndex, quotes]);
+  }, [timings, quoteIndex, quotes]);
 
   // Reset typewriter when quote changes
   useEffect(() => {
@@ -54,42 +60,46 @@ export function ScaryboiIntro() {
     setTypewriterStarted(false);
   }, [quoteIndex]);
 
-  // Delay first quote start to match audio lead-in
+  // Start typewriter for each quote
+  // Quote 0: delay by its startMs (audio lead-in)
+  // Subsequent quotes: start immediately (auto-advance timer already waited)
   useEffect(() => {
     if (!visible || typewriterStarted) return;
 
-    if (hasTiming && timings[quoteIndex] && quoteIndex === 0) {
+    if (quoteIndex === 0 && timings.length > 0 && timings[0]) {
       const delay = timings[0].startMs;
       const t = window.setTimeout(() => setTypewriterStarted(true), delay);
       return () => clearTimeout(t);
     } else {
       setTypewriterStarted(true);
     }
-  }, [visible, typewriterStarted, hasTiming, timings, quoteIndex]);
+  }, [visible, typewriterStarted, timings, quoteIndex]);
 
   // Typewriter tick
   useEffect(() => {
     if (!visible || !typewriterStarted || typewriterDone) return;
     if (displayedChars >= currentQuote.length) {
       setTypewriterDone(true);
-      // Pause audio between quotes so it doesn't race ahead
-      if (!isLastQuote && audioRef.current) {
-        audioRef.current.pause();
-      }
       return;
     }
     const speed = getTypeSpeedMs();
     const t = window.setTimeout(() => setDisplayedChars(prev => prev + 1), speed);
     typewriterTimerRef.current = t;
     return () => clearTimeout(t);
-  }, [visible, typewriterStarted, displayedChars, currentQuote, typewriterDone, isLastQuote, getTypeSpeedMs]);
+  }, [visible, typewriterStarted, displayedChars, currentQuote, typewriterDone, getTypeSpeedMs]);
 
-  // Resume audio when user advances to the next quote
+  // Auto-advance quotes based on audio timeline — no user interaction between quotes
   useEffect(() => {
-    if (quoteIndex > 0 && audioRef.current && audioRef.current.paused) {
-      audioRef.current.play().catch(() => {});
+    if (!visible || timings.length <= 1) return;
+
+    const timers: number[] = [];
+    for (let i = 1; i < timings.length; i++) {
+      const t = window.setTimeout(() => setQuoteIndex(i), timings[i].startMs);
+      timers.push(t);
     }
-  }, [quoteIndex]);
+
+    return () => timers.forEach(t => clearTimeout(t));
+  }, [visible, timings]);
 
   // Slide up after mount
   useEffect(() => {
@@ -97,12 +107,13 @@ export function ScaryboiIntro() {
     return () => clearTimeout(t);
   }, []);
 
-  // Voice-over plays when banner becomes visible
+  // Voice-over plays when banner becomes visible — continuous, no pausing between quotes
   useEffect(() => {
     if (!visible || !voSrc) return;
     const a = new Audio(voSrc);
     a.volume = sfxVolume;
     audioRef.current = a;
+    a.addEventListener("ended", () => setAudioEnded(true));
     void a.play().catch(() => {});
     return () => {
       if (fadeRafRef.current !== null) {
@@ -122,6 +133,12 @@ export function ScaryboiIntro() {
   const stopVoFade = useCallback(() => {
     const a = audioRef.current;
     if (!a) return;
+    if (a.ended) {
+      // Audio already finished — just clean up
+      a.src = "";
+      if (audioRef.current === a) audioRef.current = null;
+      return;
+    }
     const startVol = a.volume;
     const t0 = performance.now();
     const tick = (now: number) => {
@@ -142,30 +159,28 @@ export function ScaryboiIntro() {
   const handleDismiss = useCallback(() => {
     if (dismissing) return;
 
-    // If typewriter is still going, skip to end
-    if (!typewriterDone) {
-      if (typewriterTimerRef.current) clearTimeout(typewriterTimerRef.current);
-      setDisplayedChars(currentQuote.length);
-      setTypewriterDone(true);
-      setTypewriterStarted(true);
+    // Dev mode: skip everything immediately
+    if (devMode) {
+      setDismissing(true);
+      stopVoFade();
+      setTimeout(() => {
+        hudState.dispatchScaryboiIntroAction("dismissed");
+      }, DISMISS_MS);
       return;
     }
 
-    // Advance to next quote
-    if (!isLastQuote) {
-      setQuoteIndex(prev => prev + 1);
-      return;
-    }
+    // Not dismissable yet — audio still playing
+    if (!canDismiss) return;
 
-    // Last quote done — dismiss
+    // All done — dismiss
     setDismissing(true);
     stopVoFade();
     setTimeout(() => {
       hudState.dispatchScaryboiIntroAction("dismissed");
     }, DISMISS_MS);
-  }, [dismissing, isLastQuote, stopVoFade, typewriterDone, currentQuote.length]);
+  }, [dismissing, devMode, canDismiss, stopVoFade]);
 
-  // Listen for Space key to advance/dismiss
+  // Listen for Space key to dismiss
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.code === "Space") {
@@ -238,7 +253,7 @@ export function ScaryboiIntro() {
         )}
       </div>
 
-      {/* Advance / dismiss button — visible after current quote finishes typing */}
+      {/* Dismiss button — visible only after audio has fully played and all text typed */}
       <button
         type="button"
         onClick={handleDismiss}
@@ -253,8 +268,9 @@ export function ScaryboiIntro() {
           padding: "6px 20px",
           cursor: "pointer",
           textTransform: "uppercase",
-          opacity: typewriterDone && visible && !dismissing ? 1 : 0,
-          transition: typewriterDone && visible && !dismissing
+          opacity: canDismiss && visible && !dismissing ? 1 : 0,
+          pointerEvents: canDismiss && visible && !dismissing ? "auto" : "none",
+          transition: canDismiss && visible && !dismissing
             ? "opacity 300ms ease-out, background 150ms, color 150ms, border-color 150ms"
             : "opacity 200ms ease-out",
         }}
@@ -271,7 +287,7 @@ export function ScaryboiIntro() {
           el.style.borderColor = "rgba(160,30,30,0.55)";
         }}
       >
-        {isLastQuote ? "Bring it" : "..."}
+        Bring it
       </button>
 
       <style>{`@keyframes blink { 50% { opacity: 0; } }`}</style>

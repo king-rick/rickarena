@@ -3,7 +3,6 @@
 import { memo, useSyncExternalStore, useEffect, useState, useCallback } from "react";
 import { hudState } from "@/game/HUDState";
 import { CHARACTERS } from "@/game/data/characters";
-import { CHARACTER_ANIMATIONS } from "@/game/data/animations";
 import type { CanvasRect } from "./Game";
 
 interface Props {
@@ -20,46 +19,13 @@ const CHAR_ART: Record<string, string> = {
   jason: "/concept-art/jason-surprised-zombies.png",
 };
 
-// Animation config per character: anim name, direction, ms per frame
-const CHAR_ANIM: Record<string, { anim: string; dir: string; ms: number }> = {
-  rick: { anim: "shooting-pistol", dir: "south-east", ms: 250 },
-  dan: { anim: "electric-fist", dir: "south-east", ms: 220 },
-  pj: { anim: "swinging-katana", dir: "south-east", ms: 400 },
-  jason: { anim: "light-cigarette", dir: "south-east", ms: 350 },
+const STROKE: React.CSSProperties = {
+  fontFamily: BODY,
+  color: "#ffffff",
+  WebkitTextStroke: "1.5px rgba(180, 20, 20, 0.85)",
+  paintOrder: "stroke fill",
+  textShadow: "0 1px 4px rgba(0,0,0,0.9)",
 };
-
-function ActionSprite({ charId, size }: { charId: string; size: number }) {
-  const [frameIdx, setFrameIdx] = useState(0);
-  const cfg = CHAR_ANIM[charId] ?? { anim: "breathing-idle", dir: "south", ms: 150 };
-  const frameCount = CHARACTER_ANIMATIONS[charId]?.find((a) => a.type === cfg.anim)?.frames ?? 1;
-
-  useEffect(() => {
-    setFrameIdx(0);
-    if (frameCount <= 1) return;
-    const interval = setInterval(() => {
-      setFrameIdx((prev) => (prev + 1) % frameCount);
-    }, cfg.ms);
-    return () => clearInterval(interval);
-  }, [charId, frameCount, cfg.ms]);
-
-  const framePath = `/assets/sprites/${charId}/${cfg.anim}/${cfg.dir}/frame_${String(frameIdx).padStart(3, "0")}.png`;
-
-  return (
-    <img
-      src={framePath}
-      alt=""
-      style={{
-        width: size,
-        height: size,
-        imageRendering: "pixelated",
-        userSelect: "none",
-        pointerEvents: "none",
-        filter: "drop-shadow(0 0 20px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 6px rgba(255, 34, 68, 0.12))",
-      }}
-      draggable={false}
-    />
-  );
-}
 
 export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Props) {
   const menuVisible = useSyncExternalStore(hudState.subscribe, () => hudState.getField("menuVisible"));
@@ -99,9 +65,6 @@ export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Pro
 
   const char = CHARACTERS[charIndex] || CHARACTERS[0];
   const artSrc = CHAR_ART[char.id] || CHAR_ART.rick;
-  const h = canvasRect.height;
-  const w = canvasRect.width;
-  const spriteSize = Math.round(Math.min(h * 0.42, w * 0.28));
 
   return (
     <div
@@ -116,7 +79,7 @@ export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Pro
         overflow: "hidden",
       }}
     >
-      {/* Full-bleed concept art */}
+      {/* Full-bleed concept art — the star of the screen */}
       <img
         key={char.id}
         src={artSrc}
@@ -128,24 +91,22 @@ export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Pro
           height: "100%",
           objectFit: "cover",
           objectPosition: "center",
-          opacity: 0.5,
+          opacity: 0.75,
           transition: "opacity 300ms ease",
         }}
         draggable={false}
       />
 
-      {/* Gradient overlays */}
+      {/* Bottom gradient — dark zone for info */}
       <div style={{
-        position: "absolute", inset: 0,
-        background: "linear-gradient(to right, rgba(0, 0, 0, 0.75) 0%, rgba(0, 0, 0, 0.3) 50%, rgba(0, 0, 0, 0.6) 100%)",
+        position: "absolute", bottom: 0, left: 0, right: 0, height: "45%",
+        background: "linear-gradient(to top, rgba(0, 0, 0, 0.97) 0%, rgba(0, 0, 0, 0.7) 55%, transparent 100%)",
       }} />
+
+      {/* Top gradient */}
       <div style={{
-        position: "absolute", bottom: 0, left: 0, right: 0, height: "40%",
-        background: "linear-gradient(transparent, rgba(0, 0, 0, 0.95))",
-      }} />
-      <div style={{
-        position: "absolute", top: 0, left: 0, right: 0, height: "12%",
-        background: "linear-gradient(rgba(0, 0, 0, 0.7), transparent)",
+        position: "absolute", top: 0, left: 0, right: 0, height: "10%",
+        background: "linear-gradient(rgba(0, 0, 0, 0.6), transparent)",
       }} />
 
       {/* Content */}
@@ -161,73 +122,97 @@ export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Pro
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          padding: "20px 28px 0",
+          padding: "16px 28px 0",
           flexShrink: 0,
         }}>
           <span style={{
-            fontFamily: BODY, fontSize: 13,
-            color: "rgba(255, 255, 255, 0.25)", letterSpacing: "0.25em",
+            ...STROKE,
+            fontSize: 12,
+            WebkitTextStroke: "1px rgba(180, 20, 20, 0.6)",
+            letterSpacing: "0.25em",
+            opacity: 0.6,
           }}>
             SELECT CHARACTER
           </span>
           <button
             onClick={handleBack}
             style={{
-              fontFamily: BODY, fontSize: 13,
-              color: "rgba(255, 255, 255, 0.25)",
+              ...STROKE,
+              fontSize: 12,
+              WebkitTextStroke: "1px rgba(180, 20, 20, 0.6)",
               background: "none", border: "none", cursor: "pointer",
               letterSpacing: "0.1em",
+              opacity: 0.4,
             }}
           >
             ESC — BACK
           </button>
         </div>
 
-        {/* Center area — character showcase */}
-        <div style={{ flex: 1, position: "relative" }}>
+        {/* Spacer */}
+        <div style={{ flex: 1 }} />
 
-          {/* Character column: name, sprite, ability — all stacked center */}
+        {/* Bottom info panel */}
+        <div style={{
+          padding: "0 clamp(24px, 5%, 60px) clamp(20px, 3%, 36px)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 16,
+        }}>
+          {/* Name + ability row */}
           <div style={{
-            position: "absolute",
-            bottom: 0,
-            left: "50%",
-            transform: "translateX(-50%)",
             display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 0,
-            paddingBottom: 8,
+            justifyContent: "space-between",
+            alignItems: "flex-end",
+            gap: 32,
+            flexWrap: "wrap",
           }}>
-            {/* Name */}
-            <div style={{
-              fontFamily: DISPLAY,
-              fontSize: Math.min(w / 10, 80),
-              color: "#ff2244",
-              letterSpacing: "0.04em",
-              textShadow: "0 0 30px rgba(255, 34, 68, 0.5), 0 4px 12px rgba(0, 0, 0, 0.9)",
-              lineHeight: 1,
-              marginBottom: 8,
-            }}>
-              {char.name.toUpperCase()}
+            {/* Left: Character name */}
+            <div>
+              <div style={{
+                fontFamily: DISPLAY,
+                fontSize: "clamp(48px, 8vw, 90px)",
+                color: "#ff2244",
+                letterSpacing: "0.04em",
+                textShadow: "0 0 30px rgba(255, 34, 68, 0.5), 0 4px 12px rgba(0, 0, 0, 0.9)",
+                lineHeight: 1,
+              }}>
+                {char.name.toUpperCase()}
+              </div>
             </div>
 
-            {/* Sprite */}
-            <ActionSprite charId={char.id} size={spriteSize} />
-
-            {/* Ability — clean text below sprite */}
+            {/* Right: Ability card */}
             <div style={{
               display: "flex",
               flexDirection: "column",
-              alignItems: "center",
+              alignItems: "flex-end",
               gap: 4,
-              marginTop: 8,
+              maxWidth: 340,
             }}>
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+              }}>
+                <span style={{
+                  ...STROKE,
+                  fontSize: 11,
+                  WebkitTextStroke: "1px rgba(180, 20, 20, 0.5)",
+                  letterSpacing: "0.2em",
+                  opacity: 0.45,
+                }}>
+                  ABILITY · Q
+                </span>
+                <div style={{
+                  width: 40,
+                  height: 1,
+                  background: "linear-gradient(90deg, rgba(200, 20, 20, 0.4), transparent)",
+                }} />
+              </div>
               <span style={{
-                fontFamily: BODY,
-                fontSize: 18,
-                color: "#ffffff",
-                WebkitTextStroke: "0.5px rgba(180, 20, 20, 0.5)",
-                paintOrder: "stroke fill" as const,
+                ...STROKE,
+                fontSize: 20,
+                WebkitTextStroke: "1.5px rgba(180, 20, 20, 0.85)",
                 letterSpacing: "0.05em",
               }}>
                 {char.ability.name}
@@ -235,106 +220,106 @@ export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Pro
               <span style={{
                 fontFamily: BODY,
                 fontSize: 13,
-                color: "rgba(255, 255, 255, 0.35)",
-                textAlign: "center",
-                maxWidth: 280,
-                lineHeight: 1.3,
+                color: "rgba(255, 255, 255, 0.45)",
+                textAlign: "right",
+                lineHeight: 1.5,
+                textShadow: "0 1px 3px rgba(0,0,0,0.9)",
               }}>
-                {char.ability.desc}
+                {char.ability.desc} · {char.ability.cooldown}s cooldown
               </span>
             </div>
           </div>
 
-          {/* Nav arrows — flanking center */}
-          <button
-            onClick={handlePrev}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "#ff4466"; e.currentTarget.style.transform = "translateY(-50%) translateX(-3px)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = "rgba(255, 255, 255, 0.15)"; e.currentTarget.style.transform = "translateY(-50%)"; }}
-            style={{
-              position: "absolute", left: "25%", top: "45%",
-              transform: "translateY(-50%)",
-              background: "none", border: "none", cursor: "pointer",
-              fontSize: 28, color: "rgba(255, 255, 255, 0.15)",
-              padding: "20px 16px", fontFamily: BODY,
-              transition: "color 150ms ease, transform 150ms ease",
-              zIndex: 2,
-            }}
-          >
-            {"\u25C0"}
-          </button>
-          <button
-            onClick={handleNext}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "#ff4466"; e.currentTarget.style.transform = "translateY(-50%) translateX(3px)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = "rgba(255, 255, 255, 0.15)"; e.currentTarget.style.transform = "translateY(-50%)"; }}
-            style={{
-              position: "absolute", right: "25%", top: "45%",
-              transform: "translateY(-50%)",
-              background: "none", border: "none", cursor: "pointer",
-              fontSize: 28, color: "rgba(255, 255, 255, 0.15)",
-              padding: "20px 16px", fontFamily: BODY,
-              transition: "color 150ms ease, transform 150ms ease",
-              zIndex: 2,
-            }}
-          >
-            {"\u25B6"}
-          </button>
-        </div>
+          {/* Nav dots + play button */}
+          <div style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}>
+            {/* Dots */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {CHARACTERS.map((c, i) => {
+                const active = i === charIndex;
+                return (
+                  <div
+                    key={c.id}
+                    style={{
+                      width: active ? 10 : 6,
+                      height: active ? 10 : 6,
+                      borderRadius: "50%",
+                      background: active ? "#ff2244" : "rgba(255, 255, 255, 0.15)",
+                      boxShadow: active ? "0 0 10px rgba(255, 34, 68, 0.5)" : "none",
+                      transition: "all 200ms ease",
+                    }}
+                  />
+                );
+              })}
+            </div>
 
-        {/* Bottom: dots + play */}
-        <div style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: 14,
-          paddingBottom: 28,
-          flexShrink: 0,
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {CHARACTERS.map((c, i) => {
-              const active = i === charIndex;
-              return (
-                <div
-                  key={c.id}
-                  style={{
-                    width: active ? 12 : 6,
-                    height: active ? 12 : 6,
-                    borderRadius: "50%",
-                    background: active ? "#ff2244" : "rgba(255, 255, 255, 0.15)",
-                    boxShadow: active ? "0 0 10px rgba(255, 34, 68, 0.5)" : "none",
-                    transition: "all 200ms ease",
-                  }}
-                />
-              );
-            })}
+            {/* Play */}
+            <button
+              onClick={handleStart}
+              style={{
+                ...STROKE,
+                fontSize: 16,
+                WebkitTextStroke: "1.5px rgba(180, 20, 20, 0.85)",
+                background: "none",
+                border: "1px solid rgba(200, 20, 20, 0.3)",
+                borderRadius: 3,
+                padding: "8px 36px",
+                cursor: "pointer",
+                letterSpacing: "0.18em",
+                transition: "all 150ms ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = "rgba(255, 34, 68, 0.6)";
+                e.currentTarget.style.boxShadow = "0 0 16px rgba(255, 34, 68, 0.2)";
+                e.currentTarget.style.textShadow = "0 0 12px rgba(255, 34, 68, 0.6), 0 1px 4px rgba(0,0,0,0.9)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "rgba(200, 20, 20, 0.3)";
+                e.currentTarget.style.boxShadow = "none";
+                e.currentTarget.style.textShadow = "0 1px 4px rgba(0,0,0,0.9)";
+              }}
+            >
+              PLAY
+            </button>
           </div>
-
-          <button
-            onClick={handleStart}
-            style={{
-              fontFamily: BODY, fontSize: 20, color: "#ff4466",
-              background: "none",
-              border: "1px solid rgba(255, 34, 68, 0.3)",
-              borderRadius: 4,
-              padding: "10px 48px", cursor: "pointer",
-              letterSpacing: "0.15em",
-              transition: "all 150ms ease",
-              WebkitTextStroke: "0.5px rgba(180, 20, 20, 0.5)",
-              paintOrder: "stroke fill" as const,
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = "#ffffff";
-              e.currentTarget.style.borderColor = "rgba(255, 34, 68, 0.6)";
-              e.currentTarget.style.boxShadow = "0 0 20px rgba(255, 34, 68, 0.2)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = "#ff4466";
-              e.currentTarget.style.borderColor = "rgba(255, 34, 68, 0.3)";
-              e.currentTarget.style.boxShadow = "none";
-            }}
-          >
-            ENTER TO PLAY
-          </button>
         </div>
+
+        {/* Nav arrows — screen edges */}
+        <button
+          onClick={handlePrev}
+          onMouseEnter={(e) => { e.currentTarget.style.color = "#ff4466"; e.currentTarget.style.transform = "translateY(-50%) scale(1.2)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "rgba(255, 255, 255, 0.2)"; e.currentTarget.style.transform = "translateY(-50%)"; }}
+          style={{
+            position: "absolute", left: 16, top: "45%",
+            transform: "translateY(-50%)",
+            background: "none", border: "none", cursor: "pointer",
+            fontSize: 24, color: "rgba(255, 255, 255, 0.2)",
+            padding: "24px 12px", fontFamily: BODY,
+            transition: "color 150ms ease, transform 150ms ease",
+            zIndex: 2,
+          }}
+        >
+          {"\u25C0"}
+        </button>
+        <button
+          onClick={handleNext}
+          onMouseEnter={(e) => { e.currentTarget.style.color = "#ff4466"; e.currentTarget.style.transform = "translateY(-50%) scale(1.2)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "rgba(255, 255, 255, 0.2)"; e.currentTarget.style.transform = "translateY(-50%)"; }}
+          style={{
+            position: "absolute", right: 16, top: "45%",
+            transform: "translateY(-50%)",
+            background: "none", border: "none", cursor: "pointer",
+            fontSize: 24, color: "rgba(255, 255, 255, 0.2)",
+            padding: "24px 12px", fontFamily: BODY,
+            transition: "color 150ms ease, transform 150ms ease",
+            zIndex: 2,
+          }}
+        >
+          {"\u25B6"}
+        </button>
       </div>
     </div>
   );

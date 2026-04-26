@@ -80,6 +80,7 @@ export interface HUDData {
 
   // Menu state
   mainMenuVisible: boolean;
+  assetsReady: boolean;
   menuVisible: boolean;
   menuCharIndex: number;
 
@@ -220,6 +221,7 @@ const DEFAULT_STATE: HUDData = {
   shopMessage: "",
   shopMessageColor: "",
   mainMenuVisible: false,
+  assetsReady: false,
   menuVisible: false,
   menuCharIndex: 0,
   hudVisible: false,
