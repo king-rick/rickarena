@@ -62,7 +62,7 @@ export function MasonAnnouncement() {
         textTransform: "uppercase",
         textShadow: "0 0 18px rgba(124,58,237,0.9), 0 0 40px rgba(124,58,237,0.4)",
       }}>
-        B I G B O S S B A B Y
+        B I G B A B Y
       </div>
 
       {/* Quote */}

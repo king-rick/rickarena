@@ -17,19 +17,16 @@ export class BootScene extends Phaser.Scene {
         document.fonts.load("16px HorrorPixel"),
         document.fonts.load("16px ChainsawCarnage"),
         document.fonts.load("16px Special Elite"),
-        document.fonts.load("bold 16px ChakraPetch"),
       ]);
     } catch {
       // Fonts may already be loaded via CSS, continue regardless
     }
 
-    // Set linear filtering on the loading background so it looks smooth and high-res
-    const tex = this.textures.get("loading-bg");
-    if (tex && tex.source && tex.source[0]) {
-      tex.setFilter(Phaser.Textures.FilterMode.LINEAR);
-    }
+    // Show the React intro screen immediately while assets load in PreloadScene
+    const { hudState } = await import("../HUDState");
+    hudState.update({ mainMenuVisible: true });
 
-    // Transition to the PreloadScene which shows the background while loading other assets
+    // Transition to the PreloadScene which loads assets in the background
     this.scene.start("Preload");
   }
 }

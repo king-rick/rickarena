@@ -31,6 +31,7 @@ export class GameScene extends Phaser.Scene {
 
   // Combat state
   private lastDamageTime = 0;
+  private lastScaryboiTauntTime = 0; // cooldown for SCARYBOI battle taunts
   private currency = 0;
   private kills = 0;
   private gameOver = false;
@@ -54,6 +55,7 @@ export class GameScene extends Phaser.Scene {
   private masonLetterboxBars: Phaser.GameObjects.Rectangle[] | null = null;
   private masonBannerReady = false;
   private masonDismissing = false;
+  private masonClubEffects: Phaser.GameObjects.GameObject[] = [];
   private damageBoostActive = false;
   private baseDamage = 0;
 
@@ -1061,6 +1063,7 @@ export class GameScene extends Phaser.Scene {
           this.devMode = !this.devMode;
           if (this.devMode) {
             this.currency = 99999;
+            this.hasAxe = true;
             this.showWeaponMessage("DEV MODE ON", "#ff4444");
           } else {
             this.player.invincible = false;
@@ -1278,7 +1281,6 @@ export class GameScene extends Phaser.Scene {
       const wcb = BALANCE.economy.waveCompletionBonus;
       const waveBonus = this.waveManager.wave >= wcb.lateWave ? wcb.lateBonus : wcb.earlyBonus;
       this.currency += waveBonus;
-      this.showWeaponMessage(`+$${waveBonus} WAVE CLEAR`, "#44dd44");
 
       // Interest on banked cash
       const interest = Math.min(
@@ -1300,10 +1302,13 @@ export class GameScene extends Phaser.Scene {
 
     this.waveManager.onBossFlee = () => {
       // Complete library objective when south building SCARYBOI encounter ends
-      if (this.waveManager.getActiveEncounter() === "southBuilding") {
+      const enc = this.waveManager.getActiveEncounter();
+      if (enc === "southBuilding") {
         this.completeObjective("explore_library");
+        this.time.delayedCall(600, () => this.playSound("sfx-scaryboi-flee-south", 0.5));
+      } else {
+        this.time.delayedCall(600, () => this.playSound("sfx-scaryboi-flee-gate1", 0.5));
       }
-      this.showWeaponMessage("SCARYBOI RETREATS...", "#ff4444");
       this.playSound("sfx-church-bell", 0.3);
     };
 
@@ -1330,6 +1335,7 @@ export class GameScene extends Phaser.Scene {
       }
       this.showWeaponMessage("SCARYBOI DEFEATED!", "#44dd44");
       this.completeObjective("defeat_scaryboi");
+      this.time.delayedCall(400, () => this.playSound("sfx-scaryboi-death", 0.5));
     };
 
     hudState.registerScaryboiIntroAction(() => {
@@ -1466,6 +1472,7 @@ export class GameScene extends Phaser.Scene {
       this.triggerMasonCutscene2();
     }
 
+
     // SCARYBOI location-based encounter triggers
     if (!this.waveManager.isScaryboiDefeated() && !this.waveManager.isBossActive()) {
       const ptx = Math.floor(this.player.x / 32);
@@ -1577,6 +1584,36 @@ export class GameScene extends Phaser.Scene {
     } catch {
       // AudioContext closed — safe to ignore
     }
+  }
+
+  /** Play a SCARYBOI taunt after he deals damage. Character-specific for Muff, generic otherwise.
+   *  Maniacal laugh plays very rarely. Cooldown prevents spam. */
+  private maybePlayScaryboiTaunt(forcePlay = false) {
+    const now = this.time.now;
+    const cooldown = forcePlay ? 0 : 12000; // 12s between taunts normally, 0 on kill
+    if (now - this.lastScaryboiTauntTime < cooldown) return;
+
+    // 20% chance on damage, 100% on kill (forcePlay)
+    if (!forcePlay && Math.random() > 0.2) return;
+
+    this.lastScaryboiTauntTime = now;
+
+    // Very rare maniacal laugh (5% chance, separate from taunts)
+    if (Math.random() < 0.05) {
+      this.time.delayedCall(300, () => this.playSound("sfx-scaryboi-laugh", 0.45));
+      return;
+    }
+
+    // Character-specific taunts for Muff (Jason)
+    if (this.characterDef.id === "jason") {
+      const jasonTaunts = ["sfx-scaryboi-taunt-jason1", "sfx-scaryboi-taunt-jason2", "sfx-scaryboi-taunt-jason3"];
+      const pick = jasonTaunts[Math.floor(Math.random() * jasonTaunts.length)];
+      this.time.delayedCall(300, () => this.playSound(pick, 0.45));
+      return;
+    }
+
+    // Generic taunt for other characters
+    this.time.delayedCall(300, () => this.playSound("sfx-scaryboi-taunt-generic1", 0.45));
   }
 
   private playRandomPunch() {
@@ -2119,8 +2156,9 @@ export class GameScene extends Phaser.Scene {
         estateDoor.opened = true;
         this.reachableDirty = true;
       }
-      this.showWeaponMessage("BIGBOSSBABY DEFEATED!", "#44dd44");
+      this.showWeaponMessage("BIGBABY DEFEATED!", "#44dd44");
       this.completeObjective("defeat_bigbaby");
+      this.cleanupClubAtmosphere();
     }
 
     // Blood splat on melee/ability/trap kills (ranged kills handled in handleProjectileHit)
@@ -3387,10 +3425,19 @@ export class GameScene extends Phaser.Scene {
       this.cameras.main.shake(100, 0.005);
       this.playPlayerHurt();
 
+      // SCARYBOI taunt after dealing damage
+      if (enemy.enemyType === "boss") {
+        this.maybePlayScaryboiTaunt(false);
+      }
+
       if (this.player.stats.health <= 0) {
         this.player.stats.health = 0;
         this.gameOver = true; // Stop all damage immediately
         this.player.body.setVelocity(0, 0);
+        // SCARYBOI taunt on kill (guaranteed)
+        if (enemy.enemyType === "boss") {
+          this.maybePlayScaryboiTaunt(true);
+        }
         this.player.playDeath(() => this.triggerGameOver());
       } else {
         this.player.playHurt();
@@ -4226,9 +4273,9 @@ export class GameScene extends Phaser.Scene {
 
       // Plank text
       const txt = this.add.text(0, p.y, p.text, {
-        fontFamily: "ChakraPetch, sans-serif",
+        fontFamily: "'Special Elite', serif",
         fontStyle: "bold",
-        fontSize: "8px",
+        fontSize: "7px",
         color: "#3b2510",
         align: "center",
         resolution: 4,
@@ -4238,8 +4285,8 @@ export class GameScene extends Phaser.Scene {
 
     // "Press SPACE to close" hint
     const hint = this.add.text(0, boardH / 2 + 35, "[ SPACE ]", {
-      fontFamily: "ChakraPetch, sans-serif",
-      fontSize: "6px",
+      fontFamily: "'Special Elite', serif",
+      fontSize: "5px",
       color: "#aaaaaa",
       align: "center",
       resolution: 4,
@@ -4333,19 +4380,22 @@ export class GameScene extends Phaser.Scene {
 
     // Text
     const msg = this.add.text(0, 20, "You picked up an axe!\nMaybe you can hack down a fence with it..", {
-      fontFamily: "ChakraPetch, sans-serif",
-      fontSize: "8px",
-      color: "#f5e6c8",
+      fontFamily: "'Special Elite', serif",
+      fontSize: "7px",
+      color: "#ffffff",
+      stroke: "rgba(180, 20, 20, 0.85)",
+      strokeThickness: 3,
       align: "center",
       resolution: 4,
       lineSpacing: 4,
+      shadow: { offsetX: 0, offsetY: 1, color: "rgba(0,0,0,0.9)", blur: 2, fill: true, stroke: false },
     }).setOrigin(0.5);
     container.add(msg);
 
     // Dismiss hint
     const hint = this.add.text(0, 48, "[ SPACE ]", {
-      fontFamily: "ChakraPetch, sans-serif",
-      fontSize: "6px",
+      fontFamily: "'Special Elite', serif",
+      fontSize: "5px",
       color: "#aaaaaa",
       align: "center",
       resolution: 4,
@@ -4540,6 +4590,7 @@ export class GameScene extends Phaser.Scene {
     this.startingDoorOpened = true;
     this.reachableDirty = true; // recompute spawn reachability
     this.completeObjective("exit_room");
+    this.playSound("sfx-door-open", 0.5);
 
     // Remove the door collision body so player can walk through
     if (this.startingDoorBody) {
@@ -4551,6 +4602,8 @@ export class GameScene extends Phaser.Scene {
     // Clear door tiles visually
     this.wallsBaseLayer?.removeTileAt(50, 49);
     this.wallsBaseLayer?.removeTileAt(50, 50);
+    this.pathfinder.setWalkable(50, 49, true);
+    this.pathfinder.setWalkable(50, 50, true);
 
     // Destroy prompt
     if (this.startingDoorPrompt) {
@@ -4576,6 +4629,8 @@ export class GameScene extends Phaser.Scene {
           // Restore door tiles visually
           this.wallsBaseLayer?.putTileAt(2888, 50, 49);
           this.wallsBaseLayer?.putTileAt(2896, 50, 50);
+          this.pathfinder.setWalkable(50, 49, false);
+          this.pathfinder.setWalkable(50, 50, false);
         }
       },
     });
@@ -4587,32 +4642,27 @@ export class GameScene extends Phaser.Scene {
 
   private createPromptText(x: number, y: number, label: string, canAfford = true): Phaser.GameObjects.Text {
     const txt = this.add.text(x, y, label, {
-      fontFamily: "ChakraPetch, sans-serif",
+      fontFamily: "'Special Elite', serif",
       fontStyle: "bold",
-      fontSize: "5px",
-      stroke: "#000000",
-      strokeThickness: 1,
+      fontSize: "28px",
+      color: "#ffffff",
+      stroke: "rgba(180, 20, 20, 0.85)",
+      strokeThickness: 4,
       align: "center",
-      resolution: 4,
-      shadow: { offsetX: 0, offsetY: 0, color: "#00ccff", blur: 3, fill: true, stroke: false },
-    }).setOrigin(0.5).setDepth(100);
+      shadow: { offsetX: 0, offsetY: 1, color: "rgba(0,0,0,0.9)", blur: 3, fill: true, stroke: false },
+    }).setOrigin(0.5).setDepth(100).setScale(0.25);
     this.applyPromptGradient(txt, canAfford);
     return txt;
   }
 
   private applyPromptGradient(txt: Phaser.GameObjects.Text, canAfford: boolean) {
-    const g = txt.context.createLinearGradient(0, 0, txt.width, 0);
     if (canAfford) {
-      g.addColorStop(0, "#ffffff");
-      g.addColorStop(0.4, "#66eeff");
-      g.addColorStop(0.6, "#66eeff");
-      g.addColorStop(1, "#ffffff");
+      txt.setColor("#ffffff");
+      txt.setStroke("rgba(180, 20, 20, 0.85)", 4);
     } else {
-      g.addColorStop(0, "#ff4444");
-      g.addColorStop(0.5, "#cc0000");
-      g.addColorStop(1, "#ff4444");
+      txt.setColor("#ff6666");
+      txt.setStroke("rgba(120, 10, 10, 0.9)", 4);
     }
-    txt.setFill(g);
   }
 
   // ─── Doors (purchasable barriers) ───
@@ -4644,6 +4694,7 @@ export class GameScene extends Phaser.Scene {
       (estateDoor.zone.body as Phaser.Physics.Arcade.StaticBody).enable = true;
       for (const t of estateDoor.savedTiles) {
         this.getDoorLayer(t.layer)?.putTileAt(t.gid, t.col, t.row);
+        this.pathfinder.setWalkable(t.col, t.row, false);
       }
       estateDoor.opened = false;
       this.reachableDirty = true;
@@ -4679,6 +4730,229 @@ export class GameScene extends Phaser.Scene {
       zombie.startDancing(directions[i % directions.length]);
       this.masonRaveZombies.push(zombie);
     }
+
+    // Set up nightclub visuals
+    this.setupClubAtmosphere();
+  }
+
+  /** Nightclub lighting: dark overlay, wall fixtures, sweeping PointLights, DJ glow, fog */
+  private setupClubAtmosphere() {
+    // Ballroom is L-shaped (tile coords):
+    //   Upper: cols 38-55, rows 2-10
+    //   Lower: cols 39-55, rows 10-16
+    const sweepDist = 144; // ~4.5 tiles of sweep range
+
+    // A. Dark overlay — two rectangles to cover the L-shaped room
+    // Upper section: tiles (38,2)-(55,10)
+    const upperX = 38 * 32;
+    const upperY = 2 * 32;
+    const upperW = (56 - 38) * 32;
+    const upperH = (10 - 2) * 32;
+    const darkUpper = this.add.rectangle(
+      upperX + upperW / 2, upperY + upperH / 2, upperW, upperH, 0x050010
+    ).setAlpha(0.6).setDepth(52).setOrigin(0.5);
+    this.masonClubEffects.push(darkUpper);
+
+    // Lower section: tiles (39,10)-(55,16)
+    const lowerX = 39 * 32;
+    const lowerY = 10 * 32;
+    const lowerW = (56 - 39) * 32;
+    const lowerH = (16 - 10) * 32;
+    const darkLower = this.add.rectangle(
+      lowerX + lowerW / 2, lowerY + lowerH / 2, lowerW, lowerH, 0x050010
+    ).setAlpha(0.6).setDepth(52).setOrigin(0.5);
+    this.masonClubEffects.push(darkLower);
+
+    // B. 4 spotlights on the north wall (row 2), sweeping down into the room
+    const fixtures: {
+      fixtureX: number; fixtureY: number; texture: string;
+      sweepStartX: number; sweepStartY: number; sweepEndX: number; sweepEndY: number;
+      color: number; radius: number; duration: number; delay: number;
+    }[] = [
+      // Tile (40, 2) — purple
+      {
+        fixtureX: 40 * 32 + 16, fixtureY: 2 * 32 + 16, texture: "prop-spotlight-purple",
+        sweepStartX: 40 * 32, sweepStartY: 4 * 32,
+        sweepEndX: 40 * 32 + sweepDist, sweepEndY: 10 * 32,
+        color: 0x9b30ff, radius: 50, duration: 2800, delay: 0,
+      },
+      // Tile (45, 2) — cyan
+      {
+        fixtureX: 45 * 32 + 16, fixtureY: 2 * 32 + 16, texture: "prop-spotlight-cyan",
+        sweepStartX: 45 * 32 + sweepDist * 0.3, sweepStartY: 4 * 32,
+        sweepEndX: 45 * 32 - sweepDist * 0.5, sweepEndY: 12 * 32,
+        color: 0x00bfff, radius: 50, duration: 3200, delay: 600,
+      },
+      // Tile (49, 2) — red
+      {
+        fixtureX: 49 * 32 + 16, fixtureY: 2 * 32 + 16, texture: "prop-spotlight-red",
+        sweepStartX: 49 * 32 - sweepDist * 0.3, sweepStartY: 5 * 32,
+        sweepEndX: 49 * 32 + sweepDist * 0.6, sweepEndY: 11 * 32,
+        color: 0xff2200, radius: 50, duration: 3000, delay: 300,
+      },
+      // Tile (55, 2) — purple
+      {
+        fixtureX: 55 * 32 + 16, fixtureY: 2 * 32 + 16, texture: "prop-spotlight-purple",
+        sweepStartX: 55 * 32, sweepStartY: 4 * 32,
+        sweepEndX: 55 * 32 - sweepDist, sweepEndY: 10 * 32,
+        color: 0x8b00ff, radius: 50, duration: 2600, delay: 900,
+      },
+    ];
+
+    for (const f of fixtures) {
+      // Static wall fixture sprite
+      const sprite = this.add.image(f.fixtureX, f.fixtureY, f.texture);
+      sprite.setDepth(8);
+      this.masonClubEffects.push(sprite);
+
+      // Sweeping PointLight on the floor — soft and transparent
+      const pl = this.add.pointlight(f.sweepStartX, f.sweepStartY, f.color, f.radius, 0.12);
+      pl.setDepth(53);
+
+      // Sweep position (yoyo back and forth)
+      this.tweens.add({
+        targets: pl,
+        x: f.sweepEndX,
+        y: f.sweepEndY,
+        duration: f.duration,
+        yoyo: true,
+        repeat: -1,
+        ease: "Sine.easeInOut",
+        delay: f.delay,
+      });
+      // Gentle intensity pulse on top of the sweep
+      this.tweens.add({
+        targets: pl,
+        intensity: { from: 0.08, to: 0.18 },
+        radius: { from: f.radius * 0.9, to: f.radius * 1.1 },
+        duration: 1000 + Math.random() * 600,
+        yoyo: true,
+        repeat: -1,
+        ease: "Sine.easeInOut",
+        delay: f.delay + 200,
+      });
+      this.masonClubEffects.push(pl);
+    }
+
+    // D. Light beams — triangular cones projected from each spotlight, sweeping the dancefloor
+    const beams: { x: number; y: number; color: number; angleFrom: number; angleTo: number; duration: number }[] = [
+      { x: 40 * 32 + 16, y: 2 * 32 + 16, color: 0x9b30ff, angleFrom: -20, angleTo: 35, duration: 3500 },
+      { x: 45 * 32 + 16, y: 2 * 32 + 16, color: 0x00bfff, angleFrom: 25, angleTo: -30, duration: 4200 },
+      { x: 49 * 32 + 16, y: 2 * 32 + 16, color: 0xff2200, angleFrom: -10, angleTo: 40, duration: 3800 },
+      { x: 55 * 32 + 16, y: 2 * 32 + 16, color: 0x8b00ff, angleFrom: 30, angleTo: -20, duration: 3000 },
+    ];
+
+    for (const beam of beams) {
+      const g = this.add.graphics();
+      g.setPosition(beam.x, beam.y);
+      g.setDepth(53);
+      g.setBlendMode(Phaser.BlendModes.ADD);
+
+      // Outer soft cone — wide, very faint
+      g.fillStyle(beam.color, 0.025);
+      g.fillTriangle(0, 0, -100, 380, 100, 380);
+
+      // Inner brighter cone — narrower, slightly more visible
+      g.fillStyle(beam.color, 0.05);
+      g.fillTriangle(0, 0, -45, 380, 45, 380);
+
+      // Core hot spot — tight center line
+      g.fillStyle(beam.color, 0.04);
+      g.fillTriangle(0, 0, -15, 380, 15, 380);
+
+      g.setAngle(beam.angleFrom);
+
+      // Sweep the beam back and forth
+      this.tweens.add({
+        targets: g,
+        angle: beam.angleTo,
+        duration: beam.duration,
+        yoyo: true,
+        repeat: -1,
+        ease: "Sine.easeInOut",
+      });
+
+      this.masonClubEffects.push(g);
+    }
+
+    // C. DJ table glow — warm purple centered on the booth
+    const djX = 48 * 32 + 16;
+    const djY = 6 * 32 + 16;
+    const djGlow = this.add.pointlight(djX, djY, 0x7c3aed, 100, 0.25);
+    djGlow.setDepth(53);
+    this.tweens.add({
+      targets: djGlow,
+      intensity: { from: 0.18, to: 0.35 },
+      duration: 2000,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+    });
+    this.masonClubEffects.push(djGlow);
+
+    // F. Fog/haze particles — subtle atmospheric smoke, contained to ballroom
+    if (!this.textures.exists("club-fog-particle")) {
+      const gfx = this.make.graphics({ x: 0, y: 0 });
+      gfx.fillStyle(0xffffff, 1);
+      gfx.fillCircle(16, 16, 16);
+      gfx.generateTexture("club-fog-particle", 32, 32);
+      gfx.destroy();
+    }
+    // Fog centered on the upper section (main dancefloor)
+    const fogCenterX = (38 + 56) / 2 * 32;
+    const fogCenterY = (2 + 12) / 2 * 32;
+    const fogEmitter = this.add.particles(fogCenterX, fogCenterY, "club-fog-particle", {
+      x: { min: -280, max: 280 },
+      y: { min: -160, max: 160 },
+      scale: { start: 1.5, end: 3.0 },
+      alpha: { start: 0.03, end: 0 },
+      tint: [0x9b30ff, 0xff1493, 0x4400ff, 0x8800aa],
+      lifespan: { min: 3000, max: 6000 },
+      speed: { min: 2, max: 8 },
+      frequency: 350,
+      quantity: 1,
+      blendMode: Phaser.BlendModes.ADD,
+    });
+    fogEmitter.setDepth(54);
+    this.masonClubEffects.push(fogEmitter);
+
+    // Occlusion mask — clip all club effects to the L-shaped room so they
+    // don't bleed through walls into the SCARYBOI side of the estate
+    const maskGfx = this.make.graphics({});
+    maskGfx.fillStyle(0xffffff);
+    // Upper section: cols 38-56, rows 2-10
+    maskGfx.fillRect(38 * 32, 2 * 32, (56 - 38) * 32, (10 - 2) * 32);
+    // Lower section: cols 39-56, rows 10-16
+    maskGfx.fillRect(39 * 32, 10 * 32, (56 - 39) * 32, (16 - 10) * 32);
+    const clubMask = maskGfx.createGeometryMask();
+
+    for (const obj of this.masonClubEffects) {
+      if (obj && typeof (obj as any).setMask === "function") {
+        (obj as any).setMask(clubMask);
+      }
+    }
+    this.masonClubEffects.push(maskGfx);
+
+  }
+
+  /** Remove all club atmosphere effects (on Mason death) */
+  private cleanupClubAtmosphere() {
+    for (const obj of this.masonClubEffects) {
+      if (obj instanceof Phaser.GameObjects.Particles.ParticleEmitter) {
+        obj.stop();
+        this.time.delayedCall(3000, () => { if (obj.active) obj.destroy(); });
+      } else {
+        // Fade out then destroy
+        this.tweens.add({
+          targets: obj,
+          alpha: 0,
+          duration: 2000,
+          ease: "Sine.easeOut",
+          onComplete: () => { if (obj.active) obj.destroy(); },
+        });
+      }
+    }
+    this.masonClubEffects = [];
   }
 
   /** Phase 1: Camera pan to Mason, show first dialogue card */
@@ -4845,7 +5119,6 @@ export class GameScene extends Phaser.Scene {
         // Activate combat AI
         mason.fleeing = false;
         mason.body.setImmovable(false);
-        this.showWeaponMessage("BIGBOSSBABY WANTS TO FIGHT!", "#7c3aed");
       },
     });
   }
@@ -4869,7 +5142,7 @@ export class GameScene extends Phaser.Scene {
     southBuilding: {
       quotes: [
         { text: "The righteous BigBaby will bless us all with his tasty beats tonight...", startMs: 400, durationMs: 6500 },
-        { text: "You will not reach him. You are not worthy.", startMs: 7300, durationMs: 2700 },
+        { text: "Unfortunately, you will not live to hear them..", startMs: 7300, durationMs: 2700 },
       ],
       voSrc: "/assets/audio/voice/scaryboi-vo-south.mp3",
     },
@@ -4905,6 +5178,7 @@ export class GameScene extends Phaser.Scene {
         (estateDoor.zone.body as Phaser.Physics.Arcade.StaticBody).enable = true;
         for (const t of estateDoor.savedTiles) {
           this.getDoorLayer(t.layer)?.putTileAt(t.gid, t.col, t.row);
+          this.pathfinder.setWalkable(t.col, t.row, false);
         }
         estateDoor.opened = false;
         this.reachableDirty = true;
@@ -5183,9 +5457,11 @@ export class GameScene extends Phaser.Scene {
         // Remove door tiles from whichever layers they're on
         for (const t of door.savedTiles) {
           this.getDoorLayer(t.layer)?.removeTileAt(t.col, t.row);
+          this.pathfinder.setWalkable(t.col, t.row, true);
         }
         this.showWeaponMessage(`${door.label} OPENED`, "#44dd44");
-        this.playSound("sfx-purchase", 0.5);
+        this.playSound("sfx-door-open", 0.5);
+        this.playSound("sfx-purchase", 0.4);
         // Notify WaveManager when Gate opens (triggers zone2 SCARYBOI encounter)
         if (door.label === "Gate") {
           this.waveManager.notifyGateOpened();
@@ -5255,6 +5531,7 @@ export class GameScene extends Phaser.Scene {
     // Remove door tiles
     for (const t of door.savedTiles) {
       this.getDoorLayer(t.layer)?.removeTileAt(t.col, t.row);
+      this.pathfinder.setWalkable(t.col, t.row, true);
     }
 
     // Hide any prompt

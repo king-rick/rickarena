@@ -15,19 +15,10 @@ export class PreloadScene extends Phaser.Scene {
     const width = this.cameras.main.width;
     const height = this.cameras.main.height;
 
-    // Add the loading background image
-    this.add.image(width / 2, height / 2, "loading-bg").setDisplaySize(width, height);
-
-    // Add the Loading text at the bottom
-    this.add
-      .text(width / 2, height - 50, "LOADING...", {
-        fontSize: "32px",
-        fontFamily: "HorrorPixel, monospace",
-        color: "#ffffff",
-        fontStyle: "bold",
-        align: "center",
-      })
-      .setOrigin(0.5);
+    // Black background during asset loading
+    const bg = this.add.graphics();
+    bg.fillStyle(0x000000, 1);
+    bg.fillRect(0, 0, width, height);
 
     // --- Original BootScene Preload Logic Below ---
 
@@ -108,6 +99,11 @@ export class PreloadScene extends Phaser.Scene {
     // DJ gear props (spawned as sprites, not tiles — mixed tile heights break Phaser rendering)
     this.load.image("prop-dj-table", "/assets/sprites/props/dj-table.png");
     this.load.image("prop-pa-speaker", "/assets/sprites/props/pa-speaker.png");
+    // Club light fixtures (spawned during Mason rave)
+    this.load.image("prop-spotlight-purple", "/assets/sprites/props/spotlight-purple.png");
+    this.load.image("prop-spotlight-cyan", "/assets/sprites/props/spotlight-cyan.png");
+    this.load.image("prop-spotlight-red", "/assets/sprites/props/spotlight-red.png");
+    this.load.image("prop-disco-ball", "/assets/sprites/props/disco-ball.png");
     // Tree spritesheets (64x64 per frame, used as individual sprites for overlap)
     this.load.spritesheet("trees-64", "/assets/tilesets/bloompixel/bp-trees-64.png", { frameWidth: 64, frameHeight: 64 });
     this.load.spritesheet("dark-trees-64", "/assets/tilesets/bloompixel/bp-dark-trees-64.png", { frameWidth: 64, frameHeight: 64 });
@@ -322,6 +318,17 @@ export class PreloadScene extends Phaser.Scene {
     this.load.audio("sfx-scaryboi-vo-zone2", "/assets/audio/voice/scaryboi-vo-zone2.mp3");
     this.load.audio("sfx-scaryboi-vo-south", "/assets/audio/voice/scaryboi-vo-south.mp3");
     this.load.audio("sfx-scaryboi-vo-estate", "/assets/audio/voice/scaryboi-vo-estate.mp3");
+    // SCARYBOI flee / death / taunt VO
+    this.load.audio("sfx-scaryboi-flee-gate1", "/assets/audio/voice/scaryboi/flee-gate1.mp3");
+    this.load.audio("sfx-scaryboi-flee-south", "/assets/audio/voice/scaryboi/flee-southbuilding.mp3");
+    this.load.audio("sfx-scaryboi-death", "/assets/audio/voice/scaryboi/final-death.mp3");
+    this.load.audio("sfx-scaryboi-laugh", "/assets/audio/voice/scaryboi/maniacal-laugh.mp3");
+    this.load.audio("sfx-scaryboi-taunt-generic1", "/assets/audio/voice/scaryboi/generic-taunt1.mp3");
+    this.load.audio("sfx-scaryboi-taunt-jason1", "/assets/audio/voice/scaryboi/jason-taunt1.mp3");
+    this.load.audio("sfx-scaryboi-taunt-jason2", "/assets/audio/voice/scaryboi/jason-taunt2.mp3");
+    this.load.audio("sfx-scaryboi-taunt-jason3", "/assets/audio/voice/scaryboi/jason-taunt3.mp3");
+    // Door open
+    this.load.audio("sfx-door-open", "/assets/audio/ui/doorOpen_1.ogg");
   }
 
   async create() {
