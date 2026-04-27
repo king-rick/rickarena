@@ -82,6 +82,10 @@ export class Projectile extends Phaser.Physics.Arcade.Image {
       this.y
     );
     if (dist >= this.maxRange) {
+      // Bullet whiz on ~15% of missed shots
+      if (Math.random() < 0.15) {
+        (this.scene as any).playSound?.("sfx-bullet-whiz", 0.15);
+      }
       this.destroy();
       return;
     }

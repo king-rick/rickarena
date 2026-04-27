@@ -329,6 +329,36 @@ export class PreloadScene extends Phaser.Scene {
     this.load.audio("sfx-scaryboi-taunt-jason3", "/assets/audio/voice/scaryboi/jason-taunt3.mp3");
     // Door open
     this.load.audio("sfx-door-open", "/assets/audio/ui/doorOpen_1.ogg");
+    // Player feedback
+    this.load.audio("sfx-heartbeat", "/assets/audio/player/heartbeat-low-hp.mp3");
+    this.load.audio("sfx-burnout-dan", "/assets/audio/player/burnout-dan.mp3");
+    // UI feedback
+    this.load.audio("sfx-level-up", "/assets/audio/ui/level-up.mp3");
+    this.load.audio("sfx-buff-confirm", "/assets/audio/ui/buff-confirm.ogg");
+    this.load.audio("sfx-countdown-tick", "/assets/audio/ui/countdown-tick.ogg");
+    this.load.audio("sfx-weapon-switch", "/assets/audio/ui/weapon-switch.ogg");
+    this.load.audio("sfx-chest-open1", "/assets/audio/ui/chest-open-1.ogg");
+    this.load.audio("sfx-chest-open2", "/assets/audio/ui/chest-open-2.ogg");
+    this.load.audio("sfx-chest-open3", "/assets/audio/ui/chest-open-3.ogg");
+    // Weapon feedback
+    this.load.audio("sfx-bullet-impact", "/assets/audio/weapons/bullet-impact-body.mp3");
+    this.load.audio("sfx-bullet-whiz", "/assets/audio/weapons/bullet-whiz.mp3");
+    this.load.audio("sfx-reload-complete", "/assets/audio/weapons/reload-complete.ogg");
+    // Boss attacks
+    this.load.audio("sfx-boss-punch", "/assets/audio/boss/heavy-punch-body.mp3");
+    this.load.audio("sfx-bass-drop", "/assets/audio/boss/bass-drop-soundwave.mp3");
+    this.load.audio("sfx-jump-slam", "/assets/audio/boss/jump-slam-impact.mp3");
+    this.load.audio("sfx-fire-whoosh", "/assets/audio/boss/fire-breath-whoosh.mp3");
+    this.load.audio("sfx-fire-loop", "/assets/audio/boss/fire-breath-loop.mp3");
+    this.load.audio("sfx-fire-crackle", "/assets/audio/boss/fire-crackle.mp3");
+    this.load.audio("sfx-phase2-transition", "/assets/audio/boss/phase2-transition.mp3");
+    // Environment
+    this.load.audio("sfx-gen-spark", "/assets/audio/ambient/generator-spark.mp3");
+    this.load.audio("sfx-gen-buzz", "/assets/audio/ambient/generator-buzz.mp3");
+    this.load.audio("sfx-gen-switch", "/assets/audio/ambient/generator-switch.mp3");
+    this.load.audio("sfx-gen-hum", "/assets/audio/ambient/generator-hum.mp3");
+    this.load.audio("sfx-door-bash", "/assets/audio/enemies/door-bash.mp3");
+    this.load.audio("sfx-fence-break", "/assets/audio/ambient/fence-break.ogg");
   }
 
   async create() {

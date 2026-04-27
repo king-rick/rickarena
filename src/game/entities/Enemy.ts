@@ -1192,6 +1192,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   ) {
     const scene = this.scene;
     // SCARYBOI fireball — animated crackling electricity orb, rotate to match travel angle
+    (scene as any).playSound?.("sfx-fire-whoosh", 0.35);
     const hasAnimated = scene.anims.exists("scaryboi-fireball-anim");
     const fb = scene.add.sprite(this.x, this.y, hasAnimated ? "scaryboi-fireball-0" : "fireball-sheet")
       .setDepth(10)
@@ -1346,6 +1347,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.masonPhase2Triggered = true;
       this.masonBusy = true;
       this.body.setVelocity(0, 0);
+      (this.scene as any).playSound?.("sfx-phase2-transition", 0.6);
       this.currentDir = angleToDirection(angle) as Direction;
       const angryKey = getAnimKey(this.spriteId, "angry", this.currentDir);
       if (this.scene.anims.exists(angryKey)) {
@@ -1453,6 +1455,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.damage = dmg;
 
     this.body.setVelocity(0, 0);
+    (this.scene as any).playSound?.("sfx-boss-punch", 0.5);
     const key = getAnimKey(this.spriteId, animType, this.currentDir);
     if (this.scene.anims.exists(key)) {
       this.play(key);
@@ -1517,6 +1520,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.masonAttackCooldowns["fireBreath"] = stats.cooldown;
     this.body.setVelocity(0, 0);
     this.body.setImmovable(true); // Lock position during fire breath
+    (this.scene as any).playSound?.("sfx-fire-whoosh", 0.5);
 
     const breathDuration = 2000; // 2 seconds of fire
     const facingAngle = angle; // lock direction at start
@@ -1561,6 +1565,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         this.stop();
         this.setTexture(freezeKey);
       }
+      // Fire breath audio: crackling loop + fire loop
+      (this.scene as any).playSound?.("sfx-fire-loop", 0.35);
+      (this.scene as any).playSound?.("sfx-fire-crackle", 0.25);
 
       // Tracking state — fire sweeps to follow the player
       let currentAngle = facingAngle;
@@ -1832,6 +1839,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
       // Camera shake on impact
       this.scene.cameras.main.shake(80, 0.004);
+      (this.scene as any).playSound?.("sfx-jump-slam", 0.6);
 
       // AoE stun check (no damage — sets up follow-up jab)
       const pDist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
@@ -1884,6 +1892,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         if (!player) return;
         // Aim directly at the player's current position each pulse
         const aimAngle = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
+        (this.scene as any).playSound?.("sfx-bass-drop", 0.45);
         this.spawnBeatPulse(aimAngle, stats.damage, stats.range);
       });
     }

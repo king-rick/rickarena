@@ -56,6 +56,53 @@ export class GameScene extends Phaser.Scene {
   private masonBannerReady = false;
   private masonDismissing = false;
   private masonClubEffects: Phaser.GameObjects.GameObject[] = [];
+
+  // Room-based visibility — zones from Tiled "zones" layer (absolute pixel coords)
+  private static readonly ROOM_ZONES: { name: string; points: { x: number; y: number }[] }[] = [
+    { name: "Club", points: [
+      { x: 1216, y: 64 }, { x: 1792, y: 64 }, { x: 1792, y: 512 },
+      { x: 1255, y: 512 }, { x: 1255, y: 395 }, { x: 1256, y: 395 },
+      { x: 1256, y: 359 }, { x: 1255, y: 359 }, { x: 1255, y: 352 },
+      { x: 1216, y: 352 },
+    ]},
+    { name: "Scaryboi's Lair", points: [
+      { x: 928, y: 224 }, { x: 1216, y: 224 }, { x: 1216, y: 352 },
+      { x: 1255, y: 352 }, { x: 1255, y: 360 }, { x: 1251, y: 360 },
+      { x: 1251, y: 394 }, { x: 1255, y: 394 }, { x: 1255, y: 412 },
+      { x: 1255, y: 440 }, { x: 1248, y: 440 }, { x: 1216, y: 440 },
+      { x: 1216, y: 576 }, { x: 1255, y: 576 }, { x: 1255, y: 584 },
+      { x: 1252, y: 584 }, { x: 1252, y: 619 }, { x: 1248, y: 619 },
+      { x: 1248, y: 664 }, { x: 1215, y: 664 }, { x: 1216, y: 892 },
+      { x: 928, y: 892 },
+    ]},
+    { name: "foyer", points: [
+      { x: 929, y: 892 }, { x: 1216, y: 892 }, { x: 1215, y: 928 },
+      { x: 1241, y: 928 }, { x: 1241, y: 1280 }, { x: 929, y: 1285 },
+    ]},
+    { name: "North Building", points: [
+      { x: 64, y: 64 }, { x: 320, y: 64 }, { x: 320, y: 288 },
+      { x: 287, y: 288 }, { x: 287, y: 485 }, { x: 224, y: 485 },
+      { x: 224, y: 480 }, { x: 160, y: 480 }, { x: 160, y: 485 },
+      { x: 97, y: 485 }, { x: 96, y: 288 }, { x: 64, y: 288 },
+    ]},
+    { name: "Home", points: [
+      { x: 1536, y: 1568 }, { x: 1696, y: 1568 },
+      { x: 1696, y: 1733 }, { x: 1536, y: 1734 },
+    ]},
+    { name: "library", points: [
+      { x: 24, y: 1184 }, { x: 274, y: 1184 }, { x: 520, y: 1184 },
+      { x: 520, y: 1573 }, { x: 420, y: 1573 }, { x: 416, y: 1573 },
+      { x: 416, y: 1600 }, { x: 383, y: 1600 }, { x: 383, y: 1573 },
+      { x: 24, y: 1573 },
+    ]},
+    { name: "unnamed room", points: [
+      { x: 1248, y: 512 }, { x: 1792, y: 512 },
+      { x: 1792, y: 928 }, { x: 1248, y: 928 },
+    ]},
+  ];
+  private roomOccluder: Phaser.GameObjects.RenderTexture | null = null;
+  private currentZoneName: string | null = null;
+
   private damageBoostActive = false;
   private baseDamage = 0;
 
@@ -332,6 +379,8 @@ export class GameScene extends Phaser.Scene {
     this.skipWaveConfirm = false;
     this.hasAxe = false;
     this.axePickupActive = false;
+    this.currentZoneName = null;
+    if (this.roomOccluder) this.roomOccluder.setVisible(false);
     this.logSearched = false;
     this.inventoryOpen = false;
     this.chopableFences = [];
@@ -718,6 +767,11 @@ export class GameScene extends Phaser.Scene {
     this.minimapDot.setDepth(160);
     // Main camera shouldn't render the dot (it's only for minimap)
     this.cameras.main.ignore(this.minimapDot);
+
+    // Room visibility occluder — blacks out areas outside the player's current room
+    this.roomOccluder = this.add.renderTexture(0, 0, ENDICOTT_MAP_W, ENDICOTT_MAP_H);
+    this.roomOccluder.setOrigin(0, 0).setDepth(60).setVisible(false);
+    this.currentZoneName = null;
 
     // World bounds
     this.physics.world.setBounds(0, 0, ENDICOTT_MAP_W, ENDICOTT_MAP_H);
@@ -1174,6 +1228,7 @@ export class GameScene extends Phaser.Scene {
     this.minimap.ignore(this.barricadeGhost);
     this.minimap.ignore(this.grenadeAimLine);
     this.minimap.ignore(this.grenadeAimReticle);
+    if (this.roomOccluder) this.minimap.ignore(this.roomOccluder);
 
     // Health/stamina bars are rendered in React (HUDOverlay)
 
@@ -1396,6 +1451,9 @@ export class GameScene extends Phaser.Scene {
     // don't pile up and leave enemies with stale/empty paths after resume
     this.pathfinder.calculate();
 
+    // Room visibility: check which zone the player is in and update occluder
+    this.updateRoomVisibility();
+
     if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonCutsceneActive || this.signActive || this.axePickupActive || this.inventoryOpen) return;
 
     // Freeze gameplay while shop, level-up, or dev panel is open
@@ -1556,8 +1614,19 @@ export class GameScene extends Phaser.Scene {
     // Panting — play once on burnout start
     if (this.player.burnedOut && !this.wasBurnedOut) {
       this.playSound("sfx-player-panting", 0.3);
+      this.playSound("sfx-burnout-dan", 0.25);
     }
     this.wasBurnedOut = this.player.burnedOut;
+
+    // Heartbeat loop when low HP (≤25%)
+    const hpPct = this.player.stats.health / this.player.stats.maxHealth;
+    if (hpPct <= 0.25 && hpPct > 0 && !this.heartbeatPlaying) {
+      this.heartbeatPlaying = true;
+      this.sound.play("sfx-heartbeat", { loop: true, volume: 0.4 });
+    } else if ((hpPct > 0.25 || hpPct <= 0) && this.heartbeatPlaying) {
+      this.heartbeatPlaying = false;
+      this.sound.stopByKey("sfx-heartbeat");
+    }
 
     this.updateHUD();
   }
@@ -1566,6 +1635,7 @@ export class GameScene extends Phaser.Scene {
 
   private lastPunchSfx = 0;
   private wasBurnedOut = false;
+  private heartbeatPlaying = false;
   private lastDeathSfx = 0;
   private lastBiteSfx = 0;
   private lastFootstepTime = 0;
@@ -1979,6 +2049,7 @@ export class GameScene extends Phaser.Scene {
       this.player.stopReload();
     }
 
+    const prevSlot = this.activeSlot;
     this.activeSlot = index;
 
     // Set active weapon when selecting a gun slot
@@ -1986,6 +2057,7 @@ export class GameScene extends Phaser.Scene {
     if (weapon) {
       this.activeWeapon = weapon;
     }
+    if (index !== prevSlot) this.playSound("sfx-weapon-switch", 0.3);
     // Set trap index when selecting a trap slot
     if (index === this.barricadeSlot) this.selectedTrapIndex = 0;
     if (index === this.mineSlot) this.selectedTrapIndex = 1;
@@ -2204,7 +2276,7 @@ export class GameScene extends Phaser.Scene {
     const angle = this.getFacingAngle();
     const range = 100;
     const arc = Phaser.Math.DegToRad(60); // tight cone — boss killer, not crowd clearer
-    const damage = 400;
+    const damage = 450;
     const knockback = 200;
     const maxHits = 2; // focused single-target kick, hits 1-2 enemies max
     let hits = 0;
@@ -2331,7 +2403,7 @@ export class GameScene extends Phaser.Scene {
     const knockback = 50;
     const stunDuration = 2000;
     const chainRadius = 80; // ~2.5 tiles — tight chain range
-    const maxChainTargets = 12;
+    const maxChainTargets = 8; // primary + 8 chains = 9 max kills
 
     this.cameras.main.shake(100, 0.004);
 
@@ -2764,7 +2836,9 @@ export class GameScene extends Phaser.Scene {
       // Strong screen shake — ground slam on impact
       this.cameras.main.shake(180, 0.008);
 
+      const maxKills = 9;
       this.enemies.getChildren().forEach((obj) => {
+        if (hits >= maxKills) return;
         const enemy = obj as Enemy;
         if (!enemy.active) return;
 
@@ -3034,6 +3108,7 @@ export class GameScene extends Phaser.Scene {
       wAmmo.reserve -= loaded;
       this.reloading = false;
       this.reloadTimer = null;
+      this.playSound("sfx-reload-complete", 0.4);
       this.showWeaponMessage("RELOADED", "#44dd44");
     });
   }
@@ -3279,6 +3354,10 @@ export class GameScene extends Phaser.Scene {
         const hitChance = enemy.enemyType === "fast" ? 0.2 : 0.3;
         if (!isBoss && Math.random() < hitChance) {
           this.spawnBloodSplat(enemy.x, enemy.y, "hit", enemy.enemyType);
+        }
+        // Bullet impact thud — 25% chance on non-kill hits
+        if (Math.random() < 0.25) {
+          this.playSound("sfx-bullet-impact", 0.2);
         }
       }
 
@@ -4147,7 +4226,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.showWeaponMessage("PISTOL ACQUIRED", "#44dd44");
-    this.playSound("sfx-purchase", 0.5);
+    const chestSfx = ["sfx-chest-open1", "sfx-chest-open2", "sfx-chest-open3"];
+    this.playSound(chestSfx[Math.floor(Math.random() * chestSfx.length)], 0.5);
     return true;
   }
 
@@ -4198,7 +4278,8 @@ export class GameScene extends Phaser.Scene {
       this.activeWeapon = "assault_rifle";
       this.activeSlot = this.weapons.indexOf("assault_rifle") + 1;
       this.showWeaponMessage("ASSAULT RIFLE ACQUIRED!", "#ffdd44");
-      this.playSound("sfx-purchase", 0.6);
+      const lootSfx = ["sfx-chest-open1", "sfx-chest-open2", "sfx-chest-open3"];
+      this.playSound(lootSfx[Math.floor(Math.random() * lootSfx.length)], 0.6);
       return true;
     }
     return false;
@@ -4539,6 +4620,7 @@ export class GameScene extends Phaser.Scene {
         this.reachableDirty = true;
 
         this.playSound("sfx-barricade-break", 0.5);
+        this.playSound("sfx-fence-break", 0.4);
         this.showWeaponMessage("FENCE CHOPPED", "#44dd44");
         this.completeObjective("chop_fence");
         return true;
@@ -4736,6 +4818,66 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** Nightclub lighting: dark overlay, wall fixtures, sweeping PointLights, DJ glow, fog */
+  // ─── Room Visibility System ───
+
+  private pointInPolygon(px: number, py: number, poly: { x: number; y: number }[]): boolean {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].x, yi = poly[i].y;
+      const xj = poly[j].x, yj = poly[j].y;
+      if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  }
+
+  private getPlayerZone(): string | null {
+    const px = this.player.x;
+    const py = this.player.y;
+    for (const zone of GameScene.ROOM_ZONES) {
+      if (this.pointInPolygon(px, py, zone.points)) return zone.name;
+    }
+    return null;
+  }
+
+  private updateRoomVisibility() {
+    if (!this.roomOccluder) return;
+    const newZone = this.getPlayerZone();
+    if (newZone === this.currentZoneName) return;
+
+    this.currentZoneName = newZone;
+    if (newZone === null) {
+      // Player is outdoors — no room occluder needed
+      this.roomOccluder.setVisible(false);
+      return;
+    }
+
+    // Redraw: fill with black, erase current zone polygon
+    const zone = GameScene.ROOM_ZONES.find(z => z.name === newZone)!;
+    this.roomOccluder.clear();
+
+    const black = this.add.graphics();
+    black.fillStyle(0x000000, 1);
+    black.fillRect(0, 0, this.roomOccluder.width, this.roomOccluder.height);
+    this.roomOccluder.draw(black);
+    black.destroy();
+
+    const cutout = this.add.graphics();
+    cutout.fillStyle(0xffffff, 1);
+    cutout.beginPath();
+    cutout.moveTo(zone.points[0].x, zone.points[0].y);
+    for (let i = 1; i < zone.points.length; i++) {
+      cutout.lineTo(zone.points[i].x, zone.points[i].y);
+    }
+    cutout.closePath();
+    cutout.fillPath();
+    this.roomOccluder.erase(cutout);
+    cutout.destroy();
+
+    this.roomOccluder.setVisible(true);
+  }
+
   private setupClubAtmosphere() {
     // Ballroom is L-shaped (tile coords):
     //   Upper: cols 38-55, rows 2-10
@@ -4743,21 +4885,21 @@ export class GameScene extends Phaser.Scene {
     const sweepDist = 144; // ~4.5 tiles of sweep range
 
     // A. Dark overlay — two rectangles to cover the L-shaped room
-    // Upper section: tiles (38,2)-(55,10)
+    // Upper section: tiles (38,2)-(55,11) — full width, left wall extends to row 11
     const upperX = 38 * 32;
     const upperY = 2 * 32;
     const upperW = (56 - 38) * 32;
-    const upperH = (10 - 2) * 32;
+    const upperH = (11 - 2) * 32;
     const darkUpper = this.add.rectangle(
       upperX + upperW / 2, upperY + upperH / 2, upperW, upperH, 0x050010
     ).setAlpha(0.6).setDepth(52).setOrigin(0.5);
     this.masonClubEffects.push(darkUpper);
 
-    // Lower section: tiles (39,10)-(55,16)
+    // Lower section: tiles (39,11)-(55,16) — narrower after left wall steps in
     const lowerX = 39 * 32;
-    const lowerY = 10 * 32;
+    const lowerY = 11 * 32;
     const lowerW = (56 - 39) * 32;
-    const lowerH = (16 - 10) * 32;
+    const lowerH = (16 - 11) * 32;
     const darkLower = this.add.rectangle(
       lowerX + lowerW / 2, lowerY + lowerH / 2, lowerW, lowerH, 0x050010
     ).setAlpha(0.6).setDepth(52).setOrigin(0.5);
@@ -4920,10 +5062,10 @@ export class GameScene extends Phaser.Scene {
     // don't bleed through walls into the SCARYBOI side of the estate
     const maskGfx = this.make.graphics({});
     maskGfx.fillStyle(0xffffff);
-    // Upper section: cols 38-56, rows 2-10
-    maskGfx.fillRect(38 * 32, 2 * 32, (56 - 38) * 32, (10 - 2) * 32);
-    // Lower section: cols 39-56, rows 10-16
-    maskGfx.fillRect(39 * 32, 10 * 32, (56 - 39) * 32, (16 - 10) * 32);
+    // Upper section: cols 38-56, rows 2-11
+    maskGfx.fillRect(38 * 32, 2 * 32, (56 - 38) * 32, (11 - 2) * 32);
+    // Lower section: cols 39-56, rows 11-16
+    maskGfx.fillRect(39 * 32, 11 * 32, (56 - 39) * 32, (16 - 11) * 32);
     const clubMask = maskGfx.createGeometryMask();
 
     for (const obj of this.masonClubEffects) {
@@ -5492,6 +5634,7 @@ export class GameScene extends Phaser.Scene {
     const enemyObj = enemy as any;
     const bashDamage = enemyObj.enemyType === "boss" ? 25 : enemyObj.enemyType === "fast" ? 5 : 10;
     door.health -= bashDamage;
+    this.playSound("sfx-door-bash", 0.4);
 
     // Visual feedback — flash the prompt with damage
     if (door.health > 0) {
@@ -5544,7 +5687,8 @@ export class GameScene extends Phaser.Scene {
     if (door.label === "Gate") {
       this.waveManager.notifyGateOpened();
     }
-    this.playSound("sfx-purchase", 0.3);
+    this.playSound("sfx-door-bash", 0.5);
+    this.playSound("sfx-fence-break", 0.3);
   }
 
   // ─── Generator + Machines (power system) ───
@@ -5624,7 +5768,14 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.showWeaponMessage("POWER ON", "#44dd44");
-    this.playSound("sfx-purchase", 0.7);
+    // Generator power-on sequence: switch click → spark → electrical buzz
+    this.playSound("sfx-gen-switch", 0.6);
+    this.time.delayedCall(200, () => this.playSound("sfx-gen-spark", 0.5));
+    this.time.delayedCall(500, () => {
+      this.playSound("sfx-gen-buzz", 0.4);
+      // Persistent low hum while generator runs
+      this.sound.play("sfx-gen-hum", { loop: true, volume: 0.08 });
+    });
     this.completeObjective("power_on");
     return true;
   }
@@ -5863,6 +6014,7 @@ export class GameScene extends Phaser.Scene {
     let countdownKey = 0;
     if (countdownSecs >= 1 && countdownSecs <= 5 && countdownSecs !== this.lastCountdownVal) {
       countdownKey = Date.now();
+      this.playSound("sfx-countdown-tick", 0.3);
     }
     this.lastCountdownVal = countdownSecs;
 
@@ -5941,6 +6093,7 @@ export class GameScene extends Phaser.Scene {
   private showLevelUpUI(level: number, options: BuffOption[]) {
     this.levelUpActive = true;
     this.waveManager.setFrozen(true);
+    this.playSound("sfx-level-up", 0.5);
     hudState.update({ levelUpActive: true, levelUpLevel: level, levelUpOptions: options });
     // Open inventory screen to show buff choices alongside stats
     if (!this.inventoryOpen) {
@@ -5970,6 +6123,7 @@ export class GameScene extends Phaser.Scene {
 
     this.levelUpActive = false;
     this.waveManager.setFrozen(false);
+    this.playSound("sfx-buff-confirm", 0.4);
     hudState.update({ levelUpActive: false });
     // Close inventory screen after buff selection
     this.dismissInventory();
