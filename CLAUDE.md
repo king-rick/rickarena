@@ -24,7 +24,7 @@ Top-down wave survival game (Call of Duty Zombies inspired). Phaser 3 game engin
 - `src/game/systems/LevelingSystem.ts` — XP, level-up, buff selection. Level-up capped at 1 per wave.
 
 ### React HUD components
-- `src/components/MainMenu.tsx` — Cinematic intro screen (fade-in tagline, gates on `assetsReady`) + main menu (PLAY/CONTROLS/LEADERBOARD). Intro plays once per session.
+- `src/components/MainMenu.tsx` — Cinematic intro screen (fade-in tagline, gates on `assetsReady`) + main menu (PLAY/CONTROLS/LEADERBOARD). Intro plays once per session. Leaderboard fetches top 5 from `/api/leaderboard`.
 - `src/components/CharacterSelect.tsx` — Full-bleed concept art per character, bottom info panel with name + ability card, nav dots + arrows
 - `src/components/LoadingScreen.tsx` — Character concept art + subtle 2px loading bar (2s)
 - `src/components/hud/InventoryScreen.tsx` — 8-slot grid, equipped weapon, stats, buffs, XP bar, level-up integration
@@ -83,18 +83,21 @@ Top-down wave survival game (Call of Duty Zombies inspired). Phaser 3 game engin
 - I key opens inventory (pauses physics), ESC closes inventory or opens pause menu
 - Level-up opens inventory with buff selection banner at top
 
-## Current state (updated 2026-04-26)
+## Current state (updated 2026-04-27)
 - Full UI overhaul complete — cinematic intro, main menu, character select, loading screen, inventory, shop, pause menu
 - Cinematic intro: fade-in tagline on black, plays during asset loading, once per session
 - Character select: full-bleed concept art, no pixel sprites, ability info panel
+- **Leaderboard**: Main menu button shows top 5 scores (rank/name/wave/kills) fetched from `/api/leaderboard`
 - SCARYBOI south encounter: new V2 audio, continuous playback with timing-based auto-advancing quotes
 - Mason rave cutscene implemented — 6-phase state machine with dancing zombies, letterbox cinematics, dialogue cards
 - Mason boss fight AI complete — 4 attacks, 2-phase system
 - SCARYBOI cinematic overhaul done — all 3 encounters
 - Jason renamed to Muff (display only, sprite id stays "jason")
-- Shop simplified: 8 items (First Aid Kit, 3 ammo types, landmine, grenade, shotgun, SMG)
+- Shop simplified: 8 items (First Aid Kit, 3 ammo types, landmine, grenade, shotgun, SMG). EXIT [ESC] button visible.
 - Level-up capped at 1 per wave
 - Removed redundant text banners ("SCARYBOI RETREATS", "BIGBOSSBABY WANTS TO FIGHT!")
+- **Enemy AI**: Enemies check `physics.world.isPaused` before update — fixes AI running during cutscenes
+- **Animation framerates**: Walk 8fps, Run 10fps (bumped from 6/8)
 - **Font stack**: All in-game text migrated to Special Elite. ChakraPetch fully removed.
 - **Club atmosphere**: Dark overlay + spotlights + beams + fog + DJ glow, all GeometryMask-clipped to club polygon
 - **Room visibility**: RenderTexture occluder (depth 60) with polygon zones. 7 zones from Tiled. Point-in-polygon detection. Only redraws on zone transition.
@@ -104,3 +107,4 @@ Top-down wave survival game (Call of Duty Zombies inspired). Phaser 3 game engin
 - **Tiled "zones" Object Layer**: 7 named polygon zones for room boundaries. Edit vertices with E key. Snap to grid for tile-aligned edges.
 - **24 SFX wired**: Heartbeat (HP<25% loop), burnout grunt, level-up, buff confirm, countdown tick, weapon switch, chest open (3 variants), bullet impact (25%), bullet whiz (15% on miss), reload complete, all Mason attacks (punch/bass-drop/jump-slam/fire-breath trio/phase2), SCARYBOI fireball, generator sequence (switch+spark+buzz+hum), door bash, door/fence break
 - **Ability balance**: Rick Superkick 450 dmg, Dan Electric Fist capped 9 kills, Muff Sledgehammer capped 9 kills
+- **Deployment**: No push to Vercel without explicit user confirmation after localhost testing

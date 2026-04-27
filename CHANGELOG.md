@@ -1,5 +1,40 @@
 # RickArena Changelog
 
+## 2026-04-27 — Leaderboard Menu, Stability Fixes, Deployment Safety
+
+**Leaderboard main menu button, enemy AI cutscene fix, shop UX polish, and selective revert of broken zone changes.**
+
+### Leaderboard (Main Menu)
+- LEADERBOARD button now opens an in-menu view (previously non-functional)
+- Shows top 5 scores fetched from `/api/leaderboard` (Neon Postgres)
+- Grid layout: rank, name, wave, kills — styled to match ControlsView
+- Loading/error/empty states handled gracefully
+- ESC dismisses back to main menu
+
+### Enemy AI Fix
+- Enemies now check `scene.physics.world.isPaused` before updating — prevents AI from running during cutscenes and paused states
+
+### Shop UX
+- Added EXIT [ESC] button at bottom of shop overlay
+- Keyboard ESC already worked but lacked visual affordance
+
+### Animation Framerate Bump
+- Walk animations: 6fps → 8fps
+- Run animations: 8fps → 10fps
+- Applies to all characters and enemies
+
+### Reverted: Zone Merge & Tiled Changes
+- Attempted to merge "foyer" into "Scaryboi's Lair" zone (code + Tiled) — caused PLAY button failure and black screen crash
+- Root cause: Tiled tileset trim (9→6 columns) left orphaned GIDs in map data; PreloadScene async errors swallowed silently
+- Lesson: never use `json.dump` on TMJ files (destroys Tiled formatting); only Tiled should write TMJ
+- Selectively reverted zone/Tiled commits while keeping enemy AI fix and shop/framerate changes
+- Zone visibility fix for Scaryboi's Lair still pending (code-only approach planned)
+
+### Deployment Safety
+- New rule: no push to Vercel without explicit user confirmation after localhost testing
+
+---
+
 ## 2026-04-25 — Cinematic Intro, UI Polish, SCARYBOI Audio/Cutscene Rework
 
 **Cinematic intro screen, character select redesign, SCARYBOI cutscene overhaul, and text banner cleanup.**

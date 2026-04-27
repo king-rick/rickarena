@@ -170,7 +170,8 @@ export interface HUDData {
   masonDialogueActive: boolean;
   masonDialogueQuote: string;
 
-  // Loading screen
+  // Loading
+  loadingProgress: number;  // 0–1, real asset loading progress from PreloadScene
   loadingScreenVisible: boolean;
   loadingScreenCharId: string;
 
@@ -267,6 +268,7 @@ const DEFAULT_STATE: HUDData = {
   currentObjective: null,
   masonDialogueActive: false,
   masonDialogueQuote: "",
+  loadingProgress: 0,
   loadingScreenVisible: false,
   loadingScreenCharId: "",
   inventoryOpen: false,

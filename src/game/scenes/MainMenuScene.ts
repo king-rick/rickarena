@@ -65,7 +65,7 @@ export class MainMenuScene extends Phaser.Scene {
       loadingScreenCharId: charId,
       loadingScreenVisible: true,
     });
-    this.time.delayedCall(2000, () => {
+    this.time.delayedCall(2000, () => { // 1s hold + 1s fade in LoadingScreen
       hudState.update({ loadingScreenVisible: false });
       this.scene.start("Game", { characterId: charId });
     });

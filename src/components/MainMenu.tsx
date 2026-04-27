@@ -8,6 +8,12 @@ const BODY = "var(--font-special-elite), 'Special Elite', serif";
 const DISPLAY = "ChainsawCarnage, HorrorPixel, monospace";
 const VERSION = "v0.9.0";
 
+function playMenuSound(src: string, volume = 0.3) {
+  try { const a = new Audio(src); a.volume = volume; a.play(); } catch {}
+}
+const menuClick = () => playMenuSound("/assets/audio/ui/ui-click.wav", 0.2);
+const menuConfirm = () => playMenuSound("/assets/audio/ui/confirmation_002.ogg", 0.35);
+
 const STROKE_TEXT: React.CSSProperties = {
   fontFamily: BODY,
   color: "#ffffff",
@@ -29,23 +35,56 @@ export const MainMenu = memo(function MainMenu({ canvasRect }: Props) {
   const visible = useSyncExternalStore(hudState.subscribe, () => hudState.getField("mainMenuVisible"));
   const [phase, setPhase] = useState<"intro" | "menu">(introPlayed ? "menu" : "intro");
   const [controlsOpen, setControlsOpen] = useState(false);
-  const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
+  const [leaderboardOpen, setLeaderboardOpen] = useState(false);
+  const [hoveredBtn, setHoveredBtn] = useState<string | null>("play");
+
+  const MENU_ITEMS = ["play", "controls", "leaderboard"] as const;
 
   const handlePlay = useCallback(() => hudState.dispatchMainMenuAction("play"), []);
 
+  const activateItem = useCallback((item: string) => {
+    menuClick();
+    if (item === "play") handlePlay();
+    else if (item === "controls") setControlsOpen(true);
+    else if (item === "leaderboard") setLeaderboardOpen(true);
+  }, [handlePlay]);
+
   useEffect(() => {
-    if (!visible) { setControlsOpen(false); return; }
+    if (!visible) { setControlsOpen(false); setLeaderboardOpen(false); return; }
     if (phase !== "menu") return;
     const handler = (e: KeyboardEvent) => {
       if (controlsOpen) {
         if (e.key === "Escape") setControlsOpen(false);
         return;
       }
-      if (e.key === "Enter" || e.key === " ") handlePlay();
+      if (leaderboardOpen) {
+        if (e.key === "Escape") setLeaderboardOpen(false);
+        return;
+      }
+      if (e.key === "ArrowUp" || e.key === "w" || e.key === "W") {
+        e.preventDefault();
+        setHoveredBtn(prev => {
+          const idx = MENU_ITEMS.indexOf((prev || "play") as any);
+          const next = MENU_ITEMS[(idx - 1 + MENU_ITEMS.length) % MENU_ITEMS.length];
+          menuClick();
+          return next;
+        });
+      } else if (e.key === "ArrowDown" || e.key === "s" || e.key === "S") {
+        e.preventDefault();
+        setHoveredBtn(prev => {
+          const idx = MENU_ITEMS.indexOf((prev || "play") as any);
+          const next = MENU_ITEMS[(idx + 1) % MENU_ITEMS.length];
+          menuClick();
+          return next;
+        });
+      } else if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        activateItem(hoveredBtn || "play");
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [visible, controlsOpen, handlePlay, phase]);
+  }, [visible, controlsOpen, leaderboardOpen, handlePlay, phase, hoveredBtn, activateItem]);
 
   const handleIntroComplete = useCallback(() => {
     introPlayed = true;
@@ -123,6 +162,8 @@ export const MainMenu = memo(function MainMenu({ canvasRect }: Props) {
       }}>
         {controlsOpen ? (
           <ControlsView onBack={() => setControlsOpen(false)} />
+        ) : leaderboardOpen ? (
+          <LeaderboardView onBack={() => setLeaderboardOpen(false)} />
         ) : (
           <>
             {/* Title */}
@@ -148,9 +189,9 @@ export const MainMenu = memo(function MainMenu({ canvasRect }: Props) {
               gap: 4,
               marginBottom: 16,
             }}>
-              <MenuButton label="PLAY" hovered={hoveredBtn === "play"} onHover={() => setHoveredBtn("play")} onLeave={() => setHoveredBtn(null)} onClick={handlePlay} primary />
-              <MenuButton label="CONTROLS" hovered={hoveredBtn === "controls"} onHover={() => setHoveredBtn("controls")} onLeave={() => setHoveredBtn(null)} onClick={() => setControlsOpen(true)} />
-              <MenuButton label="LEADERBOARD" hovered={hoveredBtn === "leaderboard"} onHover={() => setHoveredBtn("leaderboard")} onLeave={() => setHoveredBtn(null)} onClick={() => {}} />
+              <MenuButton label="PLAY" hovered={hoveredBtn === "play"} onHover={() => { setHoveredBtn("play"); menuClick(); }} onLeave={() => setHoveredBtn(null)} onClick={handlePlay} primary />
+              <MenuButton label="CONTROLS" hovered={hoveredBtn === "controls"} onHover={() => { setHoveredBtn("controls"); menuClick(); }} onLeave={() => setHoveredBtn(null)} onClick={() => setControlsOpen(true)} />
+              <MenuButton label="LEADERBOARD" hovered={hoveredBtn === "leaderboard"} onHover={() => { setHoveredBtn("leaderboard"); menuClick(); }} onLeave={() => setHoveredBtn(null)} onClick={() => setLeaderboardOpen(true)} />
             </div>
 
             {/* Version */}
@@ -182,7 +223,6 @@ function IntroScreen({ canvasRect, onComplete }: { canvasRect: CanvasRect; onCom
     hudState.subscribe,
     () => hudState.getField("assetsReady")
   );
-
   // Step 1: Fade text in after a brief pause in darkness
   useEffect(() => {
     const t = setTimeout(() => setTextVisible(true), 800);
@@ -197,7 +237,7 @@ function IntroScreen({ canvasRect, onComplete }: { canvasRect: CanvasRect; onCom
     return () => clearTimeout(t);
   }, [textVisible]);
 
-  // Step 3: Fade out when BOTH timer is done AND assets are loaded
+  // Step 3: Fade out when BOTH timer is done AND assets are loaded — auto-advance, no skip
   useEffect(() => {
     if (timerDone && assetsReady && !fadeOut) {
       setFadeOut(true);
@@ -211,29 +251,11 @@ function IntroScreen({ canvasRect, onComplete }: { canvasRect: CanvasRect; onCom
     return () => clearTimeout(t);
   }, [fadeOut, onComplete]);
 
-  // Allow skipping with Space/Enter/Click
-  const handleSkip = useCallback(() => {
-    introPlayed = true;
-    onComplete();
-  }, [onComplete]);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.code === "Space" || e.code === "Enter") {
-        e.preventDefault();
-        handleSkip();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [handleSkip]);
-
   const barH = Math.round(canvasRect.height * 0.1);
 
   return (
     <div
       className="absolute"
-      onClick={handleSkip}
       style={{
         left: canvasRect.left,
         top: canvasRect.top,
@@ -242,7 +264,6 @@ function IntroScreen({ canvasRect, onComplete }: { canvasRect: CanvasRect; onCom
         zIndex: 30,
         background: "#000",
         overflow: "hidden",
-        cursor: "pointer",
         opacity: fadeOut ? 0 : 1,
         transition: fadeOut ? "opacity 900ms ease-in" : "none",
       }}
@@ -254,7 +275,6 @@ function IntroScreen({ canvasRect, onComplete }: { canvasRect: CanvasRect; onCom
         height: barH,
         background: "#000",
         zIndex: 10,
-        borderBottom: "1px solid rgba(180, 20, 20, 0.15)",
       }} />
 
       {/* Letterbox bar — bottom */}
@@ -264,7 +284,6 @@ function IntroScreen({ canvasRect, onComplete }: { canvasRect: CanvasRect; onCom
         height: barH,
         background: "#000",
         zIndex: 10,
-        borderTop: "1px solid rgba(180, 20, 20, 0.15)",
       }} />
 
       {/* Centered text — fades in from black */}
@@ -294,32 +313,32 @@ function IntroScreen({ canvasRect, onComplete }: { canvasRect: CanvasRect; onCom
           {TAGLINE}
         </div>
 
-        {/* Red accent line */}
-        <div style={{
-          width: textVisible ? 140 : 0,
-          height: 1,
-          background: "linear-gradient(90deg, transparent, rgba(200, 20, 20, 0.7), transparent)",
-          marginTop: 24,
-          transition: "width 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) 1s",
-        }} />
-
-        {/* Subtle loading indicator — only shows if timer done but still waiting on assets */}
-        {timerDone && !assetsReady && (
-          <div style={{
-            ...STROKE_TEXT,
-            fontSize: 12,
-            WebkitTextStroke: "1px rgba(180, 20, 20, 0.6)",
-            marginTop: 32,
-            opacity: 0.5,
-            letterSpacing: "0.2em",
-            animation: "intro-pulse 1.5s ease-in-out infinite",
-          }}>
-            LOADING
-          </div>
-        )}
       </div>
 
-      <style>{`@keyframes intro-pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.6; } }`}</style>
+      {/* Loading text — bottom, visible throughout intro */}
+      <div style={{
+        position: "absolute",
+        bottom: barH + 16,
+        left: 0,
+        right: 0,
+        zIndex: 11,
+        display: "flex",
+        justifyContent: "center",
+        opacity: textVisible ? 1 : 0,
+        transition: "opacity 1s ease",
+      }}>
+        <span style={{
+          fontFamily: BODY,
+          fontSize: 12,
+          color: "rgba(255, 255, 255, 0.5)",
+          letterSpacing: "0.25em",
+          animation: "intro-pulse 2.5s ease-in-out infinite",
+        }}>
+          LOADING
+        </span>
+      </div>
+
+      <style>{`@keyframes intro-pulse { 0%, 100% { opacity: 0.2; } 50% { opacity: 0.6; } }`}</style>
     </div>
   );
 }
@@ -362,6 +381,110 @@ function MenuButton({
     >
       {label}
     </button>
+  );
+}
+
+function LeaderboardView({ onBack }: { onBack: () => void }) {
+  const [entries, setEntries] = useState<{ id: number; name: string; kills: number; wave: number }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/leaderboard")
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) setEntries(data.slice(0, 5));
+        else setError(true);
+      })
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
+  }, []);
+
+  return (
+    <div style={{
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      flex: 1,
+      gap: 28,
+    }}>
+      <span style={{
+        fontFamily: DISPLAY,
+        fontSize: 48,
+        color: "#ff2244",
+        letterSpacing: "0.08em",
+        textShadow: "0 0 20px rgba(255, 34, 68, 0.5), 0 4px 8px rgba(0, 0, 0, 0.8)",
+      }}>
+        LEADERBOARD
+      </span>
+
+      <div style={{
+        background: "rgba(0, 0, 0, 0.6)",
+        border: "1px solid rgba(255, 34, 68, 0.15)",
+        borderRadius: 6,
+        padding: "20px 32px",
+        minWidth: 340,
+      }}>
+        {loading ? (
+          <span style={{ ...STROKE_TEXT, fontSize: 16, WebkitTextStroke: "1px rgba(180, 20, 20, 0.6)", opacity: 0.5 }}>
+            LOADING...
+          </span>
+        ) : error ? (
+          <span style={{ ...STROKE_TEXT, fontSize: 16, WebkitTextStroke: "1px rgba(180, 20, 20, 0.6)", opacity: 0.5 }}>
+            COULD NOT LOAD LEADERBOARD
+          </span>
+        ) : entries.length === 0 ? (
+          <span style={{ ...STROKE_TEXT, fontSize: 16, WebkitTextStroke: "1px rgba(180, 20, 20, 0.6)", opacity: 0.5 }}>
+            NO SCORES YET
+          </span>
+        ) : (
+          <>
+            {/* Header */}
+            <div style={{ display: "grid", gridTemplateColumns: "32px 1fr 64px 64px", gap: "4px 16px", marginBottom: 8 }}>
+              <span style={{ ...STROKE_TEXT, fontSize: 13, WebkitTextStroke: "1px rgba(180, 20, 20, 0.5)", opacity: 0.5 }}>#</span>
+              <span style={{ ...STROKE_TEXT, fontSize: 13, WebkitTextStroke: "1px rgba(180, 20, 20, 0.5)", opacity: 0.5 }}>NAME</span>
+              <span style={{ ...STROKE_TEXT, fontSize: 13, WebkitTextStroke: "1px rgba(180, 20, 20, 0.5)", opacity: 0.5, textAlign: "right" }}>WAVE</span>
+              <span style={{ ...STROKE_TEXT, fontSize: 13, WebkitTextStroke: "1px rgba(180, 20, 20, 0.5)", opacity: 0.5, textAlign: "right" }}>KILLS</span>
+            </div>
+            <div style={{ height: 1, background: "rgba(255, 34, 68, 0.15)", marginBottom: 8 }} />
+            {/* Rows */}
+            {entries.map((e, i) => (
+              <div key={e.id} style={{ display: "grid", gridTemplateColumns: "32px 1fr 64px 64px", gap: "4px 16px", padding: "4px 0" }}>
+                <span style={{ ...STROKE_TEXT, fontSize: 16, WebkitTextStroke: "1.5px rgba(180, 20, 20, 0.85)" }}>
+                  {i + 1}
+                </span>
+                <span style={{ ...STROKE_TEXT, fontSize: 16, WebkitTextStroke: "1.5px rgba(180, 20, 20, 0.85)" }}>
+                  {e.name}
+                </span>
+                <span style={{ ...STROKE_TEXT, fontSize: 16, WebkitTextStroke: "1px rgba(180, 20, 20, 0.6)", opacity: 0.7, textAlign: "right" }}>
+                  {e.wave}
+                </span>
+                <span style={{ ...STROKE_TEXT, fontSize: 16, WebkitTextStroke: "1px rgba(180, 20, 20, 0.6)", opacity: 0.7, textAlign: "right" }}>
+                  {e.kills}
+                </span>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+
+      <button
+        onClick={onBack}
+        style={{
+          ...STROKE_TEXT,
+          fontSize: 14,
+          WebkitTextStroke: "1px rgba(180, 20, 20, 0.6)",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          opacity: 0.6,
+          letterSpacing: "0.1em",
+        }}
+      >
+        ESC — Back
+      </button>
+    </div>
   );
 }
 

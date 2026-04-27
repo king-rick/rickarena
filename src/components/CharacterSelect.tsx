@@ -27,6 +27,12 @@ const STROKE: React.CSSProperties = {
   textShadow: "0 1px 4px rgba(0,0,0,0.9)",
 };
 
+function playMenuSound(src: string, volume = 0.3) {
+  try { const a = new Audio(src); a.volume = volume; a.play(); } catch {}
+}
+const menuClick = () => playMenuSound("/assets/audio/ui/ui-click.wav", 0.2);
+const menuConfirm = () => playMenuSound("/assets/audio/ui/confirmation_002.ogg", 0.35);
+
 export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Props) {
   const menuVisible = useSyncExternalStore(hudState.subscribe, () => hudState.getField("menuVisible"));
   const charIndex = useSyncExternalStore(hudState.subscribe, () => hudState.getField("menuCharIndex"));
@@ -35,6 +41,7 @@ export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Pro
   const handlePrev = useCallback(() => {
     if (transitioning) return;
     setTransitioning(true);
+    menuClick();
     hudState.dispatchMenuAction("prev");
     setTimeout(() => setTransitioning(false), 200);
   }, [transitioning]);
@@ -42,12 +49,13 @@ export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Pro
   const handleNext = useCallback(() => {
     if (transitioning) return;
     setTransitioning(true);
+    menuClick();
     hudState.dispatchMenuAction("next");
     setTimeout(() => setTransitioning(false), 200);
   }, [transitioning]);
 
-  const handleStart = useCallback(() => hudState.dispatchMenuAction("start"), []);
-  const handleBack = useCallback(() => hudState.dispatchMenuAction("back"), []);
+  const handleStart = useCallback(() => { menuClick(); hudState.dispatchMenuAction("start"); }, []);
+  const handleBack = useCallback(() => { menuClick(); hudState.dispatchMenuAction("back"); }, []);
 
   useEffect(() => {
     if (!menuVisible) return;

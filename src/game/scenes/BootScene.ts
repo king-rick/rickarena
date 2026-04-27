@@ -6,8 +6,7 @@ export class BootScene extends Phaser.Scene {
   }
 
   preload() {
-    // Load the background loading screen first so it can be shown in PreloadScene
-    this.load.image("loading-bg", "/assets/loading-screen-group-v2.png");
+    // Nothing to preload — all assets are loaded in PreloadScene
   }
 
   async create() {

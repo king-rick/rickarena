@@ -42,6 +42,7 @@ export default function Game() {
       if (gameRef.current) return;
 
       gameRef.current = new Phaser.Game(gameConfig);
+      (window as any).__PHASER_GAME__ = gameRef.current;
 
       // Patch Phaser's WebAudio suspend/resume to survive HMR and closed AudioContext
       gameRef.current.events.once("ready", () => {

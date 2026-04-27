@@ -5,6 +5,7 @@ import {
   getFrameKey,
   getAnimKey,
 } from "../data/animations";
+import { hudState } from "../HUDState";
 
 export class PreloadScene extends Phaser.Scene {
   constructor() {
@@ -19,6 +20,11 @@ export class PreloadScene extends Phaser.Scene {
     const bg = this.add.graphics();
     bg.fillStyle(0x000000, 1);
     bg.fillRect(0, 0, width, height);
+
+    // Report real loading progress to React via HUDState
+    this.load.on("progress", (value: number) => {
+      hudState.update({ loadingProgress: value });
+    });
 
     // --- Original BootScene Preload Logic Below ---
 
