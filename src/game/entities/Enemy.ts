@@ -2332,6 +2332,10 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
   update(_time: number, delta: number) {
     if (!this.active || !this.body || this.dying) return;
+    // Group.preUpdate calls child.update() even when physics is paused (cutscenes,
+    // shop, inventory, pause menu).  Skip all AI so stuck-detection timers, pathfinding
+    // requests, aggro transitions, and attack cooldowns don't tick while frozen.
+    if (this.scene.physics?.world?.isPaused) return;
     if (this.spawning) return; // climbing out of ground — no movement/AI
     if (this.fleeing) {
       // Zero velocity every frame to prevent drift from player collisions
