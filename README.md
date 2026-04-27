@@ -59,8 +59,7 @@ AI wrote roughly 95% of the code, generated all the sprite art, and produced mos
 
 ### Tradeoffs
 
-**Cost vs. capability.** Claude Code with Opus is expensive per token, but fast per feature. A single session could produce a complete game system (the entire leveling/buff system: XP formula, tier gates, diminishing returns, buff selection UI) in under an hour.
-
+**Cost vs. capability.** Claude Code with Opus is expensive per token, but fast per feature. A single session could produce a complete game system (the entire leveling/buff system: XP formula, tier gates, diminishing returns, buff selection UI).
 **Context window vs. codebase size.** Development worked well until files grew past context limits. GameScene.ts is now 6,100+ lines. When files get that large, Claude Code loses track of variables defined thousands of lines earlier, suggests duplicates, or makes edits that conflict with code it can't see. I used Cursor with Codex as a second set of eyes to review and make surgical corrections in those situations.
 
 **Generation quality vs. cleanup.** PixelLab sprites are good enough to ship, but not pixel-perfect. Frame alignment, timing, and visual consistency across animation sets required manual Aseprite cleanup.
@@ -69,13 +68,13 @@ AI wrote roughly 95% of the code, generated all the sprite art, and produced mos
 
 - Describing the World at War zombie scaling model in plain English and getting a working implementation with linear/exponential phases, speed tier transitions, and staggered spawning. First try.
 - Cross-file debugging. Claude Code traced a bug from GameScene.ts through Enemy.ts, WaveManager.ts, and balance.ts to find a scaling coefficient applied twice. Thousands of lines across four files.
-- PixelLab consistency. Characters generated weeks apart maintain visual consistency in style, palette, and proportions without a human artist enforcing it.
+- Learning development. I used AI throughout the process to understand what exactly we were doing, break concepts down in easier to understand methods, ask questions, etc. I had zero experience with any of the tools used in the creation of the game prior to January 2026, and I was able to learn enough about them all to develop a live stable working game.
 
 ### Where AI Fell Short
 
-- **Architecture entropy.** AI adds code wherever you're working. It doesn't push back and say "this file is too big." GameScene.ts became a 6,100-line God Class because AI never once suggested extracting systems into separate files.
+- **Architecture entropy.** AI adds code wherever you're working. It doesn't push back and say "this file is too big." GameScene.ts became a 6,100-line God Class because AI never once suggested extracting systems into separate files. I had not considered things like this when in the early stages of development. It would have been helpful to have had things liket his flagged to me, especially because I had stated at the beginning of the project that I was a beginner in all of the tools we used. 
 - **Game feel.** AI can implement any damage formula or speed curve you describe. It can't tell you if the game is fun. Balancing required dozens of playtesting sessions and judgment calls that no model can make.
-- **Sprite cleanup.** AI-generated pixel art is a starting point. Frame alignment, hitbox accuracy, and animation timing all required manual work in Aseprite.
+- **Sprite cleanup.** AI-generated pixel art is a starting point. Frame alignment, hitbox accuracy, and animation timing all required manual work in Aseprite, and taste.
 
 ## Architecture / Design Decisions
 
