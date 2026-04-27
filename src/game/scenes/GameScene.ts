@@ -72,12 +72,11 @@ export class GameScene extends Phaser.Scene {
       { x: 1255, y: 440 }, { x: 1248, y: 440 }, { x: 1216, y: 440 },
       { x: 1216, y: 576 }, { x: 1255, y: 576 }, { x: 1255, y: 584 },
       { x: 1252, y: 584 }, { x: 1252, y: 619 }, { x: 1248, y: 619 },
-      { x: 1248, y: 664 }, { x: 1215, y: 664 }, { x: 1216, y: 892 },
-      { x: 928, y: 892 },
-    ]},
-    { name: "foyer", points: [
-      { x: 929, y: 892 }, { x: 1216, y: 892 }, { x: 1215, y: 928 },
-      { x: 1241, y: 928 }, { x: 1241, y: 1280 }, { x: 929, y: 1285 },
+      { x: 1248, y: 664 }, { x: 1215, y: 664 }, { x: 1215, y: 892 },
+      { x: 1152, y: 892 }, { x: 1152, y: 930 }, { x: 1152, y: 960 },
+      { x: 1247, y: 960 }, { x: 1248, y: 1056 }, { x: 1031, y: 1056 },
+      { x: 928, y: 1056 }, { x: 928, y: 992 }, { x: 992, y: 992 },
+      { x: 992, y: 926 }, { x: 992, y: 892 }, { x: 928, y: 892 },
     ]},
     { name: "North Building", points: [
       { x: 64, y: 64 }, { x: 320, y: 64 }, { x: 320, y: 288 },
@@ -1618,15 +1617,15 @@ export class GameScene extends Phaser.Scene {
     }
     this.wasBurnedOut = this.player.burnedOut;
 
-    // Heartbeat loop when low HP (≤25%)
-    const hpPct = this.player.stats.health / this.player.stats.maxHealth;
-    if (hpPct <= 0.25 && hpPct > 0 && !this.heartbeatPlaying) {
-      this.heartbeatPlaying = true;
-      this.sound.play("sfx-heartbeat", { loop: true, volume: 0.4 });
-    } else if ((hpPct > 0.25 || hpPct <= 0) && this.heartbeatPlaying) {
-      this.heartbeatPlaying = false;
-      this.sound.stopByKey("sfx-heartbeat");
-    }
+    // Heartbeat loop when low HP — disabled for now, will revisit
+    // const hpPct = this.player.stats.health / this.player.stats.maxHealth;
+    // if (hpPct <= 0.25 && hpPct > 0 && !this.heartbeatPlaying) {
+    //   this.heartbeatPlaying = true;
+    //   this.sound.play("sfx-heartbeat", { loop: true, volume: 0.4 });
+    // } else if ((hpPct > 0.25 || hpPct <= 0) && this.heartbeatPlaying) {
+    //   this.heartbeatPlaying = false;
+    //   this.sound.stopByKey("sfx-heartbeat");
+    // }
 
     this.updateHUD();
   }
