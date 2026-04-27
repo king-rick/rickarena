@@ -20,11 +20,6 @@ export class PreloadScene extends Phaser.Scene {
     bg.fillStyle(0x000000, 1);
     bg.fillRect(0, 0, width, height);
 
-    // Log any asset load failures
-    this.load.on("loaderror", (file: any) => {
-      console.error("[PreloadScene] Failed to load:", file.key, file.url);
-    });
-
     // --- Original BootScene Preload Logic Below ---
 
     // Load character rotation sprites (static, used as fallback)
@@ -367,7 +362,6 @@ export class PreloadScene extends Phaser.Scene {
   }
 
   async create() {
-    try {
     // Register animations (skip directions with missing frame textures)
     for (const [charId, anims] of Object.entries(CHARACTER_ANIMATIONS)) {
       for (const anim of anims) {
@@ -475,9 +469,6 @@ export class PreloadScene extends Phaser.Scene {
     ctx.rotate(Math.PI / 2);
     ctx.drawImage(bSrc, -bSrc.width / 2, -bSrc.height / 2);
     this.textures.addCanvas("trap-barricade-v", canvas);
-    } catch (err) {
-      console.error("[PreloadScene] create() error — proceeding to MainMenu anyway:", err);
-    }
 
     this.scene.start("MainMenu");
   }

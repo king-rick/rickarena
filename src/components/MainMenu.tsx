@@ -27,15 +27,11 @@ interface Props {
 
 export const MainMenu = memo(function MainMenu({ canvasRect }: Props) {
   const visible = useSyncExternalStore(hudState.subscribe, () => hudState.getField("mainMenuVisible"));
-  const assetsReady = useSyncExternalStore(hudState.subscribe, () => hudState.getField("assetsReady"));
   const [phase, setPhase] = useState<"intro" | "menu">(introPlayed ? "menu" : "intro");
   const [controlsOpen, setControlsOpen] = useState(false);
   const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
 
-  const handlePlay = useCallback(() => {
-    if (!assetsReady) return; // MainMenuScene handler not registered yet
-    hudState.dispatchMainMenuAction("play");
-  }, [assetsReady]);
+  const handlePlay = useCallback(() => hudState.dispatchMainMenuAction("play"), []);
 
   useEffect(() => {
     if (!visible) { setControlsOpen(false); return; }
@@ -152,7 +148,7 @@ export const MainMenu = memo(function MainMenu({ canvasRect }: Props) {
               gap: 4,
               marginBottom: 16,
             }}>
-              <MenuButton label={assetsReady ? "PLAY" : "LOADING..."} hovered={hoveredBtn === "play"} onHover={() => setHoveredBtn("play")} onLeave={() => setHoveredBtn(null)} onClick={handlePlay} primary disabled={!assetsReady} />
+              <MenuButton label="PLAY" hovered={hoveredBtn === "play"} onHover={() => setHoveredBtn("play")} onLeave={() => setHoveredBtn(null)} onClick={handlePlay} primary />
               <MenuButton label="CONTROLS" hovered={hoveredBtn === "controls"} onHover={() => setHoveredBtn("controls")} onLeave={() => setHoveredBtn(null)} onClick={() => setControlsOpen(true)} />
               <MenuButton label="LEADERBOARD" hovered={hoveredBtn === "leaderboard"} onHover={() => setHoveredBtn("leaderboard")} onLeave={() => setHoveredBtn(null)} onClick={() => {}} />
             </div>
@@ -331,38 +327,37 @@ function IntroScreen({ canvasRect, onComplete }: { canvasRect: CanvasRect; onCom
 /* ─── Menu Components ─── */
 
 function MenuButton({
-  label, onClick, primary, hovered, onHover, onLeave, disabled,
+  label, onClick, primary, hovered, onHover, onLeave,
 }: {
   label: string; onClick: () => void; primary?: boolean;
-  hovered: boolean; onHover: () => void; onLeave: () => void; disabled?: boolean;
+  hovered: boolean; onHover: () => void; onLeave: () => void;
 }) {
   const size = primary ? 26 : 18;
   const strokeWidth = primary ? "2px" : "1.5px";
-  const isActive = hovered && !disabled;
 
   return (
     <button
-      onClick={disabled ? undefined : onClick}
+      onClick={onClick}
       onMouseEnter={onHover}
       onMouseLeave={onLeave}
       style={{
         ...STROKE_TEXT,
         fontSize: size,
-        WebkitTextStroke: isActive
+        WebkitTextStroke: hovered
           ? `${strokeWidth} rgba(220, 40, 40, 1)`
           : `${strokeWidth} rgba(180, 20, 20, 0.85)`,
         color: "#ffffff",
         background: "none",
         border: "none",
-        cursor: disabled ? "default" : "pointer",
+        cursor: "pointer",
         padding: primary ? "10px 48px" : "6px 40px",
         letterSpacing: "0.18em",
         transition: "transform 150ms ease, text-shadow 200ms ease, -webkit-text-stroke 150ms ease",
-        textShadow: isActive
+        textShadow: hovered
           ? "0 0 16px rgba(255, 34, 68, 0.7), 0 0 32px rgba(255, 34, 68, 0.3), 0 2px 6px rgba(0,0,0,0.9)"
           : "0 1px 4px rgba(0,0,0,0.9)",
-        transform: isActive ? "scale(1.06)" : "scale(1)",
-        opacity: disabled ? 0.4 : primary ? 1 : hovered ? 1 : 0.75,
+        transform: hovered ? "scale(1.06)" : "scale(1)",
+        opacity: primary ? 1 : hovered ? 1 : 0.75,
       }}
     >
       {label}
