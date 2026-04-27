@@ -388,8 +388,8 @@ export class PreloadScene extends Phaser.Scene {
             || anim.type === "electrified-stun" || anim.type === "zombie-dancing";
 
           let frameRate = 8;
-          if (anim.type === "walk") frameRate = 10;
-          else if (anim.type === "running-6-frames") frameRate = 14;
+          if (anim.type === "walk") frameRate = anim.frames <= 6 ? 13 : 10;
+          else if (anim.type === "running-6-frames") frameRate = 16;
           else if (anim.type === "running-8-frames") frameRate = 12;
           else if (anim.type === "fight-stance-idle-8-frames") frameRate = 8;
           else if (anim.type === "fight-stance-idle") frameRate = 8;

@@ -26,6 +26,7 @@ export const ShopOverlay = memo(function ShopOverlay() {
   useEffect(() => {
     if (!shopOpen) return;
     const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { hudState.dispatchShopAction("close"); return; }
       if (e.key === "Enter") { hudState.dispatchShopAction("buySelected"); return; }
       if (e.key === "ArrowUp" || e.key === "w" || e.key === "W") { hudState.dispatchShopAction("nav", 0); return; }
       if (e.key === "ArrowDown" || e.key === "s" || e.key === "S") { hudState.dispatchShopAction("nav", 1); return; }
@@ -131,6 +132,28 @@ export const ShopOverlay = memo(function ShopOverlay() {
             </span>
           </div>
         )}
+
+        {/* Exit button */}
+        <div className="relative flex justify-center" style={{ marginTop: 12 }}>
+          <button
+            onClick={() => hudState.dispatchShopAction("close")}
+            style={{
+              fontFamily: BODY,
+              fontSize: 16,
+              color: "#999999",
+              background: "rgba(255, 255, 255, 0.04)",
+              border: "1px solid rgba(255, 255, 255, 0.1)",
+              borderRadius: 4,
+              padding: "6px 24px",
+              cursor: "pointer",
+              transition: "color 100ms ease, border-color 100ms ease",
+            }}
+            onMouseEnter={e => { e.currentTarget.style.color = "#ffffff"; e.currentTarget.style.borderColor = "rgba(255, 34, 68, 0.45)"; }}
+            onMouseLeave={e => { e.currentTarget.style.color = "#999999"; e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.1)"; }}
+          >
+            EXIT <span style={{ fontSize: 12, color: "#666666" }}>[ESC]</span>
+          </button>
+        </div>
       </div>
     </div>
   );
