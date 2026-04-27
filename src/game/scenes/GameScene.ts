@@ -309,6 +309,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
+   try { this._createInner(); } catch (err) {
+     console.error("[GameScene] create() crashed:", err);
+     // Show error on screen so it's visible without console
+     const t = this.add.text(this.cameras.main.centerX, this.cameras.main.centerY,
+       `GAME LOAD ERROR\n${err}`, { fontSize: "18px", color: "#ff4444", align: "center", wordWrap: { width: 600 } });
+     t.setOrigin(0.5);
+   }
+  }
+
+  private _createInner() {
     hudState.reset();
     this.gameOver = false;
     this.paused = false;
