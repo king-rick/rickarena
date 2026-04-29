@@ -477,7 +477,7 @@ Unified all character concept art into a single animated cel-shaded style matchi
 - Cleaned ShopOverlay: removed hotkey numbers, footer hints, number key handler
 - Minimap zoomed 3x and now follows player position
 
-**New enemy: Creepy Zombie (replaces green "pussy" zombie):**
+**New enemy: Creepy Zombie (replaces green zombie):**
 - PixelLab-generated character with 4 animation sets (walk 8f, bite 4f, death 17f, taking-punch 6f)
 - All animations in 8 directions (288 total sprite frames)
 - Gunshot death animation with blood splatter (17 frames at 20fps)
