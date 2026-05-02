@@ -4,7 +4,7 @@
  *
  * Build-time: Next.js inlines NEXT_PUBLIC_* at compile time.
  */
-export const PUBLIC_BUILD_UNLOCKABLE_DOOR_LABEL = "Gate";
+export const PUBLIC_BUILD_UNLOCKABLE_DOOR_LABEL = "gate1";
 
 export function isPublicBuild(): boolean {
   return process.env.NEXT_PUBLIC_RICKARENA_PUBLIC_BUILD === "true";

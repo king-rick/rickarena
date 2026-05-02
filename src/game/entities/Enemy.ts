@@ -6,16 +6,11 @@ import type { Pathfinder } from "../systems/Pathfinder";
 
 export type EnemyType = "basic" | "fast" | "boss" | "mason";
 
-// Exclusion zones — dogs should not roam into buildings or estate interior
-const EXCLUSION_ZONES = [
-  { x: 50, y: 50, w: 280, h: 500 },       // NW building
-  { x: 10, y: 1170, w: 520, h: 480 },     // SW building
-  { x: 920, y: 220, w: 300, h: 850 },     // Estate interior (left)
-  { x: 1200, y: 60, w: 610, h: 940 },     // Estate interior (right)
-  { x: 1920, y: 0, w: 1280, h: 1920 },     // Underground area (cols 60+)
-];
-function isExcludedZone(px: number, py: number): boolean {
-  for (const z of EXCLUSION_ZONES) {
+// Exclusion zones — read from Tiled at runtime (stored on GameScene.exclusionZones)
+function isExcludedZone(scene: Phaser.Scene, px: number, py: number): boolean {
+  const zones = (scene as any).exclusionZones as { x: number; y: number; w: number; h: number }[] | undefined;
+  if (!zones) return false;
+  for (const z of zones) {
     if (px >= z.x && px <= z.x + z.w && py >= z.y && py <= z.y + z.h) return true;
   }
   return false;
@@ -2089,7 +2084,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
 
     // Safety: if somehow inside a building, teleport out
-    if (isExcludedZone(this.x, this.y)) {
+    if (isExcludedZone(this.scene, this.x, this.y)) {
       this.setPosition(500, 960); // open area west of estate
       this.roamTarget = null;
       this.dogState = "roaming";
@@ -2243,7 +2238,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         const fieldCheck = (this.scene as any).isFieldTile as ((tx: number, ty: number) => boolean) | undefined;
 
         const wmGate = (this.scene as any).waveManager;
-        if (packTarget && !isExcludedZone(packTarget.x, packTarget.y) && !(wmGate?.isGated?.(packTarget.x, packTarget.y))) {
+        if (packTarget && !isExcludedZone(this.scene, packTarget.x, packTarget.y) && !(wmGate?.isGated?.(packTarget.x, packTarget.y))) {
           // Drift toward nearby dog with some randomness
           const cx = packTarget.x + (Math.random() - 0.5) * 80;
           const cy = packTarget.y + (Math.random() - 0.5) * 80;
@@ -2263,7 +2258,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
             if (fieldCheck && !fieldCheck(tx, ty)) continue;
             rx = tx * 32 + 16;
             ry = ty * 32 + 16;
-            if (isExcludedZone(rx!, ry!)) continue;
+            if (isExcludedZone(this.scene, rx!, ry!)) continue;
             if (wmRef?.isGated?.(rx!, ry!)) continue;
             this.roamTarget = { x: rx, y: ry };
             found = true;
@@ -2514,7 +2509,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
           const tx = player.x + Math.cos(tpAngle) * tpDist;
           const ty = player.y + Math.sin(tpAngle) * tpDist;
           if (
-            !isExcludedZone(tx, ty) &&
+            !isExcludedZone(this.scene, tx, ty) &&
             !(wm?.isGated?.(tx, ty)) &&
             (wm?.isCollisionFree ? wm.isCollisionFree(tx, ty) : true) &&
             (wm?.isSpawnReachable ? wm.isSpawnReachable(tx, ty) : true)

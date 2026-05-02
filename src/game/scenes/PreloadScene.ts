@@ -102,6 +102,24 @@ export class PreloadScene extends Phaser.Scene {
     this.load.image("ts-td-basic-struct", "/assets/tilesets/td-basic-struct.png");
     this.load.image("ts-pipoya-basechip", "/assets/tilesets/pipoya/pipoya-basechip.png");
     this.load.image("ts-rickarena-props", "/assets/tilesets/rickarena-props.png");
+    // Zombie pack tilesets
+    this.load.image("ts-zp-wasteland", "/assets/tilesets/_new-assets/zombie-pack-32x32/Wasteland_Tileset_32x32.png");
+    this.load.image("ts-zp-interior", "/assets/tilesets/_new-assets/zombie-pack-32x32/Interior_Tileset_32x32.png");
+    // Zombie city exterior tilesets
+    this.load.image("ts-zc-buildings-rubble", "/assets/tilesets/_new-assets/zombie-city-exterior/buildings-rubble-tents.png");
+    this.load.image("ts-zc-roads-vehicles", "/assets/tilesets/_new-assets/zombie-city-exterior/roads-vehicles-props.png");
+    this.load.image("ts-zc-facades-walls", "/assets/tilesets/_new-assets/zombie-city-exterior/facades-walls-windows.png");
+    this.load.image("ts-zc-storefronts", "/assets/tilesets/_new-assets/zombie-city-exterior/storefronts-signs-doors.png");
+    this.load.image("ts-zc-shop-interiors", "/assets/tilesets/_new-assets/zombie-city-exterior/shop-interiors-shelves.png");
+    this.load.image("ts-zc-furniture", "/assets/tilesets/_new-assets/zombie-city-exterior/furniture-kitchen-beds.png");
+    this.load.image("ts-zc-small-props", "/assets/tilesets/_new-assets/zombie-city-exterior/small-props-tools.png");
+    this.load.image("ts-zc-building-ext", "/assets/tilesets/_new-assets/zombie-city-exterior/building-exteriors-walls.png");
+    // Rudy's shop tileset
+    this.load.image("ts-rudys", "/assets/tilesets/_new-assets/rudys.png");
+    // Custom single-tile tilesets
+    this.load.image("ts-sprite-0001", "/assets/tilesets/Sprite-0001.png");
+    this.load.image("ts-grass-pavement-rick-0002", "/assets/tilesets/grass-pavement-rick-0002.png");
+    this.load.image("ts-sprite-0003", "/assets/tilesets/Sprite-0003.png");
     // DJ gear props (spawned as sprites, not tiles — mixed tile heights break Phaser rendering)
     this.load.image("prop-dj-table", "/assets/sprites/props/dj-table.png");
     this.load.image("prop-pa-speaker", "/assets/sprites/props/pa-speaker.png");
@@ -343,6 +361,7 @@ export class PreloadScene extends Phaser.Scene {
     this.load.audio("sfx-buff-confirm", "/assets/audio/ui/buff-confirm.ogg");
     this.load.audio("sfx-countdown-tick", "/assets/audio/ui/countdown-tick.ogg");
     this.load.audio("sfx-weapon-switch", "/assets/audio/ui/weapon-switch.ogg");
+    this.load.audio("sfx-character-select", "/assets/audio/ui/character-select.mp3");
     this.load.audio("sfx-chest-open1", "/assets/audio/ui/chest-open-1.ogg");
     this.load.audio("sfx-chest-open2", "/assets/audio/ui/chest-open-2.ogg");
     this.load.audio("sfx-chest-open3", "/assets/audio/ui/chest-open-3.ogg");

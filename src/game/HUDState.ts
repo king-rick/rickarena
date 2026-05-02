@@ -166,6 +166,14 @@ export interface HUDData {
   // Objective tracker
   currentObjective: string | null;
 
+  // Letterbox (cinematic black bars)
+  letterboxActive: boolean;
+
+  // Game messages (centered screen toast)
+  gameMessage: string;
+  gameMessageKey: number;
+  gameMessageColor: string;
+
   // MASON cinematics
   masonDialogueActive: boolean;
   masonDialogueQuote: string;
@@ -174,6 +182,18 @@ export interface HUDData {
   loadingProgress: number;  // 0–1, real asset loading progress from PreloadScene
   loadingScreenVisible: boolean;
   loadingScreenCharId: string;
+
+  // Axe pickup overlay
+  axePickupActive: boolean;
+
+  // Interaction prompt (React-rendered)
+  interactionPrompt: {
+    label: string;
+    keyHint: string;
+    screenX: number;
+    screenY: number;
+    canAfford: boolean;
+  } | null;
 
   // Inventory screen (I key)
   inventoryOpen: boolean;
@@ -266,11 +286,17 @@ const DEFAULT_STATE: HUDData = {
   scaryboiVoSrc: "",
   waveStartConfirmActive: false,
   currentObjective: null,
+  letterboxActive: false,
+  gameMessage: "",
+  gameMessageKey: 0,
+  gameMessageColor: "",
   masonDialogueActive: false,
   masonDialogueQuote: "",
   loadingProgress: 0,
   loadingScreenVisible: false,
   loadingScreenCharId: "",
+  axePickupActive: false,
+  interactionPrompt: null,
   inventoryOpen: false,
   inventorySlots: [],
   inventoryHasAxe: false,
@@ -316,6 +342,10 @@ class HUDStateStore {
   private scaryboiIntroAction: ActionHandler | null = null;
   registerScaryboiIntroAction(handler: ActionHandler) { this.scaryboiIntroAction = handler; }
   dispatchScaryboiIntroAction(action: string, payload?: any) { this.scaryboiIntroAction?.(action, payload); }
+
+  private gameAction: ActionHandler | null = null;
+  registerGameAction(handler: ActionHandler) { this.gameAction = handler; }
+  dispatchGameAction(action: string, payload?: any) { this.gameAction?.(action, payload); }
 
   private waveStartConfirmAction: ActionHandler | null = null;
   registerWaveStartConfirmAction(handler: ActionHandler) { this.waveStartConfirmAction = handler; }

@@ -247,7 +247,7 @@ export const BALANCE = {
 
   // RPG Leveling — flat bonuses, not percentages
   leveling: {
-    xpFormula: { base: 80, perLevel: 50 }, // First level-up at 80 XP (wave 1)
+    xpFormula: { base: 80, perLevel: 50, quadratic: 15 }, // 80 + 50*L + 15*L^2 — steep late-game
     buffChoices: 3, // 3 options per level-up
     buffs: {
       strength: {

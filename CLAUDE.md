@@ -83,7 +83,7 @@ Top-down wave survival game (Call of Duty Zombies inspired). Phaser 3 game engin
 - I key opens inventory (pauses physics), ESC closes inventory or opens pause menu
 - Level-up opens inventory with buff selection banner at top
 
-## Current state (updated 2026-04-27)
+## Current state (updated 2026-04-30)
 - Full UI overhaul complete — cinematic intro, main menu, character select, loading screen, inventory, shop, pause menu
 - Cinematic intro: fade-in tagline on black, plays during asset loading, once per session
 - Character select: full-bleed concept art, no pixel sprites, ability info panel
@@ -108,3 +108,8 @@ Top-down wave survival game (Call of Duty Zombies inspired). Phaser 3 game engin
 - **24 SFX wired**: Heartbeat (HP<25% loop), burnout grunt, level-up, buff confirm, countdown tick, weapon switch, chest open (3 variants), bullet impact (25%), bullet whiz (15% on miss), reload complete, all Mason attacks (punch/bass-drop/jump-slam/fire-breath trio/phase2), SCARYBOI fireball, generator sequence (switch+spark+buzz+hum), door bash, door/fence break
 - **Ability balance**: Rick Superkick 450 dmg, Dan Electric Fist capped 9 kills, Muff Sledgehammer capped 9 kills
 - **Deployment**: No push to Vercel without explicit user confirmation after localhost testing
+- **Tiled migration**: All 7 phases complete — zones, triggers, spawn points, interactables all read from Tiled. Code is behavior, Tiled is spatial data source of truth.
+- **New Tiled layers**: zones_navigation (gated/exclusion/dog spawns), zones_triggers (SCARYBOI encounters)
+- **Asset staging**: 15 packs in `public/assets/tilesets/_new-assets/`. zombie-pack-32x32 active in map. PixelLab-generated tiles in pixellab-shop/.
+- **Kyle's Shop (Rudy's)**: Concept facade placed on map (192x256px). Interior not yet built. Design doc in memory.
+- **PixelLab MCP**: Used for custom tile generation — tiles_pro for individual tiles, topdown_tileset for Wang/terrain transitions, map_object for concept art

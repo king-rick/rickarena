@@ -22,6 +22,10 @@ import { ScaryboiIntro } from "./hud/ScaryboiIntro";
 import { MasonAnnouncement } from "./hud/MasonAnnouncement";
 import { WaveStartConfirm } from "./hud/WaveStartConfirm";
 import { ObjectiveTracker } from "./hud/ObjectiveTracker";
+import { Letterbox } from "./hud/Letterbox";
+import { GameMessage } from "./hud/GameMessage";
+import { AxePickup } from "./hud/AxePickup";
+import { InteractionPrompt } from "./hud/InteractionPrompt";
 
 interface Props {
   canvasRect: CanvasRect;
@@ -68,6 +72,20 @@ export function HUDOverlay({ canvasRect }: Props) {
       {gameOver && (
         <div className="absolute" style={{ ...baseStyle, zIndex: 50 }}>
           <GameOverOverlay />
+        </div>
+      )}
+
+      {/* Axe pickup overlay */}
+      {!gameOver && (
+        <div className="absolute pointer-events-none" style={{ ...baseStyle, zIndex: 42 }}>
+          <AxePickup />
+        </div>
+      )}
+
+      {/* Letterbox cinematic bars */}
+      {!gameOver && (
+        <div className="absolute pointer-events-none" style={{ ...baseStyle, zIndex: 43 }}>
+          <Letterbox />
         </div>
       )}
 
@@ -153,7 +171,17 @@ export function HUDOverlay({ canvasRect }: Props) {
         </div>
       )}
 
-      {/* Wave announcement + countdown + intermission — always visible unless game over */}
+      {/* Interaction prompt (world-positioned, React-rendered) */}
+      {!gameOver && !shopOpen && (
+        <div
+          className="absolute pointer-events-none"
+          style={{ ...baseStyle, zIndex: 15 }}
+        >
+          <InteractionPrompt />
+        </div>
+      )}
+
+      {/* Wave announcement + countdown + intermission + game messages */}
       {!gameOver && (
         <div
           className="absolute pointer-events-none"
@@ -162,6 +190,7 @@ export function HUDOverlay({ canvasRect }: Props) {
           <WaveAnnouncement />
           <Countdown />
           <IntermissionOverlay />
+          <GameMessage />
         </div>
       )}
 

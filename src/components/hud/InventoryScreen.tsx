@@ -86,7 +86,7 @@ export const InventoryScreen = memo(function InventoryScreen() {
       className="fixed inset-0 flex items-center justify-center pointer-events-auto"
       style={{ zIndex: 10000 }}
     >
-      <div className="absolute inset-0" style={{ background: "rgba(0, 0, 0, 0.92)", pointerEvents: "none" }} />
+      <div className="absolute inset-0" style={{ background: "rgba(0, 0, 0, 0.96)", pointerEvents: "none" }} />
 
       <div
         className="relative"
@@ -120,10 +120,10 @@ export const InventoryScreen = memo(function InventoryScreen() {
               letterSpacing: "0.08em",
               textShadow: "0 0 12px rgba(255, 34, 68, 0.5)",
             }}>
-              LEVEL {levelUpLevel}
+              YOU LEVELED UP
             </span>
             <span style={{ fontFamily: BODY, fontSize: 16, color: "#aaaaaa" }}>
-              Choose a buff
+              Choose an upgrade
             </span>
             <div style={{ display: "flex", gap: 16 }}>
               {levelUpOptions.map((opt, i) => (
@@ -246,7 +246,7 @@ export const InventoryScreen = memo(function InventoryScreen() {
               </div>
             </div>
 
-            {/* Special items (axe, grenades) — don't count against slots */}
+            {/* Special items (axe) — don't count against slots */}
             <div style={{
               display: "flex",
               gap: 8,
@@ -254,9 +254,6 @@ export const InventoryScreen = memo(function InventoryScreen() {
             }}>
               {hasAxe && (
                 <SpecialItem icon="/assets/sprites/items/axe.png" name="Axe" />
-              )}
-              {grenadeCount > 0 && (
-                <SpecialItem icon="/assets/sprites/items/grenade.png" name={`Grenade x${grenadeCount}`} />
               )}
             </div>
           </div>
@@ -290,7 +287,7 @@ export const InventoryScreen = memo(function InventoryScreen() {
               flex: 1,
               minHeight: 0,
             }}>
-              <SectionLabel>BUFFS ({buffs.length})</SectionLabel>
+              <SectionLabel>UPGRADES ({buffs.length})</SectionLabel>
               <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
                 {buffs.length === 0 && (
                   <span style={{ fontFamily: BODY, fontSize: 14, color: "#444" }}>None</span>
@@ -316,7 +313,7 @@ export const InventoryScreen = memo(function InventoryScreen() {
           fontSize: 13,
           color: "#555",
         }}>
-          {levelUpActive ? "Select a buff to continue" : "Press I or ESC to close"}
+          {levelUpActive ? "Select an upgrade to continue" : "Press I or ESC to close"}
         </div>
       </div>
     </div>

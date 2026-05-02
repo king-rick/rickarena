@@ -7,25 +7,8 @@ const MAP_WIDTH = 100 * 32;  // 3200 (full), surface play area is ~60*32 = 1920
 const MAP_HEIGHT = 60 * 32;  // 1920
 const SURFACE_WIDTH = 60 * 32; // 1920 — only spawn in surface area
 
-// ─── Exclusion zones — never spawn enemies inside these ───
-const EXCLUSION_ZONES = [
-  { x: 50, y: 50, w: 280, h: 500 },       // NW building interior
-  { x: 10, y: 1170, w: 520, h: 480 },     // SW building interior
-  { x: 920, y: 220, w: 300, h: 850 },     // Estate interior (left section)
-  { x: 1200, y: 60, w: 610, h: 940 },     // Estate interior (right section)
-  { x: 1920, y: 0, w: 1280, h: 1920 },     // Underground area (cols 60+, entire right side)
-];
+// ─── Zone data types — populated from Tiled at runtime via setZoneData() ───
 
-function isExcluded(x: number, y: number): boolean {
-  for (const z of EXCLUSION_ZONES) {
-    if (x >= z.x && x <= z.x + z.w && y >= z.y && y <= z.y + z.h) return true;
-  }
-  return false;
-}
-
-// ─── Gated spawn zones — locked until the associated door opens ───
-// Each zone defines an area that enemies CANNOT spawn in until isUnlocked() returns true.
-// Everything outside these zones is the default "starting area" and always active.
 export interface GatedZone {
   label: string; // matches door label
   x: number;
@@ -34,30 +17,14 @@ export interface GatedZone {
   h: number;
 }
 
-const GATED_ZONES: GatedZone[] = [
-  // Left side of map — gated by the Gate ($300)
-  { label: "Gate", x: 0, y: 0, w: 672, h: 1920 },
-  // Upper/estate area — gated by Estate Entrance ($500)
-  { label: "Estate Entrance", x: 620, y: 0, w: 1300, h: 1100 },
-];
-
-// ─── Room zones — detect player camping in enclosed areas ───
-// When the player stays in a room, flanking zombies spawn at entrance points
-const ROOM_ZONES = [
-  { label: "NW Building", x: 50, y: 50, w: 280, h: 500,
-    entrances: [{ x: 190, y: 570 }] },
-  { label: "SW Building", x: 10, y: 1170, w: 520, h: 480,
-    entrances: [{ x: 383, y: 1155 }] },
-  { label: "Estate", x: 920, y: 60, w: 890, h: 980,
-    entrances: [{ x: 1058, y: 1060 }] },
-];
-
-// Dog spawn points — spread across the map edges (used by dog manager)
-const DOG_SPAWN_POINTS = [
-  { x: 880, y: 1880 }, { x: 864, y: 50 }, { x: 40, y: 750 },
-  { x: 1800, y: 400 }, { x: 1850, y: 900 }, { x: 100, y: 1800 },
-  { x: 50, y: 200 }, { x: 1700, y: 1300 },
-];
+export interface RoomZone {
+  label: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  entrances: { x: number; y: number }[];
+}
 
 // Spawn radius around the player (25 tiles = 800px)
 const SPAWN_RADIUS = 400;
@@ -110,11 +77,11 @@ export class WaveManager {
   // SCARYBOI encounter system — HP/flee tied to encounter ORDER, not location
   bossActive = false;
   bossEnemy: Enemy | null = null;
-  private scaryboiEncounters = { zone2: false, southBuilding: false, estate: false };
+  private scaryboiEncounters = { gate: false, library: false, estate: false };
   private scaryboiDefeated = false;
   private scaryboiFirstSeen = false;
   private gateOpenedWave: number | null = null;
-  private activeEncounter: "zone2" | "southBuilding" | "estate" = "zone2";
+  private activeEncounter: "gate" | "library" | "estate" = "gate";
   scaryboiEncounterCount = 0; // how many encounters have been completed (0, 1, 2)
 
 
@@ -126,11 +93,16 @@ export class WaveManager {
   isCollisionFree: (wx: number, wy: number) => boolean;
   isSpawnReachable: (wx: number, wy: number) => boolean;
 
+  // Zone data — populated from Tiled via setZoneData()
+  private exclusionZones: { x: number; y: number; w: number; h: number }[] = [];
+  private gatedZones: GatedZone[] = [];
+  private roomZones: RoomZone[] = [];
+
   // Room pressure — flanking spawns when player camps in a room
   playerInRoom = false;
   private roomTimer = 0; // ms player has been in a room
   private roomFlankTimer = 0; // ms until next flanking spawn burst
-  private currentRoom: typeof ROOM_ZONES[number] | null = null;
+  private currentRoom: RoomZone | null = null;
   private readonly ROOM_FLANK_DELAY = 8000; // 8s before first flank spawns
   private readonly ROOM_FLANK_INTERVAL = 12000; // 12s between flank bursts
   private readonly ROOM_FLANK_COUNT = 2; // zombies per flank burst
@@ -140,7 +112,7 @@ export class WaveManager {
   onIntermissionStart?: (wave: number) => void;
   onStateChange?: (state: WaveState) => void;
   onBossFlee?: () => void;
-  onEncounterTrigger?: (enc: "zone2" | "southBuilding" | "estate") => void;
+  onEncounterTrigger?: (enc: "gate" | "library" | "estate") => void;
   onBossKilled?: () => void;
 
 
@@ -153,6 +125,17 @@ export class WaveManager {
     this.isDoorOpen = config.isDoorOpen ?? (() => true);
     this.isCollisionFree = config.isCollisionFree ?? (() => true);
     this.isSpawnReachable = config.isSpawnReachable ?? (() => true);
+  }
+
+  /** Load zone data from Tiled — must be called before first update */
+  setZoneData(data: {
+    exclusionZones: { x: number; y: number; w: number; h: number }[];
+    gatedZones: GatedZone[];
+    roomZones: RoomZone[];
+  }) {
+    this.exclusionZones = data.exclusionZones;
+    this.gatedZones = data.gatedZones;
+    this.roomZones = data.roomZones;
   }
 
   update(delta: number) {
@@ -320,7 +303,7 @@ export class WaveManager {
     this.enemiesAlive = 0;
     this.bossActive = false;
     this.bossEnemy = null;
-    this.scaryboiEncounters = { zone2: false, southBuilding: false, estate: false };
+    this.scaryboiEncounters = { gate: false, library: false, estate: false };
     this.scaryboiDefeated = false;
     this.scaryboiFirstSeen = false;
     this.gateOpenedWave = null;
@@ -437,7 +420,7 @@ export class WaveManager {
   }
 
   /** Trigger a SCARYBOI encounter — GameScene handles actual spawning */
-  triggerEncounter(enc: "zone2" | "southBuilding" | "estate") {
+  triggerEncounter(enc: "gate" | "library" | "estate") {
     if (this.bossActive || this.scaryboiDefeated) return;
     if (this.scaryboiEncounters[enc]) return;
 
@@ -454,7 +437,7 @@ export class WaveManager {
     this.enemiesAlive++;
   }
 
-  /** Called when Gate is opened — enables zone2 encounter on next wave */
+  /** Called when gate1 is opened — enables gate encounter on next wave */
   notifyGateOpened() {
     if (this.gateOpenedWave === null) {
       this.gateOpenedWave = this.wave;
@@ -465,9 +448,9 @@ export class WaveManager {
   isScaryboiDefeated(): boolean { return this.scaryboiDefeated; }
   hasSeenScaryboi(): boolean { return this.scaryboiFirstSeen; }
   markScaryboiSeen() { this.scaryboiFirstSeen = true; }
-  /** Estate is locked until both other encounters (zone2 + southBuilding) are completed */
+  /** Estate is locked until both other encounters (gate + library) are completed */
   isEstateLocked(): boolean {
-    return !this.scaryboiEncounters.zone2 || !this.scaryboiEncounters.southBuilding;
+    return !this.scaryboiEncounters.gate || !this.scaryboiEncounters.library;
   }
   /** Get the encounter config for the current encounter order (0-based index) */
   getCurrentEncounterConfig(): { hpPercent: number; fleeThreshold: number; gracePeriodMs: number } {
@@ -510,7 +493,7 @@ export class WaveManager {
       sx = Phaser.Math.Clamp(sx, spawnMargin, SURFACE_WIDTH - spawnMargin);
       sy = Phaser.Math.Clamp(sy, spawnMargin, MAP_HEIGHT - spawnMargin);
 
-      if (!isExcluded(sx, sy) && !this.isGated(sx, sy) && this.isCollisionFree(sx, sy) && this.isSpawnReachable(sx, sy)) {
+      if (!this.isExcluded(sx, sy) && !this.isGated(sx, sy) && this.isCollisionFree(sx, sy) && this.isSpawnReachable(sx, sy)) {
         valid = true;
         break;
       }
@@ -524,7 +507,7 @@ export class WaveManager {
         { x: Phaser.Math.Clamp(pos.x, edgeMargin, SURFACE_WIDTH - edgeMargin), y: MAP_HEIGHT - edgeMargin },
         { x: edgeMargin, y: Phaser.Math.Clamp(pos.y, edgeMargin, MAP_HEIGHT - edgeMargin) },
         { x: SURFACE_WIDTH - edgeMargin, y: Phaser.Math.Clamp(pos.y, edgeMargin, MAP_HEIGHT - edgeMargin) },
-      ].filter(e => !isExcluded(e.x, e.y) && !this.isGated(e.x, e.y) && this.isCollisionFree(e.x, e.y) && this.isSpawnReachable(e.x, e.y));
+      ].filter(e => !this.isExcluded(e.x, e.y) && !this.isGated(e.x, e.y) && this.isCollisionFree(e.x, e.y) && this.isSpawnReachable(e.x, e.y));
       if (edges.length > 0) {
         const edge = edges[Math.floor(Math.random() * edges.length)];
         sx = edge.x;
@@ -542,7 +525,7 @@ export class WaveManager {
         sy = pos.y + Math.sin(angle) * dist;
         sx = Phaser.Math.Clamp(sx, spawnMargin, SURFACE_WIDTH - spawnMargin);
         sy = Phaser.Math.Clamp(sy, spawnMargin, MAP_HEIGHT - spawnMargin);
-        if (!isExcluded(sx, sy) && !this.isGated(sx, sy) && this.isCollisionFree(sx, sy) && this.isSpawnReachable(sx, sy)) {
+        if (!this.isExcluded(sx, sy) && !this.isGated(sx, sy) && this.isCollisionFree(sx, sy) && this.isSpawnReachable(sx, sy)) {
           valid = true;
           break;
         }
@@ -558,7 +541,7 @@ export class WaveManager {
           sy = pos.y + Math.sin(angle) * dist;
           sx = Phaser.Math.Clamp(sx, spawnMargin, SURFACE_WIDTH - spawnMargin);
           sy = Phaser.Math.Clamp(sy, spawnMargin, MAP_HEIGHT - spawnMargin);
-          if (!isExcluded(sx, sy) && !this.isGated(sx, sy) && this.isCollisionFree(sx, sy) && this.isSpawnReachable(sx, sy)) {
+          if (!this.isExcluded(sx, sy) && !this.isGated(sx, sy) && this.isCollisionFree(sx, sy) && this.isSpawnReachable(sx, sy)) {
             valid = true;
             break;
           }
@@ -595,7 +578,7 @@ export class WaveManager {
   private getEffectiveDogCap(): number {
     const dogStats = BALANCE.enemies.fast as any;
     const maxDogs = dogStats.maxOnMap ?? 5;
-    if (!this.isDoorOpen("Gate")) return Math.min(maxDogs, 4);
+    if (!this.isDoorOpen("gate1")) return Math.min(maxDogs, 4);
     return maxDogs;
   }
 
@@ -666,7 +649,7 @@ export class WaveManager {
       // Must not overlap a collision object (bushes, trees, etc.)
       if (!this.isCollisionFree(sx, sy)) continue;
       // Must not be in exclusion zone or gated area
-      if (isExcluded(sx, sy)) continue;
+      if (this.isExcluded(sx, sy)) continue;
       if (this.isGated(sx, sy)) continue;
       // Must be at least 300px from player
       if (Phaser.Math.Distance.Between(pos.x, pos.y, sx, sy) < 300) continue;
@@ -689,9 +672,17 @@ export class WaveManager {
     this.enemiesAlive++;
   }
 
+  /** Check if a position is inside any exclusion zone (buildings, underground) */
+  private isExcluded(x: number, y: number): boolean {
+    for (const z of this.exclusionZones) {
+      if (x >= z.x && x <= z.x + z.w && y >= z.y && y <= z.y + z.h) return true;
+    }
+    return false;
+  }
+
   /** Check if a position is in a gated zone whose door is still closed */
   isGated(x: number, y: number): boolean {
-    for (const zone of GATED_ZONES) {
+    for (const zone of this.gatedZones) {
       if (x >= zone.x && x <= zone.x + zone.w && y >= zone.y && y <= zone.y + zone.h) {
         if (!this.isDoorOpen(zone.label)) return true;
       }
@@ -712,8 +703,8 @@ export class WaveManager {
     const pos = this.getPlayerPos();
 
     // Check if player is inside any room zone
-    let inRoom: typeof ROOM_ZONES[number] | null = null;
-    for (const room of ROOM_ZONES) {
+    let inRoom: RoomZone | null = null;
+    for (const room of this.roomZones) {
       if (pos.x >= room.x && pos.x <= room.x + room.w &&
           pos.y >= room.y && pos.y <= room.y + room.h) {
         inRoom = room;
@@ -745,7 +736,7 @@ export class WaveManager {
   }
 
   /** Spawn a burst of zombies at a room's entrance points */
-  private spawnFlankingZombies(room: typeof ROOM_ZONES[number]) {
+  private spawnFlankingZombies(room: RoomZone) {
     const hpMult = this.getWaveHpMultiplier();
     const dmgMult = this.getWaveDamageMultiplier();
 
@@ -784,7 +775,7 @@ export class WaveManager {
         }
         sx = Phaser.Math.Clamp(sx, 4 * 32, SURFACE_WIDTH - 4 * 32);
         sy = Phaser.Math.Clamp(sy, 4 * 32, MAP_HEIGHT - 4 * 32);
-        if (!isExcluded(sx, sy) && !this.isGated(sx, sy) && this.isCollisionFree(sx, sy) && this.isSpawnReachable(sx, sy)) {
+        if (!this.isExcluded(sx, sy) && !this.isGated(sx, sy) && this.isCollisionFree(sx, sy) && this.isSpawnReachable(sx, sy)) {
           ok = true;
           break;
         }

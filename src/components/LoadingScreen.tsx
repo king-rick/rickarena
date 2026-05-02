@@ -22,8 +22,8 @@ export const LoadingScreen = memo(function LoadingScreen({ canvasRect }: Props) 
 
   useEffect(() => {
     if (!visible) { setFadeOut(false); return; }
-    // Show character art for 1s, then fade out over 1s
-    const t = setTimeout(() => setFadeOut(true), 1000);
+    // Show character art for 2.5s, then fade out over 1.5s (syncs with character-select sound)
+    const t = setTimeout(() => setFadeOut(true), 2500);
     return () => clearTimeout(t);
   }, [visible]);
 
@@ -43,7 +43,7 @@ export const LoadingScreen = memo(function LoadingScreen({ canvasRect }: Props) 
         background: "#000000",
         overflow: "hidden",
         opacity: fadeOut ? 0 : 1,
-        transition: fadeOut ? "opacity 1000ms ease-in" : "none",
+        transition: fadeOut ? "opacity 1500ms ease-in" : "none",
       }}
     >
       <img

@@ -72,7 +72,7 @@ export class LevelingSystem {
   /** XP required to reach the next level */
   xpToNextLevel(): number {
     const f = BALANCE.leveling.xpFormula;
-    return f.base + this.level * f.perLevel;
+    return f.base + this.level * f.perLevel + (f.quadratic ?? 0) * this.level * this.level;
   }
 
   /** XP progress as 0-1 fraction */

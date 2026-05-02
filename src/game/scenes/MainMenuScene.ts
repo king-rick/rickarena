@@ -59,13 +59,14 @@ export class MainMenuScene extends Phaser.Scene {
 
   private startGame() {
     const charId = CHARACTERS[this.selectedIndex].id;
+    this.sound.play("sfx-character-select", { volume: 0.6 });
     hudState.update({ menuVisible: false, mainMenuVisible: false });
     // Show character loading screen for 2 seconds, then start game
     hudState.update({
       loadingScreenCharId: charId,
       loadingScreenVisible: true,
     });
-    this.time.delayedCall(2000, () => { // 1s hold + 1s fade in LoadingScreen
+    this.time.delayedCall(4000, () => { // 2.5s hold + 1.5s fade in LoadingScreen
       hudState.update({ loadingScreenVisible: false });
       this.scene.start("Game", { characterId: charId });
     });

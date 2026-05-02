@@ -1,5 +1,45 @@
 # RickArena Changelog
 
+## 2026-04-30 — Tiled Migration, Asset Pipeline, Kyle's Shop Groundwork
+
+**Complete Tiled migration (7 phases), new asset pipeline, and Kyle's Shop (Rudy's) concept art and tile generation.**
+
+### Tiled Migration (all 7 phases complete)
+- All spatial data now driven by Tiled — code is behavior only, Tiled is source of truth
+- Phase 1: Door labels match Tiled (gate1, gate2, library) — removed rename hacks
+- Phase 2: SCARYBOI encounter names match Tiled (gate, library, estate)
+- Phase 3: Exclusion zones read from Tiled zones_navigation layer
+- Phase 4: Sign, log, fence positions read from Tiled interactables layer
+- Phase 5: SCARYBOI trigger zones read from Tiled zones_triggers layer
+- Phase 6: Room visibility zones read from Tiled zones layer
+- Phase 7: Gated zones, dog spawn points, room zones all from Tiled
+- WaveManager now receives zone data via setZoneData() — no more hardcoded constants
+- Enemy.ts reads exclusion zones from scene instance field
+
+### New Tiled Object Layers
+- `zones_navigation` — gated zones (gate1, gate2), exclusion zones (5), dog spawn points (7)
+- `zones_triggers` — SCARYBOI encounter trigger rectangles (gate, library, estate)
+- Interactables renamed: door→north_door, chest2→north_chest, door→library_door, zyn→zyn_machine
+- New objects: starting_chest, starting_door, sign_directions, 5 entrance points
+- Removed empty layers: spawn_player, spawn_enemy, tree_zones, tree_exclusions, decor_zones
+
+### Asset Pipeline
+- Staged 15 asset packs in `public/assets/tilesets/_new-assets/` for evaluation
+- Key packs: zombie-pack-32x32 (added to map), post-apoc-workshop, graveyard, fancy-mansion-furniture, retro-interior-32x32
+- Zombie city exterior (8 sheets, 768px native at 96px tiles) — scale mismatch with 32px game grid, kept as reference
+- PixelLab MCP: generated 48+ custom 32x32 tiles for Kyle's Shop (structural, props, walls, exterior)
+- PixelLab MCP: generated Wang tilesets for terrain transitions (pavement→grass, pavement→gravel, concrete→brick)
+
+### Kyle's Shop (Rudy's) — Concept Phase
+- Gas station concept art generated via PixelLab, customized in Aseprite as "Rudy's"
+- 192x256px facade (6x8 tiles), transparent background, placed on map
+- Design: south-facing entrance, interior via transport to underground area
+- Full design doc saved (intro cutscene, safe haven mechanic, secret passage)
+
+### Bug Fixes
+- Starting chest no longer gives assault rifle (was matching type=chest from loot chest handler)
+- publicBuild door label updated from "Gate" to "gate1"
+
 ## 2026-04-27 — Leaderboard Menu, Stability Fixes, Deployment Safety
 
 **Leaderboard main menu button, enemy AI cutscene fix, shop UX polish, and selective revert of broken zone changes.**
