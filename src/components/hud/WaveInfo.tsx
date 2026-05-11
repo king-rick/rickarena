@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useSyncExternalStore } from "react";
+import { memo, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { hudState } from "@/game/HUDState";
 
 const DISPLAY = "ChainsawCarnage, HorrorPixel, monospace";
@@ -18,6 +18,25 @@ const toRoman = (n: number): string => {
 export const WaveInfo = memo(function WaveInfo() {
   const wave = useSyncExternalStore(hudState.subscribe, () => hudState.getField("wave"));
   const state = useSyncExternalStore(hudState.subscribe, () => hudState.getField("waveState"));
+  const [visible, setVisible] = useState(true);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevStateRef = useRef(state);
+
+  // Show wave text when wave state changes, fade after 5s
+  useEffect(() => {
+    if (state !== prevStateRef.current) {
+      prevStateRef.current = state;
+      setVisible(true);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setVisible(false), 10000);
+    }
+  }, [state, wave]);
+
+  // Initial mount — show then fade
+  useEffect(() => {
+    timerRef.current = setTimeout(() => setVisible(false), 10000);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, []);
 
   const isCleared = state === "intermission";
   const color = isCleared ? "#ffffff" : "#ff2244";
@@ -26,13 +45,14 @@ export const WaveInfo = memo(function WaveInfo() {
     <span
       style={{
         fontFamily: DISPLAY,
-        fontSize: 22,
+        fontSize: 16,
         color,
         letterSpacing: "0.08em",
         textShadow: isCleared
           ? "0 0 6px rgba(255, 255, 255, 0.4)"
           : "0 0 6px rgba(255, 34, 68, 0.4)",
-        transition: "color 300ms ease, text-shadow 300ms ease",
+        opacity: visible ? 1 : 0,
+        transition: "opacity 800ms ease, color 300ms ease, text-shadow 300ms ease",
       }}
     >
       {isCleared ? `WAVE ${toRoman(wave)} CLEAR` : `WAVE ${toRoman(wave)}`}

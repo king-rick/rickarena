@@ -3,7 +3,7 @@ import { DIRECTIONS, Direction } from "./characters";
 // Which characters have which animations
 export const CHARACTER_ANIMATIONS: Record<
   string,
-  { type: string; frames: number }[]
+  { type: string; frames: number; dirs?: Direction[] }[]
 > = {
   rick: [
     { type: "walk", frames: 8 },
@@ -22,6 +22,7 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "reloading-smg", frames: 4 },
     { type: "shooting-rpg", frames: 9 },
     { type: "shooting-assault-rifle", frames: 4 },
+    { type: "banging-door", frames: 4, dirs: ["north"] },
   ],
   dan: [
     { type: "walk", frames: 6 },
@@ -40,6 +41,7 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "reloading-smg", frames: 4 },
     { type: "shooting-rpg", frames: 9 },
     { type: "shooting-assault-rifle", frames: 4 },
+    { type: "banging-door", frames: 4, dirs: ["north"] },
   ],
   mason: [
     { type: "breathing-idle", frames: 4 },
@@ -68,6 +70,7 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "reloading-smg", frames: 4 },
     { type: "shooting-rpg", frames: 9 },
     { type: "shooting-assault-rifle", frames: 4 },
+    { type: "banging-door", frames: 4, dirs: ["north"] },
   ],
   jason: [
     { type: "walk", frames: 6 },
@@ -86,6 +89,7 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "reloading-smg", frames: 4 },
     { type: "shooting-rpg", frames: 9 },
     { type: "shooting-assault-rifle", frames: 4 },
+    { type: "banging-door", frames: 4, dirs: ["north"] },
   ],
   creepyzombie: [
     { type: "walk", frames: 8 },
@@ -100,6 +104,7 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "chopped-in-half", frames: 9 },
     { type: "zombie-dancing", frames: 16 },
     { type: "ground-spawn", frames: 9 },
+    // scary-sprint: pending from PixelLab — no frames on disk yet
   ],
   zombiedog: [
     { type: "walk", frames: 8 },
@@ -111,6 +116,12 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "running", frames: 9 },
     { type: "being-shot", frames: 9 },
     { type: "electrified-stun", frames: 9 },
+  ],
+  kyle: [
+    { type: "breathing-idle", frames: 4 },
+    { type: "walk", frames: 6 },
+    { type: "running-6-frames", frames: 6, dirs: ["south", "south-east", "east"] },
+    { type: "shooting-shotgun", frames: 4, dirs: ["south", "south-east", "east"] },
   ],
   scaryboi: [
     { type: "fight-stance-idle", frames: 9 },

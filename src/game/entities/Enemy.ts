@@ -38,7 +38,7 @@ const VARIANT_TINTS: Record<EnemyType, number> = {
 };
 
 const VARIANT_SCALES: Record<EnemyType, number> = {
-  basic: 0.28,
+  basic: 0.32,
   fast: 0.33,
   boss: 0.45,
   mason: 0.624,
@@ -242,9 +242,14 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   }
 
   /** Play ground-spawn animation — zombie is invulnerable and immobile until complete */
+  private spawnOriginX = 0;
+  private spawnOriginY = 0;
+
   playGroundSpawn() {
     if (!this.hasGroundSpawnAnim) return;
     this.spawning = true;
+    this.spawnOriginX = this.x;
+    this.spawnOriginY = this.y;
     this.body?.setEnable(false);
     const dir = this.currentDir || "south";
     const animKey = getAnimKey(this.spriteId, "ground-spawn", dir);
@@ -1053,6 +1058,24 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.scene.time.delayedCall(200, () => {
         this.bossLunging = false;
         if (this.active && this.bossBusy) this.body.setVelocity(0, 0);
+      });
+
+      // Direct damage check at punch impact (300ms into animation)
+      // Physics contact alone is unreliable because collider separates bodies
+      const punchRange = (BALANCE.enemies.boss.attacks.punchCombo.range ?? 95);
+      this.scene.time.delayedCall(300, () => {
+        if (!this.active || this.dying || !player.active) return;
+        const dist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
+        if (dist <= punchRange && !player.invincible && !player.isPunching) {
+          const scene = this.scene as any;
+          if (scene.gameOver || scene.abilityActive) return;
+          if (scene.time.now - (scene.lastDamageTime ?? 0) < 500) return;
+          scene.lastDamageTime = scene.time.now;
+          player.stats.health -= dmg;
+          scene.cameras?.main?.flash(100, 255, 0, 0, false);
+          scene.cameras?.main?.shake(100, 0.005);
+          scene.playPlayerHurt?.();
+        }
       });
     } else {
       this.body.setVelocity(0, 0);
@@ -2200,6 +2223,12 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         this.body.setVelocity(0, 0);
       }
 
+      // Dog running sounds when aggro and moving
+      const vel = this.body.velocity;
+      if (vel.x !== 0 || vel.y !== 0) {
+        (this.scene as any).audio?.playDogFootstep(0.15);
+      }
+
       // De-aggro if player gets far enough away
       if (distToPlayer > deaggroRange) {
         this.dogState = "roaming";
@@ -2331,7 +2360,13 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     // shop, inventory, pause menu).  Skip all AI so stuck-detection timers, pathfinding
     // requests, aggro transitions, and attack cooldowns don't tick while frozen.
     if (this.scene.physics?.world?.isPaused) return;
-    if (this.spawning) return; // climbing out of ground — no movement/AI
+    // bossCutscene — used for SCARYBOI intro and Kyle scripted zombie. Skip all AI.
+    if (this.bossCutscene) return;
+    if (this.spawning) {
+      // Pin position — prevent any drift while climbing out of ground
+      this.setPosition(this.spawnOriginX, this.spawnOriginY);
+      return;
+    }
     if (this.fleeing) {
       // Zero velocity every frame to prevent drift from player collisions
       this.body.setVelocity(0, 0);
@@ -2369,7 +2404,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         this.body.setVelocity(Math.cos(rad) * walkSpeed, Math.sin(rad) * walkSpeed);
         // Leash — if too far from spawn, snap back to dancing
         const dist = Phaser.Math.Distance.Between(this.x, this.y, this.danceSpawnX, this.danceSpawnY);
-        if (dist > 48) { // ~1.5 tiles max
+        if (dist > 38) { // ~1.2 tiles max
           this.danceWalking = false;
           this.body.setVelocity(0, 0);
           this.playDanceAnim(this.currentDir);

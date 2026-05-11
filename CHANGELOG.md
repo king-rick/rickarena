@@ -1,5 +1,302 @@
 # RickArena Changelog
 
+## 2026-05-10e — Consumable Hotbar System, Audio Fixes, UX Polish
+
+### Consumable Hotbar (New System)
+- New vertical hotbar on left side: keys 1-4 directly use consumables (bandage, grenade, mine, barricade)
+- Tap for instant use (bandage heals, mine places); tap/hold grenade for quick throw / arc aim
+- E key now only cycles between fists and guns (consumables removed from E cycle)
+- Bottom Hotbar slimmed to weapon icon + ammo + Q ability (grenade/bandage counts removed)
+- New `ConsumableHotbar.tsx` component: 64x64 square slots, key label top-left, ×count top-right
+- Auto-slot assignment: items fill first empty slot on pickup (desks, shop, equipment)
+- `ConsumableSlot` interface added to HUDState for React bridge
+
+### Bandage Shop Bug Fix
+- `first_aid` shop item now adds +1 bandage to inventory (capped at maxStack) instead of direct healing
+- Shows "BANDAGES FULL" feedback when at max
+
+### Audio Fixes
+- **Volume crash fix v2**: Added `fadeVolume()` helper with `onUpdate` guard that detects destroyed sounds — ALL volume tweens now use this (no more raw `tweens.add({ volume })`)
+- Bandage use sound: `clothBelt.ogg` plays on bandage consumption
+- Desk pickup sound: `sfx-buy` plays on all 3 Rudy's supply desks
+- Dog footstep sounds: 4 variants (`footstep-dog-1/4/5/7.ogg`), 250ms cooldown, plays when dogs are aggro and moving
+- Door bash sound now exclusive to Kyle cutscene (enemies use `sfx-hit-classic`, door break uses `sfx-fence-break`)
+
+### UX Polish
+- Objective tracker: urgent pulse animation during intermission (1s cycle, brighter glow/border)
+- Intermission timer: larger font (16/22px), bigger panel padding
+- IntermissionTimer `alignSelf: flex-start` fix (no more stretching to sibling width)
+
+## 2026-05-10d — AudioManager Extraction
+
+### Architecture
+- Extracted `AudioManager` class (`src/game/systems/AudioManager.ts`, 365 lines) from GameScene
+- All audio state (volumes, theme tracks, mason rave, ambient, heartbeat, cooldown timers) now lives in AudioManager
+- All audio methods (playSound, startTheme/stopTheme, footsteps, room tone, rave music, volume handlers, shutdown) moved to AudioManager
+- GameScene accesses via `this.audio.playSound(...)`, `this.audio.startTheme(...)`, etc.
+- `maybePlayScaryboiTaunt` stays in GameScene (needs `characterDef` + `time.delayedCall`)
+- Net ~200 line reduction from GameScene
+- Zero behavior changes — pure mechanical extraction
+
+## 2026-05-10c — Audio System Cleanup Phase 1
+
+### Stale Asset Deletion
+- Deleted 18 unreferenced audio files (enemy deaths, wilhelms, moans, shotgun-blast, smg-fire-1-full, theme_lightmain, scaryboi-intro-vo) — verified zero code references before removal
+
+### Dead Code Removal
+- Removed `musicMuted` field from GameScene (never read)
+- Removed unused PreloadScene audio loads: `sfx-horror1`, `sfx-horror2`, `sfx-walking-wood`
+- Kept `sfx-running-grass` load (used in Kyle cutscene despite plan saying to remove)
+
+### Sound Key Fixes
+- `sfx-purchase` → `sfx-buy` (3 call sites: axe pickup, door purchase, vending machine)
+- `sfx-barricade-break` → `sfx-fence-break` (1 call site, removed duplicate play call)
+
+### Un-muted Bite Sounds
+- `playBiteSound()` restored: random selection from 5 bite SFX keys, 400ms cooldown, 0.3 volume
+
+### Music Volume Slider (2-Slider System)
+- New `musicVolume` field in HUDState (default 0.5)
+- Settings panel now has separate SFX and Music sliders
+- `setMusicVolume` pause action updates all 4 theme tracks + mason rave music in real-time
+- `startTheme()` fade target now scales by `musicVolume` instead of `sfxVolume`
+- SFX slider no longer affects theme tracks (clean separation)
+
+### Gravel Footsteps
+- `playFootstep()` now checks `pathsLayer.getTileAt()` for gravel surface detection
+- Gravel → wood (indoor) → grass (outdoor) priority chain
+- Uses existing loaded `sfx-step-gravel1..6` keys
+
+### BiquadFilter Leak Fix
+- `shutdown()` now disconnects `masonRaveMusicFilter` before `sound.stopAll()`, preventing orphaned AudioContext nodes on game restart
+
+## 2026-05-10b — Theme Music, Audio Overhaul, Kyle Cutscene SFX
+
+### Theme Music System (Phaser Web Audio)
+- 6 theme tracks exported from Ableton, trimmed silence (33MB → 5MB total)
+- `theme_full`: plays on intro screen (no loop), fades out on character select PLAY
+- `theme_main`: waves 1-9 combat + intermission, loops at 0.12 volume, 2.5s fade-in
+- `theme_intense`: wave 10+ combat only, 0.25 volume, 3s fade-in, stops during intermission
+- `theme_creepybass`: SCARYBOI proximity crossfade + Kyle cutscene + SCARYBOI encounters
+- `theme_outro`: death and victory screens, plays once
+- All themes fade in/out — no two themes play simultaneously
+- Music volume slider added — controls theme tracks independently from SFX slider
+- `startTheme()` forces Web Audio gain node to 0 before play with 50ms delay before tween
+
+### SCARYBOI Proximity Crossfade
+- Player within 200px of un-triggered SCARYBOI zone → theme_main fades out, creepybass fades in
+- Walking away reverses the crossfade
+- Entering trigger zone transitions seamlessly into encounter
+
+### Kyle Cutscene Audio
+- Creepybass theme starts at cutscene trigger (300ms fade-in, loops), plays through entire exterior sequence
+- Running footsteps (ElevenLabs-generated) loop while player sprints to door
+- Door bash SFX (ElevenLabs-generated) plays when player reaches door
+- Zombie groan-9 plays on scripted zombie spawn
+- Creepybass fades out (400ms) synced with screen fade-to-black entering Rudy's
+- Footsteps stop when player arrives at door
+
+### Rudy's Interior Audio
+- Room tone ambient (ElevenLabs-generated) fades in when entering Rudy's
+- Outdoor ambience (birds/rain) fades out inside, fades back in on exit
+- Wood footstep sounds replace grass when inside Rudy's
+- Removed desk loot pickup sounds (chest-open SFX)
+
+### Animation Fixes
+- Removed `scary-sprint` from animation registry (frames don't exist on disk yet)
+- Game code already has `running-8-frames` fallback — no breakage
+- Dan banging-door v2 generated via PixelLab (no door baked into sprite)
+
+### Bug Fixes
+- Fixed MainMenuScene crash when `this.sound` is null during HMR
+- Removed `theme-lightmain` from PreloadScene (unused after menu music removal)
+- Removed `sfx-door-bash` load, then re-added with new ElevenLabs-generated sound
+- Guard against null sound manager in MainMenuScene.startGame()
+
+## 2026-05-10 — Rudy's Supply Desks, Bandage System, Economy Rework
+
+### Supply Desk System
+- 3 free desks in Rudy's interior wired as interactables: `med_desk` (bandages), `ammo_desk` (pistol mag + shotgun shells), `equipment_desk` (grenade + landmine)
+- Parsed from Tiled `interactables` layer by name
+- E key interaction with range check (60px), per-desk `stocked` flag
+- Restock every 5 waves (wave 6, 11, 16...)
+- "Search the Supply Tables" objective completes when all 3 desks looted
+
+### Bandage Inventory System (Arc Raiders style)
+- Stackable consumable (max 5), usable mid-combat via hotbar
+- Instant 25 HP heal, no animation lock
+- Hotbar slot: cycles via E key alongside weapons/mines/grenades
+- Persistent green bandage icon in hotbar UI
+- HUDState bridge: `bandageCount` field synced to React
+- Balance config: `BALANCE.bandage` (healAmount, maxStack, deskGiveCount)
+
+### Starting Loadout Nerf
+- Pistol starts with 1 reserve mag (16 total rounds, was 48)
+- Zero grenades at start (was 1)
+- First Aid Kit removed from shop — healing now from bandages via desks
+
+### Kyle NPC Improvements
+- Physics collision body (32x40, immovable) — player can't walk through Kyle
+- Pacing AI: walks between 5 waypoints inside Rudy's at speed 30
+- 3-6 second idle pauses at each waypoint with breathing-idle animation
+- 8-direction walk animations during movement
+
+### Wave/Intermission Flow Fixes
+- Wave 1 deferred until player exits Rudy's after Kyle cutscene (was starting on door open)
+- `skipNextShop` flag skips shop popup after first Rudy's exit, starts wave countdown instead
+- Fixed intermission deadlock: skipNextShop was skipping shop without advancing wave — now triggers 3s countdown
+- Camera follow offset set to (0,0) in `fadeToKyleInterior()` — eliminates jump on letterbox retraction
+- HMR guard: `if (!this.cameras?.main) return;` prevents crash on hot reload during cutscene
+- Wave announcement suppressed during Kyle cutscene
+
+### Objective Tracker
+- "Investigate Rudy's" renamed to "Look for Survivors"
+- "Search the Supply Tables" now properly completes when all desks collected
+
+### Ammo Banking
+- `addWeapon()` merges reserve ammo — buying ammo for weapons you don't own yet banks it
+
+## 2026-05-05 — Kyle Intro Cutscene
+
+### Cutscene System — Waypoint-Driven Cinematics
+- Tiled-driven waypoint paths for scripted actor movement (`kyle_cs_player`, `kyle_cs_zombie`, `kyle_cs_kyle` point objects on `zones_triggers`)
+- Code reads, sorts by index, actors follow waypoints in sequence
+- Player runs from trigger location straight to door (130px/s)
+- Door-banging animation: `banging-door` north, 4 frames, loops until shot (PixelLab custom generation for Rick)
+- Zombie spawns 1s after player reaches door, chases along 4-waypoint path (90px/s)
+- Kyle spawns 2.8s after door-bang starts, rushes along 3-waypoint path (150px/s) — dramatic late entrance
+- Zombie reaches kill zone → Kyle shoots instantly: `shooting-shotgun` east at 4fps, `sfx-shotgun`, muzzle flash, camera shake
+- Zombie death: `gunshot-death` west animation, blood splatter east, 1.2s linger
+- All existing enemies force-destroyed on cutscene trigger (setActive false + destroy)
+- Player impervious to damage during cutscene
+- Camera offset south (-40px follow offset) for zombie visibility during chase
+
+### Cutscene Flow (10-step sequence)
+1. Player hits `kyle_intro` trigger → enemies cleared, letterbox, input locked
+2. Player runs to door → loops banging-door animation
+3. 1s alone banging (tension) → zombie appears from south
+4. Zombie chases along path → visible on screen without Kyle
+5. Kyle rushes out from west side of building → walks to shoot position
+6. Zombie hits kill zone → Kyle fires shotgun → zombie death + blood
+7. Exterior dialogue (4 lines) — player faces Kyle
+8. Fade to interior → teleport player + Kyle inside Rudy's
+9. Interior dialogue (3 lines) — shotgun auto-added to inventory on line 2
+10. Cutscene complete → camera restored, player free
+
+### Bug Fixes
+- `cutsceneActive` HUD field was stuck true after cutscene (checked `kyleIntroPhase !== ""` which includes "done"). Fixed to use `kyleIntroActive` getter.
+- Kyle dialogue React component (`KyleDialogue.tsx`) wired into HUDOverlay
+- HUDState bridge: `kyleDialogueActive`, `kyleDialogueSpeaker`, `kyleDialogueQuote` fields + action handler
+
+### New Assets
+- `public/assets/sprites/rick/banging-door/north/` — 4 frames (PixelLab custom)
+- Kyle sprites: `breathing-idle` (8 dirs), `walk` (8 dirs), `running-6-frames` (3 dirs), `shooting-shotgun` (3 dirs)
+- `animations.ts` updated with `banging-door` for rick, full kyle entry
+
+## 2026-05-04 (session 3 continued) — Tileset Loading, Interior Visibility, Door UX, Club Atmosphere
+
+### Tileset Loading Fix
+- 3 new tilesets registered in PreloadScene + GameScene: `Interiors_tilesets`, `fancy_mansion_furnitureset`, `fancy_mansion_room_door_tiles`
+- These were in Tiled map but not loaded in code — caused `inside_walls` and other layers using them to silently fail
+
+### Interior Visibility Fixes
+- `inside walls` layer renamed to `inside_walls` in Tiled and code (removed space)
+- `inside_walls` removed from `outdoorLayers` — now always visible (holds rugs + interior detail)
+- Interior floors moved to `floor_interior` layer in Tiled (was on `paths` which gets hidden indoors)
+
+### Door/Gate UX
+- Door bash percentage messages removed (silent bashing)
+- "OPENED"/"DESTROYED" messages now use display names: "Gate Opened", "Door Destroyed" (was "gate1 OPENED")
+- E key prompts use display names: "E  Gate — $300" (was "E  gate1 — $300")
+- Locked prompts: "Gate — Locked" / "Door — Locked"
+
+### Club Atmosphere — Zone-Driven
+- Dark overlay, fog, and occlusion mask now use club zone polygon from Tiled (was hardcoded L-shaped rectangles)
+- Light beams extended to full zone span (was 380px, now dynamic)
+- Added 4 side-wall beams: 2 from west wall (pink, purple), 2 from east wall (cyan, red)
+- Added 2 side-wall spotlight pointlights with sweep
+- North wall fixtures repositioned to zone boundary
+- All effects still clipped by GeometryMask to zone polygon
+
+## 2026-05-03 (session 3) — Victory Screen, Mason Endgame, Rudy's Map Rework
+
+### Victory Flow
+- `triggerVictory()` method: Mason death → 2s pause → victory screen (5s) → leaderboard entry/display → return to menu
+- Victory HUD: gold "YOU WON" header, victory message ("You defeated DJ BigBaby and crashed his zombie rave..."), kill count, green-tinted background
+- Added `"victory"` phase to `gameOverPhase` HUD state
+
+### Mason Endgame Sequence (session 2 continued)
+- Post-SCARYBOI cleanup: disable spawns, kill non-lair enemies, silent wave end, frozen wave manager
+- Muffled rave music: Web Audio BiquadFilterNode lowpass filter, frequency sweep based on player distance to club (400Hz far → 20kHz near)
+- Rave zombie immunity: no damage during `rave_setup` phase, 1.5s post-cutscene immunity
+- Dance leash tightened from 48px to 38px
+- Music fade-out during cutscene_1, filter disconnect on triggerMasonRave
+- New objective chain: "Investigate the Music" → "Crash the Rave" → "Defeat DJ BigBaby"
+- `sfx-mason-rave-music` audio loaded in PreloadScene
+
+### Rudy's Map Rework (Tiled only, not wired in code)
+- Interior rebuilt with 3 new tilesets: `Interiors_tilesets` (epic RPG interiors), `fancy_mansion_furnitureset`, `fancy_mansion_room_door_tiles`
+- Flooring, paths, and indoor props reworked with new art
+- Interactable objects placed: `med_desk`, `ammo_desk`, `equipment_desk` (free desks), `locker_1`, `locker_2` (key-gated)
+- `rudys_exterior` zone added alongside existing `rudys` interior zone
+- Teleport pair: `teleport_rudys_exterior` ↔ `teleport_rudys_interior`
+- `scaryboi_lair` zone (renamed from `scaryboi`)
+- Club zone expanded (14→21 polygon points), estate_lower_hall zone moved/simplified
+
+## 2026-05-03 (session 2) — Double-Shop Bug Fix, Rudy's Stash House Design
+
+### Bug Fix
+- Fixed double-shop bug: shop opened twice per intermission because safety net (line 1530) fired on frame 1 of intermission, then 3s delayedCall in `showNextPendingLevelUp()` unconditionally opened it again. Fix: gate `showNextPendingLevelUp()` with `!intermissionShopOpened` check.
+
+### Design Planning (not implemented yet)
+- Rudy's becomes stash house / safe zone, replacing abstract shop overlay
+- Kyle NPC: shopkeeper, sells consumables (ammo, grenades, landmines, barricades, bandages)
+- Kyle intro cutscene: triggers on designated tiles, wave ends silently, scripted zombie kill, player enters Rudy's, gets shotgun + free desk items, dialogue, fade out, wave 2 starts
+- Free desks: one-time loadout (med_desk=bandages, ammo_desk=light+shotgun ammo, equipment_desk=2 grenades+1 landmine)
+- Machines (power-gated): black=upgrades, red=perks (fire rate, reload speed, damage resistance, second wind)
+- Lockers (key-gated): RPG + TBD, key drops from SCARYBOI
+- Intermission: 30s hybrid countdown with SPACE to ready up early, Rudy's locked mid-wave
+- B-key shop removed, interact with Kyle anywhere in shop for buy menu
+- Waves de-emphasized in UI (no big announcements), shifting toward plot-driven progression
+- SMG found via interactable later in game (like AR chest pattern)
+- "Investigate Rudy's" objective added when leaving starting house
+
+## 2026-05-03 — HUD Overhaul, Teleport System, Intermission Pacing, Canopy Fix
+
+**Major HUD redesign (React migration), Rudy's teleport system, wave pacing improvements, and visual polish.**
+
+### HUD Redesign (React)
+- Interaction prompts fully migrated from Phaser to React — percentage-based positioning via camera worldView
+- Hotbar unified: weapon icon + ammo | grenade | ability (Q) in one compact panel with red dividers
+- Kills + cash + wave info moved to bottom-left above hotbar (was top-right)
+- Wave text floats above stats, fades out after 10 seconds per state change
+- Minimap border simplified to square with matching dark border (was circular mask)
+- Stats bar removed from minimap area — MinimapBorder now renders border only
+- Objective tracker restyled as dark panel with "OBJECTIVE" label, ChainsawCarnage font, positioned under stamina bar
+- Removed green "RELOADED" game message (sound still plays)
+- Removed AbilityIndicator as separate component (merged into Hotbar)
+- All HUD panels use consistent style: dark gradient, red border, ChainsawCarnage font
+
+### Teleport System
+- New teleport point system read from Tiled `zones_triggers` layer (type=teleport)
+- Points are paired by name/target — bidirectional (exterior↔interior)
+- E key to interact with prompt ("Enter" / "Exit"), not auto-trigger
+- 200ms fade-to-black transition, 32px offset to prevent re-trigger
+- Rudy's exterior (1548, 1035) ↔ interior (2676, 1912) wired up
+- Rudy's interior added as "rudys" zone on Tiled zones layer
+
+### Wave Pacing
+- 3-second breathing room after last zombie dies before shop/level-up appears
+- Shop only opens once per intermission (intermissionShopOpened flag) — fixes double-shop bug
+- Safety net no longer races with delayedCall to reopen shop
+- Wave start confirmation dialog replaced with automatic 3-second countdown (WaveStartCountdown component)
+
+### Visual Polish
+- Canopy red glow on characters removed entirely
+- Canopy transparency increased: 30% opacity at center (was 55%), fading to 100% at edge
+- Player scale: 0.25 → 0.30
+- Basic zombie scale: 0.28 → 0.32
+
 ## 2026-04-30 — Tiled Migration, Asset Pipeline, Kyle's Shop Groundwork
 
 **Complete Tiled migration (7 phases), new asset pipeline, and Kyle's Shop (Rudy's) concept art and tile generation.**

@@ -3,7 +3,7 @@ import { Player } from "../entities/Player";
 import { Enemy, EnemyType, angleToDirection } from "../entities/Enemy";
 import { Projectile, ensureBulletTexture } from "../entities/Projectile";
 import { Trap, TrapType, ensureTrapTextures } from "../entities/Trap";
-import { CHARACTERS, CharacterDef, BASE_STATS } from "../data/characters";
+import { CHARACTERS, CharacterDef, BASE_STATS, Direction } from "../data/characters";
 import { BALANCE } from "../data/balance";
 import { WaveManager, WaveState, GatedZone, RoomZone } from "../systems/WaveManager";
 import { LevelingSystem, BuffOption } from "../systems/LevelingSystem";
@@ -11,6 +11,7 @@ import { hasAnimation, getAnimKey } from "../data/animations";
 import { hudState } from "../HUDState";
 import { isPublicBuild, PUBLIC_BUILD_UNLOCKABLE_DOOR_LABEL } from "../publicBuild";
 import { Pathfinder, pointInPolygon } from "../systems/Pathfinder";
+import { AudioManager } from "../systems/AudioManager";
 // Village map constants
 const VILLAGE_MAP_W = 80 * 16;  // 1280px
 const VILLAGE_MAP_H = 65 * 16;  // 1040px
@@ -21,6 +22,7 @@ const ENDICOTT_MAP_H = 60 * 32;   // 1920px
 
 export class GameScene extends Phaser.Scene {
   player!: Player;
+  audio!: AudioManager;
   private characterDef!: CharacterDef;
   private obstacles!: Phaser.Physics.Arcade.StaticGroup;
   private enemies!: Phaser.Physics.Arcade.Group;
@@ -31,7 +33,6 @@ export class GameScene extends Phaser.Scene {
 
   // Combat state
   private lastDamageTime = 0;
-  private lastScaryboiTauntTime = 0; // cooldown for SCARYBOI battle taunts
   private currency = 0;
   private kills = 0;
   private gameOver = false;
@@ -51,9 +52,33 @@ export class GameScene extends Phaser.Scene {
   private stairBlockerZone?: Phaser.GameObjects.Zone;
   private masonEnemy: Enemy | null = null;
   private masonRaveZombies: Enemy[] = [];
+  private raveCrowdRect = { x: 1387, y: 249, w: 306, h: 187 };
   private masonBannerReady = false;
   private masonDismissing = false;
   private masonClubEffects: Phaser.GameObjects.GameObject[] = [];
+  private scaryboiProximityFade = false; // true when player is near a SCARYBOI zone and crossfading
+  private postCutsceneImmunity = 0; // ms remaining of damage immunity after rave cutscene
+
+  // Kyle intro cutscene
+  private kyleIntroTriggered = false;
+  private kyleIntroPhase: "" | "run_to_door" | "kyle_shoots" | "exterior_dialogue" | "fade_to_interior" | "interior_dialogue" | "done" = "";
+  private kyleDialogueIndex = 0;
+  private kyleNpc: Phaser.GameObjects.Sprite | null = null;
+  private kyleScriptedZombie: Enemy | null = null;
+  private kyleTriggerRect = { x: 0, y: 0, w: 0, h: 0 };
+  private kyleShopPos = { x: 0, y: 0 };          // kyle_npc_rudys point from Tiled
+  private kylePacing = false;
+  private kylePaceTarget: { x: number; y: number } | null = null;
+  // Waypoint paths from Tiled (kyle_cs_player0..N, kyle_cs_zombie0..N, kyle_cs_kyle0..N)
+  private kyleCSPlayerPath: { x: number; y: number }[] = []; // only last point used (door)
+  private kyleCSZombiePath: { x: number; y: number }[] = [];
+  private kyleCSKylePath: { x: number; y: number }[] = [];
+  private kyleCSZombieWaypoint = 0;
+  private kyleCSKyleWaypoint = 0;
+  private kyleCSKyleStarted = false;
+  private kyleCSPlayerAtDoor = false;
+  private kyleCSPlayerDoorTimer = 0; // ms spent banging on door
+  private kyleCSRunningSound: Phaser.Sound.BaseSound | null = null;
 
   // Room-based visibility — populated from Tiled "zones" layer polygons at runtime
   private visibilityZones: { name: string; points: { x: number; y: number }[] }[] = [];
@@ -62,6 +87,8 @@ export class GameScene extends Phaser.Scene {
 
   exclusionZones: { x: number; y: number; w: number; h: number }[] = [];
   private scaryboiTriggerZones: { encounter: string; requires: string; x: number; y: number; w: number; h: number }[] = [];
+  private teleportPoints: { name: string; target: string; x: number; y: number }[] = [];
+  private teleporting = false;
   private damageBoostActive = false;
   private baseDamage = 0;
 
@@ -100,8 +127,14 @@ export class GameScene extends Phaser.Scene {
   private activeSlot = 0;
   private readonly slotCount = 9; // max slots (guns + traps)
 
+  // Consumable hotbar (keys 1-4)
+  private consumableSlotAssignments: string[] = []; // ordered item types, max 6
+  private consumableActiveFlash = -1; // slot index that was just used (for HUD flash), -1 = none
+
   // Grenade system
   private grenadeCount = 0;
+  private bandageCount = 0;
+  private rudysDesks: { name: string; x: number; y: number; stocked: boolean }[] = [];
   private grenadeKeyDown = false;
   private grenadeKeyDownTime = 0;
   private grenadeAiming = false;
@@ -175,14 +208,11 @@ export class GameScene extends Phaser.Scene {
   private reachableTiles: Set<number> = new Set();
   private reachableDirty = true; // recompute on next spawn check
 
-  // Starting room — chest + door before wave 1
-  private startingChestOpened = false;
+  // Starting room — door before wave 1
   private startingDoorOpened = false;
-  private startingChestPrompt?: Phaser.GameObjects.Container;
   private startingDoorPrompt?: Phaser.GameObjects.Container;
   private startingDoorBody?: Phaser.GameObjects.Zone; // physics body blocking doorway
-  private startingChestSprite?: Phaser.GameObjects.Sprite;
-  private hasWeapon = false; // false until player opens chest
+  private hasWeapon = false; // false until Kyle gives pistol
 
   // Loot chests (placed via Tiled interactables layer, type "chest")
   private lootChests: {
@@ -197,8 +227,10 @@ export class GameScene extends Phaser.Scene {
   private roofLayer?: Phaser.Tilemaps.TilemapLayer;
   private roofVisible = true;
 
-  // Signpost interaction
-  private skipWaveConfirm = false; // "don't remind me" checkbox state
+  // Intermission timer (30s between waves, managed by GameScene)
+  private waveStartTimer = -1; // ms remaining for 3-2-1 center countdown, -1 = inactive
+  private intermissionTimer = -1; // ms remaining for 30s intermission, -1 = inactive
+  private intermissionLocked = false; // true when 30s expired — shop/desks locked, must exit Rudy's
 
   // Axe + chopable fences
   private hasAxe = false;
@@ -228,10 +260,13 @@ export class GameScene extends Phaser.Scene {
   // Objective tracker
   private objectivesComplete: { [key: string]: boolean } = {
     exit_room: false,
+    investigate_rudys: false,
+    search_tables: false,
     chop_fence: false,
     power_on: false,
     explore_library: false,
     defeat_scaryboi: false,
+    investigate_music: false,
     crash_rave: false,
     defeat_bigbaby: false,
   };
@@ -241,13 +276,8 @@ export class GameScene extends Phaser.Scene {
   private minimap!: Phaser.Cameras.Scene2D.Camera;
   private minimapDot!: Phaser.GameObjects.Graphics;
   private settingsOpen = false;
-  private sfxVolume = 0.5;
-  private musicVolume = 1;
-  private sfxMuted = false;
-  private musicMuted = false;
   private wheelHandler?: (e: WheelEvent) => void;
   private zoomEnabled = false;
-  private ambientSounds: Phaser.Sound.BaseSound[] = [];
   private devMode = false;
   pathfinder!: Pathfinder; // exposed for Enemy AI
   private statsOpen = false;
@@ -258,6 +288,7 @@ export class GameScene extends Phaser.Scene {
 
   constructor() {
     super({ key: "Game" });
+    this.audio = new AudioManager(this);
   }
 
   init(data: { characterId?: string }) {
@@ -266,13 +297,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   shutdown() {
-    try { this.sound.stopByKey("sfx-heartbeat"); } catch {}
-    try { this.sound.stopByKey("sfx-ambient-birds"); } catch {}
-    try { this.sound.stopByKey("sfx-ambient-rain"); } catch {}
-    try { this.sound.stopByKey("sfx-gen-hum"); } catch {}
-    try { this.sound.stopAll(); } catch {}
-    this.ambientSounds = [];
-    this.heartbeatPlaying = false;
+    this.audio.shutdown();
   }
 
   create() {
@@ -286,12 +311,11 @@ export class GameScene extends Phaser.Scene {
     this.currency = 0;
     this.kills = 0;
     this.lastDamageTime = 0;
-    // Start empty-handed — pistol comes from starting chest
-    this.activeWeapon = "pistol"; // weapon type (HUD reference), but no ammo until chest
+    // Start empty-handed — pistol comes from Kyle
+    this.activeWeapon = "pistol";
     this.weapons = ["pistol"];
     this.weaponAmmo = {};
     this.hasWeapon = false;
-    this.startingChestOpened = false;
     this.startingDoorOpened = false;
     this.activeSlot = 1;
     this.reloading = false;
@@ -308,6 +332,8 @@ export class GameScene extends Phaser.Scene {
     this.reloadSpeedMultiplier = 1;
     this.armor = 0;
     this.grenadeCount = 0; // set properly after player creation
+    this.bandageCount = 0;
+    this.rudysDesks = [];
     this.grenadeKeyDown = false;
     this.grenadeAiming = false;
     this.grenadeThrowing = false;
@@ -325,7 +351,17 @@ export class GameScene extends Phaser.Scene {
     this.scaryboiGateTriggered = false;
     this.scaryboiLibraryTriggered = false;
     this.scaryboiEstateTriggered = false;
+    this.scaryboiProximityFade = false;
     this.pendingScaryboiSpawn = null;
+
+    // Kyle intro state
+    this.kyleIntroTriggered = false;
+    this.kyleIntroPhase = "";
+    this.kyleDialogueIndex = 0;
+    this.kyleNpc = null;
+    this.kylePacing = false;
+    this.kylePaceTarget = null;
+    this.kyleScriptedZombie = null;
 
     // Mason encounter state
     this.masonRavePhase = "";
@@ -335,12 +371,13 @@ export class GameScene extends Phaser.Scene {
     this.masonRaveZombies = [];
     this.masonBannerReady = false;
     this.masonDismissing = false;
+    this.audio.shutdown();
 
     // Misc state
     this.damageBoostActive = false;
     this.baseDamage = 0;
     this.levelUpActive = false;
-    this.skipWaveConfirm = false;
+    this.waveStartTimer = -1;
     this.hasAxe = false;
     this.axePickupActive = false;
     this.currentZoneName = null;
@@ -350,9 +387,10 @@ export class GameScene extends Phaser.Scene {
     this.chopableFences = [];
     this.fenceHintShown = false;
     this.objectivesComplete = {
-      exit_room: false, chop_fence: false, power_on: false,
+      exit_room: false, investigate_rudys: false, search_tables: false,
+      chop_fence: false, power_on: false,
       explore_library: false, defeat_scaryboi: false,
-      crash_rave: false, defeat_bigbaby: false,
+      investigate_music: false, crash_rave: false, defeat_bigbaby: false,
     };
     this.lastFireTime = 0;
     this.dryFired = false;
@@ -361,6 +399,8 @@ export class GameScene extends Phaser.Scene {
     this.shopNavRow = 0;
     this.barricadeVertical = false;
     this.lootChests = [];
+    this.intermissionTimer = -1;
+    this.intermissionLocked = false;
 
     // Slow gameplay by 25%
     this.time.timeScale = 0.75;
@@ -397,6 +437,9 @@ export class GameScene extends Phaser.Scene {
       ["Sprite-0001", "ts-sprite-0001"],
       ["grass-pavement-rick-0002", "ts-grass-pavement-rick-0002"],
       ["Sprite-0003", "ts-sprite-0003"],
+      ["fancy_mansion_furnitureset", "ts-fancy-mansion-furnitureset"],
+      ["fancy_mansion_room_door_tiles", "ts-fancy-mansion-room-door-tiles"],
+      ["Interiors_tilesets", "ts-interiors-tilesets"],
     ];
     const allTilesets: Phaser.Tilemaps.Tileset[] = [];
     for (const [name, key] of tilesetDefs) {
@@ -411,7 +454,7 @@ export class GameScene extends Phaser.Scene {
     this.pathsLayer = map.createLayer("paths", allTilesets, 0, 0)?.setDepth(-1) ?? undefined;
     this.floorInteriorLayer = map.createLayer("floor_interior", allTilesets, 0, 0)?.setDepth(-0.5) ?? undefined;
     this.wallsBaseLayer = map.createLayer("walls_base", allTilesets, 0, 0)?.setDepth(0) ?? undefined;
-    this.insideWallsLayer = map.createLayer("inside walls", allTilesets, 0, 0)?.setDepth(0.5) ?? undefined;
+    this.insideWallsLayer = map.createLayer("inside_walls", allTilesets, 0, 0)?.setDepth(0.5) ?? undefined;
     this.wallsTopLayer = map.createLayer("walls_top", allTilesets, 0, 0)?.setDepth(1) ?? undefined;
     this.propsLowLayer = map.createLayer("props_low", allTilesets, 0, 0)?.setDepth(2) ?? undefined;
     this.propsIndoorLayer = map.createLayer("props_indoor", allTilesets, 0, 0)?.setDepth(2) ?? undefined;
@@ -662,6 +705,8 @@ export class GameScene extends Phaser.Scene {
           }
           const sprite = this.add.sprite(cx, cy, "chest", 0).setScale(0.5).setDepth(2);
           this.lootChests.push({ x: cx, y: cy, label, opened: false, sprite });
+        } else if (["med_desk", "ammo_desk", "equipment_desk"].includes(obj.name || "")) {
+          this.rudysDesks.push({ name: obj.name!, x: cx, y: cy, stocked: true });
         } else if (objType === "machine") {
           const name = ((obj as any).name || "").toLowerCase();
           const machineType = name.includes("zyn") ? "zyn" : "keg";
@@ -681,24 +726,10 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Starting room chest + door — read from Tiled interactables
+    // Starting room door — read from Tiled interactables
     if (interactLayer) {
       for (const obj of interactLayer.objects) {
-        if (obj.name === "starting_chest") {
-          const cx = obj.x! + (obj.width || 25) / 2;
-          const cy = obj.y! + (obj.height || 22) / 2;
-          this.startChestX = cx;
-          this.startChestY = cy;
-          // Remove the Tiled visual tile so we don't get a double sprite
-          const tileX = Math.floor(obj.x! / 32);
-          const tileY = Math.floor(obj.y! / 32);
-          for (const layer of [this.propsLowLayer, this.propsMidLayer, this.propsIndoorLayer]) {
-            layer?.removeTileAt(tileX, tileY);
-          }
-          this.startingChestSprite = this.add.sprite(cx, cy, "chest", 0)
-            .setDisplaySize(obj.width || 25, obj.height || 22)
-            .setDepth(2);
-        } else if (obj.name === "starting_door") {
+        if (obj.name === "starting_door") {
           const w = obj.width || 32;
           const h = obj.height || 64;
           const cx = obj.x! + w / 2;
@@ -772,12 +803,7 @@ export class GameScene extends Phaser.Scene {
     this.minimap.setBackgroundColor(0x0a0a14);
     this.minimap.setName("minimap");
 
-    // Circular mask for minimap
-    const mmMaskGraphics = this.make.graphics({ x: 0, y: 0, add: false } as any);
-    mmMaskGraphics.fillStyle(0xffffff);
-    mmMaskGraphics.fillCircle(mmX + mmSize / 2, mmY + mmSize / 2, mmSize / 2);
-    const mmMask = mmMaskGraphics.createGeometryMask();
-    this.minimap.setMask(mmMask);
+    // Square minimap — no mask needed
 
     // Push minimap position to React for border rendering
     hudState.update({ minimapX: mmX, minimapY: mmY, minimapSize: mmSize });
@@ -924,7 +950,7 @@ export class GameScene extends Phaser.Scene {
           this.dismissAxePickup();
           return;
         }
-          return;
+        if (this.kyleIntroActive) return; // React KyleDialogue handles Space
         if (this.masonCutsceneActive && this.masonBannerReady) {
           this.dismissMasonDialogue();
           return;
@@ -952,7 +978,7 @@ export class GameScene extends Phaser.Scene {
       );
       fKey.on("down", () => {
         if (this.player.isSprinting) return;
-        if (this.scaryboiIntroActive || this.masonCutsceneActive) return;
+        if (this.scaryboiIntroActive || this.masonCutsceneActive || this.kyleIntroActive) return;
         this.fireHeld = true;
         if (!this.gameOver && !this.paused && !this.shopOpen) this.useActiveSlot();
       });
@@ -966,23 +992,42 @@ export class GameScene extends Phaser.Scene {
         if (!this.gameOver && !this.paused && !this.shopOpen) this.useAbility();
       });
 
-      // 1-9: direct slot select
-      const slotKeys = [
+      // 1-4: consumable hotbar (tap = use, hold = grenade aim if grenade)
+      const consumableKeys = [
         Phaser.Input.Keyboard.KeyCodes.ONE,
         Phaser.Input.Keyboard.KeyCodes.TWO,
         Phaser.Input.Keyboard.KeyCodes.THREE,
         Phaser.Input.Keyboard.KeyCodes.FOUR,
-        Phaser.Input.Keyboard.KeyCodes.FIVE,
-        Phaser.Input.Keyboard.KeyCodes.SIX,
-        Phaser.Input.Keyboard.KeyCodes.SEVEN,
-        Phaser.Input.Keyboard.KeyCodes.EIGHT,
-        Phaser.Input.Keyboard.KeyCodes.NINE,
       ];
-      slotKeys.forEach((code, idx) => {
+      consumableKeys.forEach((code, idx) => {
         const key = this.input.keyboard!.addKey(code);
         key.on("down", () => {
-          if (this.gameOver || this.paused || this.shopOpen) return;
-          this.selectSlot(idx + 1); // slots are 1-indexed
+          if (this.gameOver || this.paused || this.shopOpen || this.scaryboiIntroActive || this.masonCutsceneActive || this.kyleIntroActive) return;
+          const type = this.consumableSlotAssignments[idx];
+          if (!type || this.getConsumableCount(type) <= 0) return;
+          if (type === "grenade") {
+            // Start grenade hold (same as G key down)
+            if (this.grenadeThrowing) return;
+            this.grenadeKeyDown = true;
+            this.grenadeKeyDownTime = this.time.now;
+            this.grenadeAiming = false;
+          } else {
+            this.useConsumableSlot(idx);
+          }
+        });
+        key.on("up", () => {
+          const type = this.consumableSlotAssignments[idx];
+          if (type === "grenade" && this.grenadeKeyDown) {
+            // Release grenade (same as G key up)
+            this.grenadeKeyDown = false;
+            this.grenadeAiming = false;
+            this.hideGrenadeAim();
+            if (this.grenadeCount > 0 && !this.grenadeThrowing) {
+              this.throwGrenade();
+              this.consumableActiveFlash = idx;
+              this.time.delayedCall(300, () => { if (this.consumableActiveFlash === idx) this.consumableActiveFlash = -1; });
+            }
+          }
         });
       });
 
@@ -999,7 +1044,7 @@ export class GameScene extends Phaser.Scene {
         Phaser.Input.Keyboard.KeyCodes.G
       );
       gKey.on("down", () => {
-        if (this.gameOver || this.paused || this.shopOpen || this.grenadeThrowing || this.scaryboiIntroActive || this.masonCutsceneActive) return;
+        if (this.gameOver || this.paused || this.shopOpen || this.grenadeThrowing || this.scaryboiIntroActive || this.masonCutsceneActive || this.kyleIntroActive) return;
         if (this.grenadeCount <= 0) return;
         this.grenadeKeyDown = true;
         this.grenadeKeyDownTime = this.time.now;
@@ -1017,7 +1062,7 @@ export class GameScene extends Phaser.Scene {
     }
     // Left click = melee punch, Right click = use active item slot
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
-      if (this.gameOver || this.paused || this.shopOpen || this.scaryboiIntroActive || this.masonCutsceneActive) return;
+      if (this.gameOver || this.paused || this.shopOpen || this.scaryboiIntroActive || this.masonCutsceneActive || this.kyleIntroActive) return;
       if (pointer.button === 2) {
         if (this.player.isSprinting) return;
         this.fireHeld = true;
@@ -1069,24 +1114,26 @@ export class GameScene extends Phaser.Scene {
         if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonCutsceneActive || this.axePickupActive || this.inventoryOpen) return;
         if (this.shopOpen) {
           this.closeShop();
-        } else if (this.devMode || this.waveManager.state === "intermission" || this.waveManager.state === "pre_game") {
-          this.openShop();
+        } else if (this.devMode) {
+          this.openShop(); // dev mode can open shop anywhere
         }
       });
 
-      // E key: interact if near something, otherwise cycle hotbar forward
+      // E key: interact if near something, otherwise cycle weapons + fists
       const eKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
       eKey.on("down", () => {
         if (this.gameOver || this.paused || this.shopOpen) return;
         if (this.trySearchLog()) return;
         if (this.tryChopFence()) return;
-        if (this.tryStartingChest()) return;
         if (this.tryLootChest()) return;
         if (this.tryStartingDoor()) return;
         if (this.tryInteractGenerator()) return;
         if (this.tryBuyMachine()) return;
         if (this.tryBuyNearbyDoor()) return;
-        this.cycleSlot(1);
+        if (this.tryDeskInteract()) return;
+        if (this.tryInteractKyle()) return;
+        if (this.tryTeleport()) return;
+        this.cycleWeaponSlot();
       });
 
       // SPACE to skip/ready up during intermission (overrides melee during intermission)
@@ -1105,10 +1152,13 @@ export class GameScene extends Phaser.Scene {
         this.showWeaponMessage(orient, "#44dd44");
       });
 
-      // TAB key — disabled (inventory moved to I key)
+      // TAB key — skip intermission
       const tabKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.TAB);
       tabKey.on("down", (event: KeyboardEvent) => {
         event?.preventDefault?.();
+        if (this.intermissionTimer > 0 && !this.shopOpen && !this.audio.roomTone?.isPlaying) {
+          this.skipIntermission();
+        }
       });
 
       // I key to toggle inventory
@@ -1285,6 +1335,9 @@ export class GameScene extends Phaser.Scene {
           const gate = props?.find(p => p.name === "gate")?.value ?? "";
           gatedZones.push({ label: gate, x: obj.x!, y: obj.y!, w: obj.width!, h: obj.height! });
         }
+        if (obj.name === "rave_crowd") {
+          this.raveCrowdRect = { x: obj.x!, y: obj.y!, w: obj.width!, h: obj.height! };
+        }
       }
     }
 
@@ -1313,16 +1366,49 @@ export class GameScene extends Phaser.Scene {
       if (entrances) roomZones.push({ label: name, ...bounds, entrances });
     }
 
-    // Read SCARYBOI trigger zones from Tiled
+    // Read trigger zones + teleport points from Tiled
     const triggersLayer = map.getObjectLayer("zones_triggers");
     if (triggersLayer) {
       for (const obj of triggersLayer.objects) {
         const props = (obj as any).properties as { name: string; value: any }[] | undefined;
-        const encounter = props?.find(p => p.name === "encounter")?.value ?? "";
-        const requires = props?.find(p => p.name === "requires")?.value ?? "";
-        this.scaryboiTriggerZones.push({ encounter, requires, x: obj.x!, y: obj.y!, w: obj.width!, h: obj.height! });
+        const objType = props?.find(p => p.name === "type")?.value ?? "";
+
+        if (objType === "teleport") {
+          const target = props?.find(p => p.name === "target")?.value ?? "";
+          if (target) {
+            this.teleportPoints.push({ name: obj.name!, target, x: obj.x!, y: obj.y! });
+          }
+        } else if (obj.name === "kyle_intro") {
+          this.kyleTriggerRect = { x: obj.x!, y: obj.y!, w: obj.width!, h: obj.height! };
+        } else if (obj.name === "kyle_npc_rudys") {
+          this.kyleShopPos = { x: obj.x!, y: obj.y! };
+        } else if (obj.name?.startsWith("kyle_cs_")) {
+          // Waypoint paths: kyle_cs_player0, kyle_cs_zombie1, kyle_cs_kyle2, etc.
+          const match = obj.name.match(/^kyle_cs_(player|zombie|kyle)(\d+)$/);
+          if (match) {
+            const actor = match[1];
+            const idx = parseInt(match[2]);
+            const pt = { x: obj.x!, y: obj.y!, _idx: idx };
+            if (actor === "player") (this.kyleCSPlayerPath as any).push(pt);
+            else if (actor === "zombie") (this.kyleCSZombiePath as any).push(pt);
+            else if (actor === "kyle") (this.kyleCSKylePath as any).push(pt);
+          }
+        } else {
+          const encounter = props?.find(p => p.name === "encounter")?.value ?? "";
+          const requires = props?.find(p => p.name === "requires")?.value ?? "";
+          this.scaryboiTriggerZones.push({ encounter, requires, x: obj.x!, y: obj.y!, w: obj.width!, h: obj.height! });
+        }
       }
     }
+
+    // Sort kyle cutscene waypoints by index
+    const sortWaypoints = (arr: any[]) => {
+      arr.sort((a: any, b: any) => a._idx - b._idx);
+      arr.forEach((p: any) => delete p._idx);
+    };
+    sortWaypoints(this.kyleCSPlayerPath);
+    sortWaypoints(this.kyleCSZombiePath);
+    sortWaypoints(this.kyleCSKylePath);
 
     // Check if a world position overlaps any collision object (bushes, trees, buildings)
     const isCollisionFree = (wx: number, wy: number): boolean => {
@@ -1353,27 +1439,28 @@ export class GameScene extends Phaser.Scene {
     this.waveManager.setZoneData({ exclusionZones: this.exclusionZones, gatedZones, roomZones });
 
     // Ambient background loops
-    try {
-      if (this.cache.audio.exists("sfx-ambient-birds")) {
-        const birds = this.sound.add("sfx-ambient-birds", { volume: 0.15, loop: true });
-        birds.play();
-        this.ambientSounds.push(birds);
-      }
-    } catch { /* AudioContext may be closed during HMR */ }
+    this.audio.startAmbientBirds();
 
     this.waveManager.onWaveStart = (wave) => {
       this.currentWave = wave;
       this.closeShop();
+      // Clear intermission state
+      this.intermissionTimer = -1;
+      this.intermissionLocked = false;
+      hudState.update({ intermissionTimer: -1 });
       // Reset level-up cap for new wave
       this.levelingSystem.resetWaveLevelCap();
       // Church bell toll on wave start
-      this.playSound("sfx-church-bell", 0.6);
+      this.audio.playSound("sfx-church-bell", 0.6);
       // Layer in rain ambience starting wave 5
-      if (wave === 5 && this.cache.audio.exists("sfx-ambient-rain")) {
-        const rain = this.sound.add("sfx-ambient-rain", { volume: 0.08, loop: true });
-        rain.play();
-        this.ambientSounds.push(rain);
+      if (wave === 5) this.audio.startAmbientRain();
+      // Restock Rudy's desks every N waves (wave 6, 11, 16, ...)
+      if (wave > 1 && (wave - 1) % BALANCE.desks.restockInterval === 0) {
+        for (const desk of this.rudysDesks) {
+          desk.stocked = true;
+        }
       }
+
       // Clear damage boost from previous wave
       if (this.damageBoostActive) {
         this.player.stats.damage = this.baseDamage;
@@ -1396,7 +1483,13 @@ export class GameScene extends Phaser.Scene {
       this.player.stats.stamina = this.player.stats.maxStamina;
       this.player.burnedOut = false;
 
-      this.showWaveAnnouncement(wave);
+      // Suppress wave announcement during Kyle cutscene — it shows when player exits Rudy's
+      if (!this.kyleIntroActive) {
+        this.showWaveAnnouncement(wave);
+      }
+
+      // Theme music — combat start
+      this.audio.updateThemeMusic("active", wave, this.gameOver);
     };
 
     this.waveManager.onIntermissionStart = () => {
@@ -1415,8 +1508,17 @@ export class GameScene extends Phaser.Scene {
       }
 
       this.showIntermissionAnnouncement();
-      // Show queued level-ups first, then open shop
-      this.time.delayedCall(1000, () => {
+
+      // Theme music — combat ended
+      this.audio.updateThemeMusic("intermission", this.waveManager.wave, this.gameOver);
+
+      // Start 30s intermission timer
+      this.intermissionTimer = 30000;
+      this.intermissionLocked = false;
+      hudState.update({ intermissionTimer: 30 });
+
+      // Show queued level-ups after 3s breathing room
+      this.time.delayedCall(3000, () => {
         if (this.waveManager.state === "intermission") {
           this.showNextPendingLevelUp();
         }
@@ -1428,11 +1530,14 @@ export class GameScene extends Phaser.Scene {
       const enc = this.waveManager.getActiveEncounter();
       if (enc === "library") {
         this.completeObjective("explore_library");
-        this.time.delayedCall(600, () => this.playSound("sfx-scaryboi-flee-south", 0.5));
+        this.time.delayedCall(600, () => this.audio.playSound("sfx-scaryboi-flee-south", 0.5));
       } else {
-        this.time.delayedCall(600, () => this.playSound("sfx-scaryboi-flee-gate1", 0.5));
+        this.time.delayedCall(600, () => this.audio.playSound("sfx-scaryboi-flee-gate1", 0.5));
       }
-      this.playSound("sfx-church-bell", 0.3);
+      this.audio.playSound("sfx-church-bell", 0.3);
+      // Fade intense out, bring back main theme
+      this.audio.stopTheme("themeIntense", 2000);
+      this.audio.startTheme("theme-main", "themeMain", 0.12, true, 2500);
     };
 
     this.waveManager.onEncounterTrigger = (enc) => {
@@ -1458,7 +1563,28 @@ export class GameScene extends Phaser.Scene {
       }
       this.showWeaponMessage("SCARYBOI DEFEATED!", "#44dd44");
       this.completeObjective("defeat_scaryboi");
-      this.time.delayedCall(400, () => this.playSound("sfx-scaryboi-death", 0.5));
+      this.time.delayedCall(400, () => this.audio.playSound("sfx-scaryboi-death", 0.5));
+      // Fade intense out, bring back main theme
+      this.audio.stopTheme("themeIntense", 2000);
+      this.audio.startTheme("theme-main", "themeMain", 0.12, true, 2500);
+
+      // Stop all future wave spawns — endgame from here
+      this.waveManager.spawningDisabled = true;
+      (this.waveManager as any).enemiesToSpawn = 0;
+
+      // Kill all enemies NOT in scaryboi_lair zone
+      const lairZone = this.visibilityZones.find(z => z.name === "scaryboi_lair");
+      this.enemies.getChildren().forEach((obj) => {
+        const e = obj as Enemy;
+        if (!e.active || e.dying) return;
+        if (e.raveZombie) return; // shouldn't exist yet, but safety
+        if (lairZone && this.pointInPolygon(e.x, e.y, lairZone.points)) return; // keep lair enemies
+        e.takeDamage(999999);
+        if (e.active) e.destroy();
+      });
+
+      // Objective updates automatically via getCurrentObjective() chain
+      hudState.update({ currentObjective: this.getCurrentObjective() });
     };
 
     hudState.registerScaryboiIntroAction(() => {
@@ -1471,20 +1597,12 @@ export class GameScene extends Phaser.Scene {
       this.dismissMasonDialogue();
     });
 
-    // Wave start confirm callback
-    hudState.registerWaveStartConfirmAction((action, payload) => {
-      if (action === "confirm") {
-        if (payload?.skipReminder) {
-          this.skipWaveConfirm = true;
-        }
-        hudState.update({ waveStartConfirmActive: false });
-        this.waveManager.advanceWave();
-      } else if (action === "cancel") {
-        // Player wants to go back to shop
-        hudState.update({ waveStartConfirmActive: false });
-        this.openShop();
-      }
+    // Kyle dialogue callback — advance or end cutscene dialogue
+    hudState.registerKyleDialogueAction(() => {
+      this.advanceKyleDialogue();
     });
+
+    // (Wave start confirm removed — replaced by 3-second countdown after shop close)
 
     // Player spawns inside — hide outdoor layers immediately (no fade)
     this.setOutdoorLayersVisible(false);
@@ -1522,16 +1640,29 @@ export class GameScene extends Phaser.Scene {
     // Room visibility: check which zone the player is in and update occluder
     this.updateRoomVisibility();
 
-    if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonCutsceneActive || this.axePickupActive || this.inventoryOpen) {
-      if (this.lastPromptJson !== "") { this.lastPromptJson = ""; hudState.update({ interactionPrompt: null }); }
+    // Wave start countdown (runs regardless of menu state)
+    this.updateWaveStartTimer(delta);
+
+    // Kyle intro cutscene runs its own update loop — must tick before the early-return guard
+    if (this.kyleIntroActive) {
+      this.updateKyleIntroCutscene(delta);
+      hudState.update({
+        hudVisible: true,
+        cutsceneActive: true,
+        health: this.player.stats.health,
+        maxHealth: this.player.stats.maxHealth,
+      });
       return;
     }
 
-    // Safety net: if intermission has no UI showing, re-open shop so player can advance
-    // Skip if level-ups are queued — they'll show first, then open shop when done
-    if (this.waveManager.state === "intermission" && !this.shopOpen && !this.levelUpActive
-        && !hudState.getField("waveStartConfirmActive") && this.pendingLevelUps.length === 0) {
-      this.openShop();
+    // Update intermission timer (ticks even while inside Rudy's / shopping / level-up)
+    if (!this.gameOver && !this.paused) {
+      this.updateIntermissionTimer(delta);
+    }
+
+    if (this.gameOver || this.paused || this.scaryboiIntroActive || this.masonCutsceneActive || this.axePickupActive || this.inventoryOpen) {
+      if (this.lastPromptJson !== "") { this.lastPromptJson = ""; hudState.update({ interactionPrompt: null }); }
+      return;
     }
 
     // Freeze gameplay while shop, level-up, or dev panel is open
@@ -1549,6 +1680,9 @@ export class GameScene extends Phaser.Scene {
       this.physics.world.resume();
       this.player.anims?.resume();
     }
+    // Post-cutscene immunity countdown
+    if (this.postCutsceneImmunity > 0) this.postCutsceneImmunity -= delta;
+
     this.player.update();
     this.waveManager.update(delta);
 
@@ -1559,7 +1693,28 @@ export class GameScene extends Phaser.Scene {
     this.updateFencePrompts();
     this.updateDoorPrompts();
     this.updateMachinePrompts();
+    this.updateDeskPrompts();
+    this.updateKyleShopPrompt();
+    this.updateTeleportPrompts();
     this.pushPromptToHUD();
+
+    // Post-SCARYBOI: when lair is cleared, silently end wave and start muffled music
+    if (this.waveManager.spawningDisabled && !this.masonTriggered && !this.audio.masonRaveMusic) {
+      const aliveEnemies = this.enemies.getChildren().filter(e => (e as Enemy).active && !(e as Enemy).dying);
+      if (aliveEnemies.length === 0) {
+        // Silently end the wave — no announcements, no intermission UI
+        (this.waveManager as any).setState("intermission");
+        this.waveManager.setFrozen(true); // freeze wave manager so no timers run
+
+        // Start rave music with muffled lowpass filter (sounds like it's in another room)
+        this.audio.startMuffledRaveMusic();
+      }
+    }
+
+    // Update muffled music filter based on player position (lair → stairs → club)
+    if (this.audio.masonRaveMusic?.isPlaying && this.audio.masonRaveMusicFilter) {
+      this.audio.updateRaveMusicFilter(this.player.y);
+    }
 
     // Mason estate trigger — player reaches top of stairs
     if (!this.masonTriggered) {
@@ -1613,6 +1768,48 @@ export class GameScene extends Phaser.Scene {
     }
 
 
+    // Kyle intro cutscene — update state machine
+    this.updateKyleIntroCutscene(delta);
+    this.updateKylePacing();
+
+    // Kyle intro trigger — player enters rect near Rudy's
+    if (!this.kyleIntroTriggered && this.kyleTriggerRect.w > 0) {
+      const px = this.player.x;
+      const py = this.player.y;
+      const kr = this.kyleTriggerRect;
+      if (px >= kr.x && px <= kr.x + kr.w && py >= kr.y && py <= kr.y + kr.h) {
+        this.triggerKyleIntroCutscene();
+      }
+    }
+
+    // SCARYBOI proximity crossfade — fade theme_main → theme_creepybass as player approaches
+    if (!this.waveManager.isScaryboiDefeated() && !this.waveManager.isBossActive() && !this.scaryboiIntroActive) {
+      const FADE_DIST = 200; // ~6 tiles
+      let nearZone = false;
+      for (const tz of this.scaryboiTriggerZones) {
+        const enc = tz.encounter as "gate" | "library" | "estate";
+        if (enc === "gate" && this.scaryboiGateTriggered) continue;
+        if (enc === "library" && this.scaryboiLibraryTriggered) continue;
+        if (enc === "estate" && this.scaryboiEstateTriggered) continue;
+        // Distance to nearest edge of zone rectangle (works for indoor zones too)
+        const nearX = Phaser.Math.Clamp(this.player.x, tz.x, tz.x + tz.w);
+        const nearY = Phaser.Math.Clamp(this.player.y, tz.y, tz.y + tz.h);
+        const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, nearX, nearY);
+        if (dist < FADE_DIST) { nearZone = true; break; }
+      }
+      if (nearZone && !this.scaryboiProximityFade) {
+        this.scaryboiProximityFade = true;
+        this.audio.stopTheme("themeMain", 2000);
+        this.audio.stopTheme("themeIntense", 2000);
+        this.audio.startTheme("theme-creepybass", "themeCreepybass", 0.2, false, 2000);
+      } else if (!nearZone && this.scaryboiProximityFade) {
+        this.scaryboiProximityFade = false;
+        this.audio.stopTheme("themeCreepybass", 2000);
+        // Restart whatever theme should be playing
+        this.audio.updateThemeMusic(this.waveManager.state as WaveState, this.waveManager.wave, this.gameOver);
+      }
+    }
+
     // SCARYBOI location-based encounter triggers — rectangles from Tiled zones_triggers
     if (!this.waveManager.isScaryboiDefeated() && !this.waveManager.isBossActive()) {
       const px = this.player.x;
@@ -1641,10 +1838,8 @@ export class GameScene extends Phaser.Scene {
     this.updateEnemyIndoorVisibility();
     this.updateCanopyFade();
 
-    // Barricade placement ghost
-    const showGhost = this.activeSlot === this.barricadeSlot
-      && !this.shopOpen && !this.levelUpActive
-      && (this.trapInventory.get("barricade" as TrapType) ?? 0) > 0;
+    // Barricade placement ghost (disabled — barricades use instant-place via hotbar now)
+    const showGhost = false;
     if (showGhost) {
       const angle = this.getFacingAngle();
       const placeDist = 40;
@@ -1677,11 +1872,11 @@ export class GameScene extends Phaser.Scene {
     // Footsteps while player is moving
     const vel = this.player.body?.velocity;
     if (vel && (Math.abs(vel.x) > 10 || Math.abs(vel.y) > 10)) {
-      this.playFootstep();
+      this.audio.playFootstep(this.player.x, this.player.y, this.pathsLayer, !!this.audio.roomTone?.isPlaying);
     }
 
     // Ambient zombie groans
-    this.tryPlayZombieGroan();
+    this.audio.tryPlayZombieGroan();
 
     // Hold-to-fire: only for auto weapons (SMG) when weapon slot is active.
     if (this.fireHeld && !this.shopOpen && !this.grenadeAiming && !this.grenadeThrowing && !this.player.isSprinting && this.isWeaponSlot(this.activeSlot)) {
@@ -1697,64 +1892,37 @@ export class GameScene extends Phaser.Scene {
 
     // Panting — play once on burnout start
     if (this.player.burnedOut && !this.wasBurnedOut) {
-      this.playSound("sfx-player-panting", 0.3);
-      this.playSound("sfx-burnout-dan", 0.25);
+      this.audio.playSound("sfx-player-panting", 0.3);
+      this.audio.playSound("sfx-burnout-dan", 0.25);
     }
     this.wasBurnedOut = this.player.burnedOut;
 
     // Heartbeat loop when low HP (≤25%)
     const hpPct = this.player.stats.health / this.player.stats.maxHealth;
-    if (hpPct <= 0.25 && hpPct > 0 && !this.heartbeatPlaying) {
-      this.heartbeatPlaying = true;
-      this.sound.play("sfx-heartbeat", { loop: true, volume: 0.15 });
-    } else if ((hpPct > 0.25 || hpPct <= 0) && this.heartbeatPlaying) {
-      this.heartbeatPlaying = false;
-      this.sound.stopByKey("sfx-heartbeat");
-    }
+    this.audio.updateHeartbeat(hpPct);
 
     this.updateHUD();
   }
 
   // ------- Audio Helpers -------
 
-  private lastPunchSfx = 0;
   private wasBurnedOut = false;
-  private heartbeatPlaying = false;
-  private lastDeathSfx = 0;
-  private lastBiteSfx = 0;
-  private lastFootstepTime = 0;
-  private lastGroanTime = 0;
-
-  /** Normalized volume tiers to keep all SFX consistent regardless of source file levels.
-   *  Pass raw 0-1 volume — it gets scaled by master sfxVolume and clamped. */
-  private playSound(key: string, volume = 0.5) {
-    if (this.sfxMuted) return;
-    // Guard against closed AudioContext (happens during HMR / scene teardown)
-    try {
-      if (this.cache.audio.exists(key) && this.sound?.locked === false) {
-        const final = Math.min(volume * this.sfxVolume, 0.6);
-        this.sound.play(key, { volume: final });
-      }
-    } catch {
-      // AudioContext closed — safe to ignore
-    }
-  }
 
   /** Play a SCARYBOI taunt after he deals damage. Character-specific for Muff, generic otherwise.
    *  Maniacal laugh plays very rarely. Cooldown prevents spam. */
   private maybePlayScaryboiTaunt(forcePlay = false) {
     const now = this.time.now;
     const cooldown = forcePlay ? 0 : 12000; // 12s between taunts normally, 0 on kill
-    if (now - this.lastScaryboiTauntTime < cooldown) return;
+    if (now - this.audio.lastScaryboiTauntTime < cooldown) return;
 
     // 20% chance on damage, 100% on kill (forcePlay)
     if (!forcePlay && Math.random() > 0.2) return;
 
-    this.lastScaryboiTauntTime = now;
+    this.audio.lastScaryboiTauntTime = now;
 
     // Very rare maniacal laugh (5% chance, separate from taunts)
     if (Math.random() < 0.05) {
-      this.time.delayedCall(300, () => this.playSound("sfx-scaryboi-laugh", 0.45));
+      this.time.delayedCall(300, () => this.audio.playSound("sfx-scaryboi-laugh", 0.45));
       return;
     }
 
@@ -1762,62 +1930,17 @@ export class GameScene extends Phaser.Scene {
     if (this.characterDef.id === "jason") {
       const jasonTaunts = ["sfx-scaryboi-taunt-jason1", "sfx-scaryboi-taunt-jason2", "sfx-scaryboi-taunt-jason3"];
       const pick = jasonTaunts[Math.floor(Math.random() * jasonTaunts.length)];
-      this.time.delayedCall(300, () => this.playSound(pick, 0.45));
+      this.time.delayedCall(300, () => this.audio.playSound(pick, 0.45));
       return;
     }
 
     // Generic taunt for other characters
-    this.time.delayedCall(300, () => this.playSound("sfx-scaryboi-taunt-generic1", 0.45));
-  }
-
-  private playRandomPunch() {
-    const now = this.time.now;
-    if (now - this.lastPunchSfx < 300) return;
-    this.lastPunchSfx = now;
-    const keys = [
-      "sfx-punch1", "sfx-punch2", "sfx-punch3",
-      "sfx-punch-body1", "sfx-punch-body2", "sfx-hit-classic",
-      "sfx-punch-foley", "sfx-slap",
-    ];
-    this.playSound(keys[Math.floor(Math.random() * keys.length)], 0.4);
-  }
-
-  private playRandomEnemyDeath() {
-    const deathKeys = [
-      "sfx-enemy-death1", "sfx-enemy-death2", "sfx-enemy-death3", "sfx-enemy-death4",
-      "sfx-enemy-death5", "sfx-enemy-death6", "sfx-enemy-death7", "sfx-enemy-death8",
-    ];
-    this.playSound(deathKeys[Math.floor(Math.random() * deathKeys.length)], 0.3);
-    // ~30% chance to layer gore splat on top
-    if (Math.random() < 0.3) {
-      this.playSound("sfx-gore-splat", 0.25);
-    }
-  }
-
-  private playBiteSound() {
-    // MUTED — pending sound audit
-  }
-
-  /** Play footstep sound based on player position (grass default, gravel on paths, wood on deck) */
-  private playFootstep() {
-    const now = this.time.now;
-    if (now - this.lastFootstepTime < 280) return; // ~3.5 steps/sec
-    this.lastFootstepTime = now;
-
-    // TODO: surface detection from tilemap layers (road=gravel, building=wood)
-    // For now, all grass footsteps
-    const i = Math.floor(Math.random() * 6) + 1;
-    this.playSound(`sfx-step-grass${i}`, 0.15);
-  }
-
-  /** Random zombie groan from nearby enemies — atmospheric idle sound */
-  private tryPlayZombieGroan() {
-    // MUTED — pending sound audit
+    this.time.delayedCall(300, () => this.audio.playSound("sfx-scaryboi-taunt-generic1", 0.45));
   }
 
   /** Play player damage grunt */
   private playPlayerHurt() {
-    this.playSound("sfx-player-grunt", 0.35);
+    this.audio.playSound("sfx-player-grunt", 0.35);
   }
 
   // ------- Grenades -------
@@ -2009,6 +2132,12 @@ export class GameScene extends Phaser.Scene {
   private detonateGrenade(x: number, y: number) {
     const { damage, radius, knockback } = BALANCE.grenade;
 
+    // Scale grenade damage down after wave 8 so it can't one-shot zombies
+    const waveScale = this.waveManager.wave > 8
+      ? Math.max(0.4, 1 - (this.waveManager.wave - 8) * 0.08)
+      : 1;
+    const scaledDamage = Math.floor(damage * waveScale);
+
     // Damage all enemies in radius
     this.enemies.getChildren().forEach((obj) => {
       const enemy = obj as Enemy;
@@ -2016,7 +2145,7 @@ export class GameScene extends Phaser.Scene {
       const dist = Phaser.Math.Distance.Between(x, y, enemy.x, enemy.y);
       if (dist <= radius) {
         const dmgMult = 1 - (dist / radius) * 0.5; // damage falloff
-        const finalDmg = Math.floor(damage * dmgMult);
+        const finalDmg = Math.floor(scaledDamage * dmgMult);
         enemy.takeDamage(finalDmg);
 
         // Knockback from blast center
@@ -2072,7 +2201,7 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.flash(80, 255, 150, 0, false);
 
     // Sound
-    this.playSound("sfx-explosion", 0.5);
+    this.audio.playSound("sfx-explosion", 0.5);
   }
 
   // ------- Hotbar -------
@@ -2080,6 +2209,7 @@ export class GameScene extends Phaser.Scene {
   /** Slot layout: weapons[0]=slot1, weapons[1]=slot2, ..., then barricade, then mine */
   private get barricadeSlot(): number { return this.weapons.length + 1; }
   private get mineSlot(): number { return this.weapons.length + 2; }
+  private get bandageSlot(): number { return this.weapons.length + 3; }
 
   /** Get list of slot indices that currently have items */
   private getAvailableSlots(): number[] {
@@ -2087,6 +2217,7 @@ export class GameScene extends Phaser.Scene {
     const available: number[] = this.weapons.map((_, i) => i + 1);
     if ((this.trapInventory.get("barricade" as TrapType) ?? 0) > 0) available.push(this.barricadeSlot);
     if ((this.trapInventory.get("landmine" as TrapType) ?? 0) > 0) available.push(this.mineSlot);
+    if (this.bandageCount > 0) available.push(this.bandageSlot);
     return available;
   }
 
@@ -2122,6 +2253,35 @@ export class GameScene extends Phaser.Scene {
     this.selectSlot(available[nextIdx]);
   }
 
+  /** Cycle between fists (slot 0) and weapon slots only. E key behavior. */
+  private cycleWeaponSlot() {
+    // Weapon slots: 1..weapons.length, plus 0 for fists
+    const weaponSlots = [0, ...this.weapons.map((_, i) => i + 1)];
+    if (weaponSlots.length <= 1 && !this.hasWeapon) return; // only fists
+
+    if (this.reloading) {
+      this.reloading = false;
+      if (this.reloadTimer) { this.reloadTimer.destroy(); this.reloadTimer = null; }
+      this.player.stopReload();
+    }
+
+    const currentIdx = weaponSlots.indexOf(this.activeSlot);
+    let nextIdx: number;
+    if (currentIdx === -1) {
+      nextIdx = this.hasWeapon ? 1 : 0; // default to first weapon
+    } else {
+      nextIdx = (currentIdx + 1) % weaponSlots.length;
+    }
+    const newSlot = weaponSlots[nextIdx];
+    this.activeSlot = newSlot;
+    if (newSlot === 0) {
+      this.audio.playSound("sfx-weapon-switch", 0.3);
+      this.showWeaponMessage("FISTS", "#44dd44");
+    } else {
+      this.selectSlot(newSlot);
+    }
+  }
+
   private selectSlot(index: number) {
     const available = this.getAvailableSlots();
     if (!available.includes(index)) return;
@@ -2141,7 +2301,7 @@ export class GameScene extends Phaser.Scene {
     if (weapon) {
       this.activeWeapon = weapon;
     }
-    if (index !== prevSlot) this.playSound("sfx-weapon-switch", 0.3);
+    if (index !== prevSlot) this.audio.playSound("sfx-weapon-switch", 0.3);
     // Set trap index when selecting a trap slot
     if (index === this.barricadeSlot) this.selectedTrapIndex = 0;
     if (index === this.mineSlot) this.selectedTrapIndex = 1;
@@ -2155,6 +2315,8 @@ export class GameScene extends Phaser.Scene {
       name = "BARRICADE";
     } else if (index === this.mineSlot) {
       name = "MINE";
+    } else if (index === this.bandageSlot) {
+      name = "BANDAGE";
     }
     this.showWeaponMessage(name, "#44dd44");
   }
@@ -2162,21 +2324,18 @@ export class GameScene extends Phaser.Scene {
   private useActiveSlot() {
     if (this.isWeaponSlot(this.activeSlot)) {
       this.fireWeapon();
-    } else if (this.activeSlot === this.barricadeSlot) {
-      this.selectedTrapIndex = 0;
-      this.placeTrap();
-    } else if (this.activeSlot === this.mineSlot) {
-      this.selectedTrapIndex = 1;
-      this.placeTrap();
+    } else if (this.activeSlot === 0) {
+      // Fists — no-op for right-click (melee is left-click)
     }
   }
 
   /** Add a weapon to the inventory (no duplicates) */
   private addWeapon(weaponId: string, ammo: { mag: number; reserve: number }) {
+    const bankedReserve = this.weaponAmmo[weaponId]?.reserve ?? 0;
     if (!this.weapons.includes(weaponId)) {
       this.weapons.push(weaponId);
     }
-    this.weaponAmmo[weaponId] = ammo;
+    this.weaponAmmo[weaponId] = { mag: ammo.mag, reserve: ammo.reserve + bankedReserve };
   }
 
   /** Remove a depleted weapon from inventory */
@@ -2263,11 +2422,11 @@ export class GameScene extends Phaser.Scene {
         );
       });
       if (hitAny) {
-        this.playRandomPunch();
+        this.audio.playRandomPunch();
       } else {
         // Missed punch — whoosh + grunt
-        this.playSound("sfx-whoosh", 0.3);
-        if (Math.random() < 0.4) this.playSound("sfx-grunt", 0.25);
+        this.audio.playSound("sfx-whoosh", 0.3);
+        if (Math.random() < 0.4) this.audio.playSound("sfx-grunt", 0.25);
       }
     });
   }
@@ -2298,23 +2457,15 @@ export class GameScene extends Phaser.Scene {
     const scavengerFlat = Math.floor(effective.killBonusFlat);
     this.currency += baseReward + meleeFlat + scavengerFlat;
     this.waveManager.onEnemyKilled();
-    this.playRandomEnemyDeath();
+    this.audio.playRandomEnemyDeath();
 
-    // Mason death — re-open estate entrance
+    // Mason death — victory!
     if (enemy.enemyType === "mason") {
-      const estateDoor = this.doors.find(d => d.label === "gate2");
-      if (estateDoor && !estateDoor.opened) {
-        (estateDoor.zone.body as Phaser.Physics.Arcade.StaticBody).enable = false;
-        if (estateDoor.promptText) estateDoor.promptText.setVisible(false);
-        for (const t of estateDoor.savedTiles) {
-          this.getDoorLayer(t.layer)?.removeTileAt(t.col, t.row);
-        }
-        estateDoor.opened = true;
-        this.reachableDirty = true;
-      }
-      this.showWeaponMessage("BIGBABY DEFEATED!", "#44dd44");
       this.completeObjective("defeat_bigbaby");
       this.cleanupClubAtmosphere();
+      this.audio.stopRaveMusic();
+      // Brief pause, then trigger victory
+      this.time.delayedCall(2000, () => this.triggerVictory());
     }
 
     // Blood splat on melee/ability/trap kills (ranged kills handled in handleProjectileHit)
@@ -2415,9 +2566,9 @@ export class GameScene extends Phaser.Scene {
     const footY = this.player.y + Math.sin(angle) * 24;
     this.spawnContactSparks(footX, footY, "-red");
 
-    this.playSound("sfx-punch1", 0.4);
-    this.playSound("sfx-hit-classic", 0.35);
-    if (hits > 0) this.playSound("sfx-whoosh", 0.3);
+    this.audio.playSound("sfx-punch1", 0.4);
+    this.audio.playSound("sfx-hit-classic", 0.35);
+    if (hits > 0) this.audio.playSound("sfx-whoosh", 0.3);
   }
 
   /** Spawn colored lightning sparks at a contact point. Color: "" (blue), "-red", "-green", "-orange" */
@@ -2518,7 +2669,7 @@ export class GameScene extends Phaser.Scene {
     this.spawnFistSparks(angle);
 
     if (!primaryTarget) {
-      this.playSound("sfx-whoosh", 0.3);
+      this.audio.playSound("sfx-whoosh", 0.3);
       return;
     }
 
@@ -2564,8 +2715,8 @@ export class GameScene extends Phaser.Scene {
     // Sequential chain: bolt travels from target to target, applying damage on arrival
     this.chainLightningSequential(primaryTarget as Enemy, chainTargets, damage, electrocuteDelay);
 
-    this.playSound("sfx-punch1", 0.4);
-    this.playSound("sfx-hit-classic", 0.35);
+    this.audio.playSound("sfx-punch1", 0.4);
+    this.audio.playSound("sfx-hit-classic", 0.35);
   }
 
   // ------- Blood Splatter VFX -------
@@ -2883,8 +3034,8 @@ export class GameScene extends Phaser.Scene {
       onComplete: () => arcGfx.destroy(),
     });
 
-    this.playSound("sfx-whoosh", 0.35);
-    if (hits > 0) this.playSound("sfx-hit-classic", 0.35);
+    this.audio.playSound("sfx-whoosh", 0.35);
+    if (hits > 0) this.audio.playSound("sfx-hit-classic", 0.35);
   }
 
   /** Jason — Smokescreen: smoke cloud that heals player and confuses enemies */
@@ -2951,8 +3102,8 @@ export class GameScene extends Phaser.Scene {
       // Shockwave VFX at impact
       this.spawnSledgehammerVFX();
 
-      this.playSound("sfx-explosion", 0.4);
-      if (hits > 0) this.playSound("sfx-hit-classic", 0.35);
+      this.audio.playSound("sfx-explosion", 0.4);
+      if (hits > 0) this.audio.playSound("sfx-hit-classic", 0.35);
     });
   }
 
@@ -3038,7 +3189,7 @@ export class GameScene extends Phaser.Scene {
         this.startReload();
       } else if (!this.dryFired) {
         this.dryFired = true;
-        this.playSound("sfx-dryfire", 0.4);
+        this.audio.playSound("sfx-dryfire", 0.4);
         this.showWeaponMessage("NO AMMO", "#ff4444");
       }
       return;
@@ -3110,15 +3261,15 @@ export class GameScene extends Phaser.Scene {
 
     // Weapon fire sound
     if (this.activeWeapon === "pistol") {
-      this.playSound("sfx-pistol", 0.4);
+      this.audio.playSound("sfx-pistol", 0.4);
     } else if (this.activeWeapon === "shotgun") {
-      this.playSound("sfx-shotgun", 0.4);
+      this.audio.playSound("sfx-shotgun", 0.4);
     } else if (this.activeWeapon === "smg") {
-      this.playSound("sfx-smg", 0.3);
+      this.audio.playSound("sfx-smg", 0.3);
     } else if (this.activeWeapon === "rpg") {
-      this.playSound("sfx-shotgun", 0.5); // placeholder — reuse shotgun boom
+      this.audio.playSound("sfx-shotgun", 0.5); // placeholder — reuse shotgun boom
     } else if (this.activeWeapon === "assault_rifle") {
-      this.playSound("sfx-smg", 0.35); // placeholder — reuse smg sound
+      this.audio.playSound("sfx-smg", 0.35); // placeholder — reuse smg sound
     }
 
     // Muzzle flash
@@ -3149,7 +3300,7 @@ export class GameScene extends Phaser.Scene {
         } else if (!this.dryFired) {
           this.dryFired = true;
           this.time.delayedCall(250, () => {
-            this.playSound("sfx-dryfire", 1.0);
+            this.audio.playSound("sfx-dryfire", 1.0);
             this.showWeaponMessage("NO AMMO", "#ff4444");
           });
         }
@@ -3176,9 +3327,9 @@ export class GameScene extends Phaser.Scene {
     this.time.delayedCall(Math.floor(effectiveReloadMs * 0.5), () => {
       if (!this.reloading) return; // cancelled
       if (reloadingWeapon === "shotgun") {
-        this.playSound("sfx-reload-shotgun", 0.5);
+        this.audio.playSound("sfx-reload-shotgun", 0.5);
       } else {
-        this.playSound("sfx-reload-rifle", 0.5);
+        this.audio.playSound("sfx-reload-rifle", 0.5);
       }
     });
 
@@ -3192,8 +3343,7 @@ export class GameScene extends Phaser.Scene {
       wAmmo.reserve -= loaded;
       this.reloading = false;
       this.reloadTimer = null;
-      this.playSound("sfx-reload-complete", 0.4);
-      this.showWeaponMessage("RELOADED", "#44dd44");
+      this.audio.playSound("sfx-reload-complete", 0.4);
     });
   }
 
@@ -3263,7 +3413,7 @@ export class GameScene extends Phaser.Scene {
       this.trapInventory.set(trapType, remaining);
     }
 
-    this.playSound("sfx-trap-place", 0.4);
+    this.audio.playSound("sfx-trap-place", 0.4);
     this.showWeaponMessage(`${BALANCE.traps[trapType].name.toUpperCase()} PLACED`, "#44dd44");
   }
 
@@ -3276,7 +3426,7 @@ export class GameScene extends Phaser.Scene {
       const wasDying = enemy.dying;
       const shouldRemove = trap.trigger(enemy, this);
       if (trap.trapType === "landmine" && shouldRemove) {
-        this.playSound("sfx-explosion", 0.4);
+        this.audio.playSound("sfx-explosion", 0.4);
       }
       if (shouldRemove) {
         trap.destroy();
@@ -3304,20 +3454,23 @@ export class GameScene extends Phaser.Scene {
     };
 
   private rollCrit(weaponKey: string, distanceRatio: number): boolean {
+    // No headshots from melee
+    if (weaponKey === "fists") return false;
+
     const effective = this.levelingSystem.getEffectiveStats(this.characterDef.stats);
     const charCrit = effective.critChance;
     const weaponCrit = BALANCE.crit.weaponCrit[weaponKey as keyof typeof BALANCE.crit.weaponCrit] ?? 0;
     const distCrit = BALANCE.crit.closeCritBonus * (1 - distanceRatio);
     const levelCrit = (this.levelingSystem.level - 1) * BALANCE.crit.critPerLevel;
 
-    const totalCrit = Math.min(charCrit + weaponCrit + distCrit + levelCrit, 0.05); // hard cap 5%
+    const totalCrit = charCrit + weaponCrit + distCrit + levelCrit;
     return Math.random() < totalCrit;
   }
 
-  private showCritEffect(x: number, y: number, source: "melee" | "ranged" = "melee") {
-    const label = source === "ranged" ? "HEADSHOT" : "CRIT!";
-    const color1 = source === "ranged" ? "#ffdd44" : "#ff4444";
-    const color2 = source === "ranged" ? "#cc8800" : "#8b0000";
+  private showCritEffect(x: number, y: number, _source: "melee" | "ranged" = "ranged") {
+    const label = "HEADSHOT";
+    const color1 = "#ffdd44";
+    const color2 = "#cc8800";
 
     const txt = this.add.text(x, y - 20, label, {
       fontFamily: "ChainsawCarnage, HorrorPixel, monospace",
@@ -3331,8 +3484,8 @@ export class GameScene extends Phaser.Scene {
     gradient.addColorStop(1, color2);
     txt.setFill(gradient);
 
-    if (source === "ranged") {
-      this.playSound("sfx-click", 0.6); // ping on headshot
+    {
+      this.audio.playSound("sfx-click", 0.6); // ping on headshot
     }
 
     this.tweens.add({
@@ -3386,7 +3539,7 @@ export class GameScene extends Phaser.Scene {
         }
         // Bullet impact thud — 25% chance on non-kill hits
         if (Math.random() < 0.25) {
-          this.playSound("sfx-bullet-impact", 0.2);
+          this.audio.playSound("sfx-bullet-impact", 0.2);
         }
       }
 
@@ -3481,7 +3634,7 @@ export class GameScene extends Phaser.Scene {
       onComplete: () => boom.destroy(),
     });
 
-    this.playSound("sfx-explosion", 0.6);
+    this.audio.playSound("sfx-explosion", 0.6);
     this.cameras.main.flash(100, 255, 200, 50, false);
   }
 
@@ -3495,6 +3648,9 @@ export class GameScene extends Phaser.Scene {
       if (this.player.invincible) return; // dev god mode
       if (this.player.isPunching) return; // i-frames during punch
       if (this.abilityActive) return; // invincible during ability (e.g. Jason slam)
+      if (this.masonRavePhase === "rave_setup") return; // dancing zombies don't attack during rave vibes
+      if (this.postCutsceneImmunity > 0) return; // brief immunity after rave cutscene ends
+      if (this.kyleIntroActive) return; // impervious during Kyle intro cutscene
 
       const now = this.time.now;
       if (now - this.lastDamageTime < 500) return;
@@ -3514,7 +3670,7 @@ export class GameScene extends Phaser.Scene {
       }
       this.player.stats.health -= incomingDmg;
       enemy.playBite();
-      this.playBiteSound();
+      this.audio.playBiteSound();
 
       // Brief nudge on contact — just enough to trigger bite anim, not repel them
       const pushAngle = Phaser.Math.Angle.Between(
@@ -3542,10 +3698,7 @@ export class GameScene extends Phaser.Scene {
         this.player.stats.health = 0;
         this.gameOver = true; // Stop all damage immediately
         // Kill heartbeat immediately on death
-        if (this.heartbeatPlaying) {
-          this.heartbeatPlaying = false;
-          this.sound.stopByKey("sfx-heartbeat");
-        }
+        this.audio.stopHeartbeat();
         this.player.body.setVelocity(0, 0);
         // SCARYBOI taunt on kill (guaranteed)
         if (enemy.enemyType === "boss") {
@@ -3567,6 +3720,12 @@ export class GameScene extends Phaser.Scene {
 
     const waveReached = this.waveManager.wave;
 
+    // Stop all theme music, play outro
+    this.audio.stopTheme("themeMain", 500);
+    this.audio.stopTheme("themeIntense", 500);
+    this.audio.stopTheme("themeCreepybass", 500);
+    this.audio.startTheme("theme-outro", "themeOutro", 0.3, false, 1500);
+
     // Push death screen to React — include health=0 so the bar visually empties
     this.game.canvas.style.pointerEvents = "none"; // Let React handle clicks during game over
     hudState.update({
@@ -3581,6 +3740,36 @@ export class GameScene extends Phaser.Scene {
     // After delay, check if score qualifies for leaderboard
     this.time.delayedCall(2000, () => {
       this.checkLeaderboardQualification(waveReached);
+    });
+  }
+
+  private triggerVictory() {
+    this.gameOver = true;
+
+    // Stop all theme music, play outro
+    this.audio.stopTheme("themeMain", 500);
+    this.audio.stopTheme("themeIntense", 500);
+    this.audio.stopTheme("themeCreepybass", 500);
+    this.audio.startTheme("theme-outro", "themeOutro", 0.3, false, 1500);
+
+    // Freeze all remaining enemies
+    this.enemies.getChildren().forEach((obj) => {
+      const e = obj as Enemy;
+      e.body?.setVelocity(0, 0);
+    });
+
+    this.game.canvas.style.pointerEvents = "none";
+    hudState.update({
+      gameOver: true,
+      gameOverPhase: "victory",
+      gameOverWave: this.waveManager.wave,
+      gameOverKills: this.kills,
+      gameOverCharName: this.characterDef.name,
+    });
+
+    // After victory message, go to leaderboard
+    this.time.delayedCall(5000, () => {
+      this.checkLeaderboardQualification(this.waveManager.wave);
     });
   }
 
@@ -3695,16 +3884,12 @@ export class GameScene extends Phaser.Scene {
           this.settingsOpen = false;
           hudState.update({ settingsOpen: false });
           break;
-        case "setVolume": {
-          const val = payload as number;
-          this.sfxVolume = val;
-          this.sfxMuted = val === 0;
-          hudState.update({ sfxVolume: val });
-          for (const s of this.ambientSounds) {
-            if ("setVolume" in s) (s as Phaser.Sound.WebAudioSound).setVolume(val * 0.15);
-          }
+        case "setVolume":
+          this.audio.setSfxVolume(payload as number);
           break;
-        }
+        case "setMusicVolume":
+          this.audio.setMusicVolume(payload as number);
+          break;
         case "toggleZoom": {
           this.zoomEnabled = !this.zoomEnabled;
           hudState.update({ zoomEnabled: this.zoomEnabled });
@@ -3779,12 +3964,12 @@ export class GameScene extends Phaser.Scene {
   // ------- Shop (React overlay — data push only) -------
 
   private readonly shopIconMap: Record<string, string> = {
-    firstaid: "/assets/sprites/items/bandage.png",
+    first_aid: "/assets/sprites/items/bandage.png",
     shotgun: "/assets/sprites/items/shotgun.png",
     smg: "/assets/sprites/items/smg.png",
-    ammo_light: "/assets/sprites/items/ammo.png",
-    ammo_shotgun: "/assets/sprites/items/ammo.png",
-    ammo_heavy: "/assets/sprites/items/ammo.png",
+    ammo_light: "/assets/sprites/items/ammo-light.png",
+    ammo_shotgun: "/assets/sprites/items/ammo-shotgun.png",
+    ammo_heavy: "/assets/sprites/items/ammo-heavy.png",
     landmine: "/assets/sprites/items/landmine.png",
     grenade: "/assets/sprites/items/grenade.png",
   };
@@ -3824,8 +4009,8 @@ export class GameScene extends Phaser.Scene {
       if ((item as any).devOnly && !this.devMode) return;
       if ((item as any).hidden && !this.devMode) return;
       const id = item.id;
-      if (id === "firstaid") columns[0].push(idx);
-      else if (["shotgun", "smg", "ammo_light", "ammo_shotgun", "ammo_heavy"].includes(id)) columns[1].push(idx);
+      if (["first_aid"].includes(id)) columns[0].push(idx);
+      else if (["shotgun", "ammo_light", "ammo_shotgun", "ammo_heavy"].includes(id)) columns[1].push(idx);
       else columns[2].push(idx);
     });
     this.shopGrid = columns;
@@ -3875,7 +4060,7 @@ export class GameScene extends Phaser.Scene {
       const id = item.id;
       let category: "supplies" | "weapons" | "traps" = "supplies";
       if (["shotgun", "smg"].includes(id)) category = "weapons";
-      else if (["ammo_light", "ammo_shotgun", "ammo_heavy"].includes(id)) category = "supplies";
+      else if (["first_aid", "ammo_light", "ammo_shotgun", "ammo_heavy"].includes(id)) category = "supplies";
       else if (["landmine", "grenade"].includes(id)) category = "traps";
 
       return {
@@ -3904,22 +4089,9 @@ export class GameScene extends Phaser.Scene {
     return Math.floor(item.basePrice * inflation);
   }
 
-  // ─── Canopy fade (tree canopies go transparent near player + red glow on hidden characters) ───
+  // ─── Canopy fade (tree canopies go transparent near player) ───
 
   private fadedCanopyTiles: { tile: Phaser.Tilemaps.Tile }[] = [];
-  private canopyGlowSprites: Set<Phaser.GameObjects.Sprite> = new Set();
-
-  /** Check if a sprite is substantially under canopy (checks head + center + feet) */
-  private isUnderCanopy(x: number, y: number): boolean {
-    const check = (cx: number, cy: number) => {
-      const tx = Math.floor(cx / 32);
-      const ty = Math.floor(cy / 32);
-      return !!(this.foliagePaintedLayer?.getTileAt(tx, ty) || this.overhangsLayer?.getTileAt(tx, ty));
-    };
-    // Sample 3 points vertically on the sprite — require at least 2 hits
-    const hits = (check(x, y) ? 1 : 0) + (check(x, y - 12) ? 1 : 0) + (check(x, y - 24) ? 1 : 0);
-    return hits >= 2;
-  }
 
   private updateCanopyFade() {
     // Restore previously faded tiles
@@ -3927,14 +4099,6 @@ export class GameScene extends Phaser.Scene {
       tile.alpha = 1;
     }
     this.fadedCanopyTiles.length = 0;
-
-    // Remove glow from sprites that were glowing last frame
-    for (const sprite of this.canopyGlowSprites) {
-      if (sprite.active && sprite.preFX) {
-        sprite.preFX.clear();
-      }
-    }
-    this.canopyGlowSprites.clear();
 
     if (this.playerInsideBuilding) return;
 
@@ -3961,29 +4125,103 @@ export class GameScene extends Phaser.Scene {
 
           if (dist < fadeRadius) {
             const t = Math.max(0, (dist - 1) / (fadeRadius - 1));
-            tile.alpha = 0.55 + t * 0.45; // 0.55 at center, 1.0 at edge
+            tile.alpha = 0.30 + t * 0.70; // 0.30 at center, 1.0 at edge
             this.fadedCanopyTiles.push({ tile });
           }
         }
       }
     }
+  }
 
-    // Red glow outline on player and enemies under canopy
-    const addGlow = (sprite: Phaser.GameObjects.Sprite) => {
-      if (!sprite.active || !sprite.preFX) return;
-      sprite.preFX.addGlow(0xff2222, 2, 0, false, 0.15, 10);
-      this.canopyGlowSprites.add(sprite);
-    };
+  // ─── Teleport points ───
 
-    if (this.isUnderCanopy(this.player.x, this.player.y)) {
-      addGlow(this.player);
+  private nearestTeleport: (typeof this.teleportPoints)[number] | null = null;
+
+  private updateTeleportPrompts() {
+    if (this.teleporting || this.teleportPoints.length === 0) return;
+
+    const px = this.player.x;
+    const py = this.player.y;
+    this.nearestTeleport = null;
+
+    for (const tp of this.teleportPoints) {
+      const dist = Phaser.Math.Distance.Between(px, py, tp.x, tp.y);
+      if (dist < this.startInteractDist) {
+        const isExterior = tp.name.includes("exterior");
+        // Lock Rudy's entrance during active waves
+        if (isExterior) {
+          const ws = this.waveManager.state;
+          if (ws === "active" || ws === "clearing") {
+            this.setActivePrompt("Closed", tp.x, tp.y - 14);
+            this.nearestTeleport = null; // prevent E key from working
+            return;
+          }
+        }
+        this.nearestTeleport = tp;
+        const label = isExterior ? "E  Enter" : "E  Exit";
+        this.setActivePrompt(label, tp.x, tp.y - 14);
+        return;
+      }
+    }
+  }
+
+  private tryTeleport(): boolean {
+    if (this.teleporting || !this.nearestTeleport) return false;
+    const dest = this.teleportPoints.find(p => p.name === this.nearestTeleport!.target);
+    if (!dest) return false;
+
+    // If exiting Rudy's after Kyle intro, trigger next wave on arrival
+    const leavingRudys = this.nearestTeleport.name === "teleport_rudys_interior"
+      && this.kyleIntroTriggered;
+
+    // Track if this is the first exit after Kyle cutscene (wave 1 start)
+    const firstExitAfterKyle = leavingRudys && this.waveManager.state === "pre_game";
+
+    // Entering Rudy's — start room tone; leaving — stop it
+    const enteringRudys = this.nearestTeleport.name.includes("exterior");
+    if (enteringRudys) {
+      this.audio.startRoomTone();
+    } else if (leavingRudys) {
+      this.audio.stopRoomTone();
     }
 
-    this.enemies.getChildren().forEach((obj) => {
-      const enemy = obj as Phaser.GameObjects.Sprite;
-      if (enemy.active && this.isUnderCanopy(enemy.x, enemy.y)) {
-        addGlow(enemy);
+    this.doTeleport(dest.x, dest.y, () => {
+      if (leavingRudys) {
+        this.waveManager.setFrozen(false);
+        if (firstExitAfterKyle) {
+          // Start wave 1 fresh — deferred from starting door
+          this.waveManager.skipPreGame();
+        } else if (this.waveManager.state === "intermission") {
+          // If intermission expired (locked), start next wave immediately
+          if (this.intermissionLocked || this.intermissionTimer <= 0) {
+            this.intermissionTimer = -1;
+            this.intermissionLocked = false;
+            hudState.update({ intermissionTimer: -1 });
+            this.startWaveCountdown();
+          }
+        }
       }
+    });
+    return true;
+  }
+
+  private doTeleport(destX: number, destY: number, onComplete?: () => void) {
+    this.teleporting = true;
+    this.player.body?.setVelocity(0, 0);
+
+    // Fade out
+    this.cameras.main.fadeOut(200, 0, 0, 0);
+    this.cameras.main.once("camerafadeoutcomplete", () => {
+      // Offset slightly so player doesn't re-trigger the destination point
+      this.player.setPosition(destX, destY + 32);
+      this.cameras.main.centerOn(destX, destY + 32);
+
+      // Fade in
+      this.cameras.main.fadeIn(200, 0, 0, 0);
+      this.cameras.main.once("camerafadeincomplete", () => {
+        this.teleporting = false;
+        onComplete?.();
+      });
     });
   }
 
@@ -4019,7 +4257,7 @@ export class GameScene extends Phaser.Scene {
 
   /** Layers that should be hidden when the player is inside a building */
   private get outdoorLayers(): (Phaser.Tilemaps.TilemapLayer | undefined)[] {
-    return [this.groundLayer, this.groundDetailLayer, this.pathsLayer, this.foliagePaintedLayer, this.overhangsLayer, this.vfxMarksLayer, this.propsLowLayer, this.propsMidLayer, this.insideWallsLayer];
+    return [this.groundLayer, this.groundDetailLayer, this.pathsLayer, this.foliagePaintedLayer, this.overhangsLayer, this.vfxMarksLayer, this.propsLowLayer, this.propsMidLayer];
   }
 
   private updateInteriorDarkness() {
@@ -4032,10 +4270,19 @@ export class GameScene extends Phaser.Scene {
 
     if (isInside && !this.playerInsideBuilding) {
       this.playerInsideBuilding = true;
-      this.fadeInteriorTransition(true);
+      if (this.teleporting) {
+        // During teleport, just toggle layers — teleport already fades
+        this.setOutdoorLayersVisible(false);
+      } else {
+        this.fadeInteriorTransition(true);
+      }
     } else if (!isInside && this.playerInsideBuilding) {
       this.playerInsideBuilding = false;
-      this.fadeInteriorTransition(false);
+      if (this.teleporting) {
+        this.setOutdoorLayersVisible(true);
+      } else {
+        this.fadeInteriorTransition(false);
+      }
     }
   }
 
@@ -4186,8 +4433,6 @@ export class GameScene extends Phaser.Scene {
 
   // ─── Starting Room (chest + door before wave 1) ───
 
-  private startChestX = 0;
-  private startChestY = 0;
   private startDoorX = 0;
   private startDoorY = 0;
   private startDoorW = 32;
@@ -4197,66 +4442,19 @@ export class GameScene extends Phaser.Scene {
 
   private updateStartingRoomPrompts() {
     if (this.waveManager.state !== "pre_game") {
-      if (this.startingChestPrompt) { this.startingChestPrompt.setVisible(false); }
       if (this.startingDoorPrompt) { this.startingDoorPrompt.setVisible(false); }
       return;
     }
 
-    // Chest prompt
-    if (!this.startingChestOpened) {
-      const chestDist = Phaser.Math.Distance.Between(
-        this.player.x, this.player.y, this.startChestX, this.startChestY
-      );
-      if (chestDist < this.startInteractDist) {
-        this.setActivePrompt("E  Open Chest", this.startChestX, this.startChestY - 14);
-      }
-    }
-
-    // Door prompt (only after chest is opened)
-    if (this.startingChestOpened && !this.startingDoorOpened) {
+    // Door prompt
+    if (!this.startingDoorOpened) {
       const doorDist = Phaser.Math.Distance.Between(
         this.player.x, this.player.y, this.startDoorX, this.startDoorY
       );
       if (doorDist < this.startInteractDist) {
         this.setActivePrompt("E  Exit", this.startDoorX, this.startDoorY - 14);
       }
-    } else {
-      if (this.startingDoorPrompt) this.startingDoorPrompt.setVisible(false);
     }
-  }
-
-  private tryStartingChest(): boolean {
-    if (this.startingChestOpened) return false;
-    const dist = Phaser.Math.Distance.Between(
-      this.player.x, this.player.y, this.startChestX, this.startChestY
-    );
-    if (dist >= this.startInteractDist) return false;
-
-    this.startingChestOpened = true;
-    this.hasWeapon = true;
-
-    // Give pistol
-    const pistolDef = BALANCE.weapons.pistol;
-    this.activeWeapon = "pistol";
-    this.weaponAmmo = {
-      pistol: { mag: pistolDef.magazineSize, reserve: pistolDef.magazineSize * 3 },
-    };
-    this.activeSlot = 1;
-
-    // Swap chest sprite from closed (frame 0) to open (frame 1)
-    if (this.startingChestSprite) {
-      this.startingChestSprite.setFrame(1);
-    }
-
-    // Destroy prompt
-    if (this.startingChestPrompt) {
-      this.startingChestPrompt.destroy();
-      this.startingChestPrompt = undefined;
-    }
-
-    this.showWeaponMessage("PISTOL", "#44dd44");
-    this.playSound("sfx-reload-complete", 0.5);
-    return true;
   }
 
   // ─── Loot Chests (Tiled interactables) ───
@@ -4298,13 +4496,178 @@ export class GameScene extends Phaser.Scene {
       this.activeWeapon = "assault_rifle";
       this.activeSlot = this.weapons.indexOf("assault_rifle") + 1;
       this.showWeaponMessage("ASSAULT RIFLE", "#ffdd44");
-      this.playSound("sfx-reload-rifle", 0.5);
-      const lootSfx = ["sfx-chest-open1", "sfx-chest-open2", "sfx-chest-open3"];
-      this.playSound(lootSfx[Math.floor(Math.random() * lootSfx.length)], 0.6);
+      this.audio.playSound("sfx-reload-rifle", 0.5);
       return true;
     }
     return false;
   }
+  // ─── Rudy's Desks ───
+
+  private updateDeskPrompts() {
+    if (this.intermissionLocked) return; // desks locked after intermission expires
+    for (const desk of this.rudysDesks) {
+      if (!desk.stocked) continue;
+      const dist = Phaser.Math.Distance.Between(
+        this.player.x, this.player.y, desk.x, desk.y
+      );
+      if (dist < BALANCE.desks.interactRange) {
+        const label = desk.name === "med_desk" ? "Bandages"
+          : desk.name === "ammo_desk" ? "Ammo"
+          : "Equipment";
+        this.setActivePrompt(`E  ${label}`, desk.x, desk.y - 14);
+      }
+    }
+  }
+
+  private tryDeskInteract(): boolean {
+    if (this.intermissionLocked) return false;
+    for (const desk of this.rudysDesks) {
+      if (!desk.stocked) continue;
+      const dist = Phaser.Math.Distance.Between(
+        this.player.x, this.player.y, desk.x, desk.y
+      );
+      if (dist >= BALANCE.desks.interactRange) continue;
+
+      desk.stocked = false;
+      this.audio.playSound("sfx-buy", 0.5);
+
+      if (desk.name === "med_desk") {
+        const give = BALANCE.bandage.deskGiveCount;
+        this.bandageCount = Math.min(this.bandageCount + give, BALANCE.bandage.maxStack);
+        this.assignConsumableSlot("bandage");
+        this.showWeaponMessage(`+${give} BANDAGES`, "#44dd44");
+      } else if (desk.name === "ammo_desk") {
+        // Add pistol rounds to reserve
+        if (this.weaponAmmo.pistol) {
+          this.weaponAmmo.pistol.reserve += BALANCE.desks.ammoDesk.pistolRounds;
+        }
+        // Add shotgun shells (bank if no shotgun yet)
+        if (this.weaponAmmo.shotgun) {
+          this.weaponAmmo.shotgun.reserve += BALANCE.desks.ammoDesk.shotgunShells;
+        } else {
+          this.weaponAmmo.shotgun = { mag: 0, reserve: BALANCE.desks.ammoDesk.shotgunShells };
+        }
+        this.showWeaponMessage("+AMMO", "#44dd44");
+      } else if (desk.name === "equipment_desk") {
+        // Grenades
+        this.grenadeCount = Math.min(
+          this.grenadeCount + BALANCE.desks.equipmentDesk.grenades,
+          BALANCE.grenade.maxCount
+        );
+        this.player.grenadeCount = this.grenadeCount;
+        this.assignConsumableSlot("grenade");
+        // Landmines
+        const currentMines = this.trapInventory.get("landmine" as any) ?? 0;
+        this.trapInventory.set("landmine" as any, currentMines + BALANCE.desks.equipmentDesk.landmines);
+        this.assignConsumableSlot("mine");
+        this.showWeaponMessage("+GRENADE +LANDMINE", "#44dd44");
+      }
+
+      // Complete objective once all desks are looted
+      if (this.rudysDesks.every(d => !d.stocked)) {
+        this.completeObjective("search_tables");
+      }
+      return true;
+    }
+    return false;
+  }
+
+  // ─── Bandages ───
+
+  private useBandage() {
+    if (this.bandageCount <= 0) return;
+    if (this.player.stats.health >= this.player.stats.maxHealth) return;
+
+    this.bandageCount--;
+    this.player.stats.health = Math.min(
+      this.player.stats.health + BALANCE.bandage.healAmount,
+      this.player.stats.maxHealth
+    );
+    this.audio.playSound("sfx-bandage-use", 0.4);
+    this.showWeaponMessage("+25 HP", "#44dd44");
+  }
+
+  // ------- Consumable Hotbar (keys 1-4) -------
+
+  private readonly CONSUMABLE_ICONS: Record<string, string> = {
+    grenade: "/assets/sprites/items/grenade.png",
+    bandage: "/assets/sprites/items/bandage.png",
+    mine: "/assets/sprites/items/trap-landmine.png",
+    barricade: "/assets/sprites/items/trap-barricade.png",
+  };
+
+  private readonly CONSUMABLE_NAMES: Record<string, string> = {
+    grenade: "Grenade",
+    bandage: "Bandage",
+    mine: "Mine",
+    barricade: "Barricade",
+  };
+
+  /** Get count for a consumable type */
+  private getConsumableCount(type: string): number {
+    switch (type) {
+      case "grenade": return this.grenadeCount;
+      case "bandage": return this.bandageCount;
+      case "mine": return this.trapInventory.get("landmine" as TrapType) ?? 0;
+      case "barricade": return this.trapInventory.get("barricade" as TrapType) ?? 0;
+      default: return 0;
+    }
+  }
+
+  /** Ensure a consumable type has a slot assignment. Auto-assigns to first empty if new. */
+  private assignConsumableSlot(type: string) {
+    if (this.consumableSlotAssignments.includes(type)) return;
+    if (this.consumableSlotAssignments.length < 6) {
+      this.consumableSlotAssignments.push(type);
+    }
+  }
+
+  /** Remove a consumable type from slot assignments (when count hits 0) */
+  private removeConsumableSlot(type: string) {
+    const idx = this.consumableSlotAssignments.indexOf(type);
+    if (idx !== -1) this.consumableSlotAssignments.splice(idx, 1);
+  }
+
+  /** Use the consumable in a given hotbar slot (0-3). Called from key 1-4 press. */
+  private useConsumableSlot(slotIndex: number) {
+    if (slotIndex >= this.consumableSlotAssignments.length) return;
+    const type = this.consumableSlotAssignments[slotIndex];
+    if (!type || this.getConsumableCount(type) <= 0) return;
+
+    switch (type) {
+      case "bandage":
+        this.useBandage();
+        break;
+      case "grenade":
+        // Quick throw (same as G tap)
+        if (this.grenadeCount <= 0 || this.grenadeThrowing) return;
+        this.throwGrenade();
+        break;
+      case "mine":
+        this.selectedTrapIndex = 1;
+        this.placeTrap();
+        break;
+      case "barricade":
+        this.selectedTrapIndex = 0;
+        this.placeTrap();
+        break;
+    }
+    this.consumableActiveFlash = slotIndex;
+    this.time.delayedCall(300, () => { if (this.consumableActiveFlash === slotIndex) this.consumableActiveFlash = -1; });
+  }
+
+  /** Build consumable slots array for HUD. Prunes empty types. */
+  private buildConsumableSlots(): { type: string; count: number; icon: string; name: string }[] {
+    // Prune slots that have 0 count
+    this.consumableSlotAssignments = this.consumableSlotAssignments.filter(t => this.getConsumableCount(t) > 0);
+    return this.consumableSlotAssignments.map(type => ({
+      type,
+      count: this.getConsumableCount(type),
+      icon: this.CONSUMABLE_ICONS[type] ?? "",
+      name: this.CONSUMABLE_NAMES[type] ?? type,
+    }));
+  }
+
   // ------- Log / Axe / Chopable Fences -------
 
   private updateLogPrompt() {
@@ -4327,7 +4690,7 @@ export class GameScene extends Phaser.Scene {
     this.logSearched = true;
     this.hasAxe = true;
     if (this.logPrompt) this.logPrompt.setVisible(false);
-    this.playSound("sfx-purchase", 0.6);
+    this.audio.playSound("sfx-buy", 0.6);
     this.showAxePickupCutscene();
     return true;
   }
@@ -4391,6 +4754,10 @@ export class GameScene extends Phaser.Scene {
     if (mineCount > 0) {
       slots.push({ id: "landmine", name: "Landmine", icon: "/assets/sprites/items/landmine.png", count: mineCount });
     }
+    // Bandages
+    if (this.bandageCount > 0) {
+      slots.push({ id: "bandage", name: "Bandage", icon: "/assets/sprites/items/bandage.png", count: this.bandageCount });
+    }
 
     // Pad to 8
     while (slots.length < 8) {
@@ -4451,8 +4818,7 @@ export class GameScene extends Phaser.Scene {
         this.pathfinder.setWalkable(fence.tileX, fence.tileY, true);
         this.reachableDirty = true;
 
-        this.playSound("sfx-barricade-break", 0.5);
-        this.playSound("sfx-fence-break", 0.4);
+        this.audio.playSound("sfx-fence-break", 0.5);
         this.showWeaponMessage("FENCE CHOPPED", "#44dd44");
         this.completeObjective("chop_fence");
         return true;
@@ -4464,12 +4830,23 @@ export class GameScene extends Phaser.Scene {
   // ─── Objective tracker ───
 
   private getCurrentObjective(): string | null {
+    // Intermission lockout takes priority
+    if (this.intermissionLocked) return "Exit Rudy's";
+
+    // Intermission skip hint (only when outside Rudy's)
+    if (this.intermissionTimer > 3000 && this.waveManager.state === "intermission"
+        && !this.audio.roomTone?.isPlaying && !this.kyleIntroActive) {
+      return "Skip Intermission?  [TAB]";
+    }
+
     const o = this.objectivesComplete;
     if (!o.exit_room) return "Exit the Room";
+    if (!o.investigate_rudys) return "Look for Survivors";
+    if (!o.search_tables) return "Search the Supply Tables";
     if (!o.chop_fence) return "Find a Way Past the Fence";
-    if (!o.power_on) return "Turn on the Power";
     if (!o.explore_library) return "Explore the Library";
     if (!o.defeat_scaryboi) return "Defeat SCARYBOI Once and For All";
+    if (!o.investigate_music) return "Investigate the Music";
     if (!o.crash_rave) return "Crash the Rave";
     if (!o.defeat_bigbaby) return "Defeat DJ BigBaby";
     return null;
@@ -4495,7 +4872,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private tryStartingDoor(): boolean {
-    if (this.startingDoorOpened || !this.startingChestOpened) return false;
+    if (this.startingDoorOpened) return false;
     const dist = Phaser.Math.Distance.Between(
       this.player.x, this.player.y, this.startDoorX, this.startDoorY
     );
@@ -4504,7 +4881,7 @@ export class GameScene extends Phaser.Scene {
     this.startingDoorOpened = true;
     this.reachableDirty = true; // recompute spawn reachability
     this.completeObjective("exit_room");
-    this.playSound("sfx-door-open", 0.5);
+    this.audio.playSound("sfx-door-open", 0.5);
 
     // Remove the door collision body so player can walk through
     if (this.startingDoorBody) {
@@ -4531,8 +4908,7 @@ export class GameScene extends Phaser.Scene {
       this.startingDoorPrompt = undefined;
     }
 
-    // Start wave 1
-    this.waveManager.skipPreGame();
+    // Wave 1 deferred — starts when player exits Rudy's after Kyle cutscene
 
     // Monitor player position — once they exit the room (north of door top), seal it
     const sealThresholdY = doorTopRow * 32;
@@ -4692,10 +5068,16 @@ export class GameScene extends Phaser.Scene {
     return this.masonRavePhase === "cutscene_1" || this.masonRavePhase === "cutscene_2";
   }
 
+  /** Helper: true during any phase of the Kyle intro cutscene */
+  private get kyleIntroActive(): boolean {
+    return this.kyleIntroPhase !== "" && this.kyleIntroPhase !== "done";
+  }
+
   /** Phase 0: Spawn Mason + dancing zombies, seal estate, player walks freely */
   private triggerMasonRave() {
     if (!this.masonTriggered) this.masonTriggered = true;
     this.masonRavePhase = "rave_setup";
+    this.completeObjective("investigate_music");
 
     // Seal estate entrance
     const estateDoor = this.doors.find(d => d.label === "gate2");
@@ -4723,26 +5105,38 @@ export class GameScene extends Phaser.Scene {
     if (this.anims.exists(masonIdleKey)) mason.play(masonIdleKey, true);
     this.masonEnemy = mason;
 
-    // Spawn dancing zombies scattered across the ballroom
+    // Spawn dancing zombies within the rave_crowd rect from Tiled (zones_navigation)
     this.masonRaveZombies = [];
-    const directions: Array<"south" | "south-east" | "south-west" | "east" | "west"> = ["south", "south-east", "south-west", "east", "west"];
+    const directions: Array<"south" | "south-east" | "south-west" | "east" | "west" | "north"> = ["south", "south-east", "south-west", "east", "west", "north"];
     const speedTiers: Array<"shamble" | "jog" | "run"> = ["jog", "jog", "run"];
+
+    // Use rave_crowd rect from Tiled (zones_navigation), read during create()
+    const { x: crowdX, y: crowdY, w: crowdW, h: crowdH } = this.raveCrowdRect;
+
     for (let i = 0; i < 35; i++) {
-      const zx = 1250 + Math.random() * 500;
-      const zy = 220 + Math.random() * 280;
+      const zx = crowdX + Math.random() * crowdW;
+      const zy = crowdY + Math.random() * crowdH;
       const tier = speedTiers[i % speedTiers.length];
       const zombie = new Enemy(this, zx, zy, "basic", 1.5, 2, tier);
       this.enemies.add(zombie);
       zombie.raveZombie = true;
       zombie.setScale(0.34);
       zombie.body.setImmovable(true);
-      zombie.startDancing(directions[i % directions.length]);
+      // Front-row faces north (watching Mason), back rows face random
+      const frontThreshold = crowdY + crowdH * 0.4;
+      const facing = zy < frontThreshold ? "north" as const : directions[i % directions.length];
+      zombie.startDancing(facing);
       this.masonRaveZombies.push(zombie);
     }
 
     // Set up nightclub visuals
     this.setupClubAtmosphere();
+
+    // Rave music: stop any muffled version and start fresh at full volume
+    this.audio.startRaveMusic();
   }
+
+  // (Mason rave music methods moved to AudioManager)
 
   /** Nightclub lighting: dark overlay, wall fixtures, sweeping PointLights, DJ glow, fog */
   // ─── Room Visibility System ───
@@ -4807,65 +5201,75 @@ export class GameScene extends Phaser.Scene {
   }
 
   private setupClubAtmosphere() {
-    // Ballroom is L-shaped (tile coords):
-    //   Upper: cols 38-55, rows 2-10
-    //   Lower: cols 39-55, rows 10-16
+    // Get club zone polygon from Tiled
+    const clubZone = this.visibilityZones.find(z => z.name === "club");
+    if (!clubZone) { console.warn("[GameScene] No club zone found for atmosphere"); return; }
+    const pts = clubZone.points;
+    const xs = pts.map(p => p.x);
+    const ys = pts.map(p => p.y);
+    const zoneMinX = Math.min(...xs);
+    const zoneMaxX = Math.max(...xs);
+    const zoneMinY = Math.min(...ys);
+    const zoneMaxY = Math.max(...ys);
+    const zoneCenterX = (zoneMinX + zoneMaxX) / 2;
+    const zoneCenterY = (zoneMinY + zoneMaxY) / 2;
     const sweepDist = 144; // ~4.5 tiles of sweep range
 
-    // A. Dark overlay — two rectangles to cover the L-shaped room
-    // Upper section: tiles (38,2)-(55,11) — full width, left wall extends to row 11
-    const upperX = 38 * 32;
-    const upperY = 2 * 32;
-    const upperW = (56 - 38) * 32;
-    const upperH = (11 - 2) * 32;
-    const darkUpper = this.add.rectangle(
-      upperX + upperW / 2, upperY + upperH / 2, upperW, upperH, 0x050010
-    ).setAlpha(0.6).setDepth(52).setOrigin(0.5);
-    this.masonClubEffects.push(darkUpper);
+    // A. Dark overlay — polygon matching the club zone
+    const darkOverlay = this.add.graphics();
+    darkOverlay.fillStyle(0x050010, 0.6);
+    darkOverlay.beginPath();
+    darkOverlay.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) darkOverlay.lineTo(pts[i].x, pts[i].y);
+    darkOverlay.closePath();
+    darkOverlay.fillPath();
+    darkOverlay.setDepth(52);
+    this.masonClubEffects.push(darkOverlay);
 
-    // Lower section: tiles (39,11)-(55,16) — narrower after left wall steps in
-    const lowerX = 39 * 32;
-    const lowerY = 11 * 32;
-    const lowerW = (56 - 39) * 32;
-    const lowerH = (16 - 11) * 32;
-    const darkLower = this.add.rectangle(
-      lowerX + lowerW / 2, lowerY + lowerH / 2, lowerW, lowerH, 0x050010
-    ).setAlpha(0.6).setDepth(52).setOrigin(0.5);
-    this.masonClubEffects.push(darkLower);
-
-    // B. 4 spotlights on the north wall (row 2), sweeping down into the room
+    // B. Spotlights — north, west, east walls with sweeping pointlights
     const fixtures: {
       fixtureX: number; fixtureY: number; texture: string;
       sweepStartX: number; sweepStartY: number; sweepEndX: number; sweepEndY: number;
       color: number; radius: number; duration: number; delay: number;
     }[] = [
-      // Tile (40, 2) — purple
+      // North wall
       {
-        fixtureX: 40 * 32 + 16, fixtureY: 2 * 32 + 16, texture: "prop-spotlight-purple",
-        sweepStartX: 40 * 32, sweepStartY: 4 * 32,
-        sweepEndX: 40 * 32 + sweepDist, sweepEndY: 10 * 32,
+        fixtureX: 40 * 32 + 16, fixtureY: zoneMinY + 16, texture: "prop-spotlight-purple",
+        sweepStartX: 40 * 32, sweepStartY: zoneMinY + 64,
+        sweepEndX: 40 * 32 + sweepDist, sweepEndY: zoneCenterY,
         color: 0x9b30ff, radius: 50, duration: 2800, delay: 0,
       },
-      // Tile (45, 2) — cyan
       {
-        fixtureX: 45 * 32 + 16, fixtureY: 2 * 32 + 16, texture: "prop-spotlight-cyan",
-        sweepStartX: 45 * 32 + sweepDist * 0.3, sweepStartY: 4 * 32,
-        sweepEndX: 45 * 32 - sweepDist * 0.5, sweepEndY: 12 * 32,
+        fixtureX: 45 * 32 + 16, fixtureY: zoneMinY + 16, texture: "prop-spotlight-cyan",
+        sweepStartX: 45 * 32 + sweepDist * 0.3, sweepStartY: zoneMinY + 64,
+        sweepEndX: 45 * 32 - sweepDist * 0.5, sweepEndY: zoneCenterY + 64,
         color: 0x00bfff, radius: 50, duration: 3200, delay: 600,
       },
-      // Tile (49, 2) — red
       {
-        fixtureX: 49 * 32 + 16, fixtureY: 2 * 32 + 16, texture: "prop-spotlight-red",
-        sweepStartX: 49 * 32 - sweepDist * 0.3, sweepStartY: 5 * 32,
-        sweepEndX: 49 * 32 + sweepDist * 0.6, sweepEndY: 11 * 32,
+        fixtureX: 49 * 32 + 16, fixtureY: zoneMinY + 16, texture: "prop-spotlight-red",
+        sweepStartX: 49 * 32 - sweepDist * 0.3, sweepStartY: zoneMinY + 96,
+        sweepEndX: 49 * 32 + sweepDist * 0.6, sweepEndY: zoneCenterY,
         color: 0xff2200, radius: 50, duration: 3000, delay: 300,
       },
-      // Tile (55, 2) — purple
       {
-        fixtureX: 55 * 32 + 16, fixtureY: 2 * 32 + 16, texture: "prop-spotlight-purple",
-        sweepStartX: 55 * 32, sweepStartY: 4 * 32,
-        sweepEndX: 55 * 32 - sweepDist, sweepEndY: 10 * 32,
+        fixtureX: 55 * 32 + 16, fixtureY: zoneMinY + 16, texture: "prop-spotlight-purple",
+        sweepStartX: 55 * 32, sweepStartY: zoneMinY + 64,
+        sweepEndX: 55 * 32 - sweepDist, sweepEndY: zoneCenterY,
         color: 0x8b00ff, radius: 50, duration: 2600, delay: 900,
+      },
+      // West wall
+      {
+        fixtureX: zoneMinX + 16, fixtureY: zoneMinY + (zoneMaxY - zoneMinY) * 0.3, texture: "prop-spotlight-purple",
+        sweepStartX: zoneMinX + 96, sweepStartY: zoneMinY + (zoneMaxY - zoneMinY) * 0.2,
+        sweepEndX: zoneCenterX, sweepEndY: zoneMinY + (zoneMaxY - zoneMinY) * 0.5,
+        color: 0xff1493, radius: 45, duration: 3600, delay: 400,
+      },
+      // East wall
+      {
+        fixtureX: zoneMaxX - 16, fixtureY: zoneMinY + (zoneMaxY - zoneMinY) * 0.35, texture: "prop-spotlight-cyan",
+        sweepStartX: zoneMaxX - 96, sweepStartY: zoneMinY + (zoneMaxY - zoneMinY) * 0.25,
+        sweepEndX: zoneCenterX, sweepEndY: zoneMinY + (zoneMaxY - zoneMinY) * 0.55,
+        color: 0x00bfff, radius: 45, duration: 3400, delay: 700,
       },
     ];
 
@@ -4904,12 +5308,20 @@ export class GameScene extends Phaser.Scene {
       this.masonClubEffects.push(pl);
     }
 
-    // D. Light beams — triangular cones projected from each spotlight, sweeping the dancefloor
-    const beams: { x: number; y: number; color: number; angleFrom: number; angleTo: number; duration: number }[] = [
-      { x: 40 * 32 + 16, y: 2 * 32 + 16, color: 0x9b30ff, angleFrom: -20, angleTo: 35, duration: 3500 },
-      { x: 45 * 32 + 16, y: 2 * 32 + 16, color: 0x00bfff, angleFrom: 25, angleTo: -30, duration: 4200 },
-      { x: 49 * 32 + 16, y: 2 * 32 + 16, color: 0xff2200, angleFrom: -10, angleTo: 40, duration: 3800 },
-      { x: 55 * 32 + 16, y: 2 * 32 + 16, color: 0x8b00ff, angleFrom: 30, angleTo: -20, duration: 3000 },
+    // D. Light beams — triangular cones from north + side walls, sweeping the dancefloor
+    const beamLen = Math.max(zoneMaxY - zoneMinY, zoneMaxX - zoneMinX) + 64; // long enough to span zone
+    const beams: { x: number; y: number; color: number; angleFrom: number; angleTo: number; duration: number; baseAngle: number }[] = [
+      // North wall (pointing down)
+      { x: 40 * 32 + 16, y: zoneMinY + 16, color: 0x9b30ff, baseAngle: 0, angleFrom: -20, angleTo: 35, duration: 3500 },
+      { x: 45 * 32 + 16, y: zoneMinY + 16, color: 0x00bfff, baseAngle: 0, angleFrom: 25, angleTo: -30, duration: 4200 },
+      { x: 49 * 32 + 16, y: zoneMinY + 16, color: 0xff2200, baseAngle: 0, angleFrom: -10, angleTo: 40, duration: 3800 },
+      { x: 55 * 32 + 16, y: zoneMinY + 16, color: 0x8b00ff, baseAngle: 0, angleFrom: 30, angleTo: -20, duration: 3000 },
+      // West wall (pointing right)
+      { x: zoneMinX + 16, y: zoneMinY + (zoneMaxY - zoneMinY) * 0.3, color: 0xff1493, baseAngle: 90, angleFrom: -25, angleTo: 30, duration: 3600 },
+      { x: zoneMinX + 16, y: zoneMinY + (zoneMaxY - zoneMinY) * 0.7, color: 0x9b30ff, baseAngle: 90, angleFrom: 20, angleTo: -25, duration: 4000 },
+      // East wall (pointing left)
+      { x: zoneMaxX - 16, y: zoneMinY + (zoneMaxY - zoneMinY) * 0.25, color: 0x00bfff, baseAngle: -90, angleFrom: -30, angleTo: 20, duration: 3400 },
+      { x: zoneMaxX - 16, y: zoneMinY + (zoneMaxY - zoneMinY) * 0.6, color: 0xff2200, baseAngle: -90, angleFrom: 15, angleTo: -30, duration: 3900 },
     ];
 
     for (const beam of beams) {
@@ -4920,22 +5332,22 @@ export class GameScene extends Phaser.Scene {
 
       // Outer soft cone — wide, very faint
       g.fillStyle(beam.color, 0.025);
-      g.fillTriangle(0, 0, -100, 380, 100, 380);
+      g.fillTriangle(0, 0, -100, beamLen, 100, beamLen);
 
       // Inner brighter cone — narrower, slightly more visible
       g.fillStyle(beam.color, 0.05);
-      g.fillTriangle(0, 0, -45, 380, 45, 380);
+      g.fillTriangle(0, 0, -45, beamLen, 45, beamLen);
 
       // Core hot spot — tight center line
       g.fillStyle(beam.color, 0.04);
-      g.fillTriangle(0, 0, -15, 380, 15, 380);
+      g.fillTriangle(0, 0, -15, beamLen, 15, beamLen);
 
-      g.setAngle(beam.angleFrom);
+      g.setAngle(beam.baseAngle + beam.angleFrom);
 
       // Sweep the beam back and forth
       this.tweens.add({
         targets: g,
-        angle: beam.angleTo,
+        angle: beam.baseAngle + beam.angleTo,
         duration: beam.duration,
         yoyo: true,
         repeat: -1,
@@ -4968,12 +5380,12 @@ export class GameScene extends Phaser.Scene {
       gfx.generateTexture("club-fog-particle", 32, 32);
       gfx.destroy();
     }
-    // Fog centered on the upper section (main dancefloor)
-    const fogCenterX = (38 + 56) / 2 * 32;
-    const fogCenterY = (2 + 12) / 2 * 32;
-    const fogEmitter = this.add.particles(fogCenterX, fogCenterY, "club-fog-particle", {
-      x: { min: -280, max: 280 },
-      y: { min: -160, max: 160 },
+    // Fog centered on the club zone
+    const fogHalfW = (zoneMaxX - zoneMinX) / 2;
+    const fogHalfH = (zoneMaxY - zoneMinY) / 2;
+    const fogEmitter = this.add.particles(zoneCenterX, zoneCenterY, "club-fog-particle", {
+      x: { min: -fogHalfW, max: fogHalfW },
+      y: { min: -fogHalfH, max: fogHalfH },
       scale: { start: 1.5, end: 3.0 },
       alpha: { start: 0.03, end: 0 },
       tint: [0x9b30ff, 0xff1493, 0x4400ff, 0x8800aa],
@@ -4986,14 +5398,14 @@ export class GameScene extends Phaser.Scene {
     fogEmitter.setDepth(54);
     this.masonClubEffects.push(fogEmitter);
 
-    // Occlusion mask — clip all club effects to the L-shaped room so they
-    // don't bleed through walls into the SCARYBOI side of the estate
+    // Occlusion mask — clip all club effects to the club zone polygon
     const maskGfx = this.make.graphics({});
     maskGfx.fillStyle(0xffffff);
-    // Upper section: cols 38-56, rows 2-11
-    maskGfx.fillRect(38 * 32, 2 * 32, (56 - 38) * 32, (11 - 2) * 32);
-    // Lower section: cols 39-56, rows 11-16
-    maskGfx.fillRect(39 * 32, 11 * 32, (56 - 39) * 32, (16 - 11) * 32);
+    maskGfx.beginPath();
+    maskGfx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) maskGfx.lineTo(pts[i].x, pts[i].y);
+    maskGfx.closePath();
+    maskGfx.fillPath();
     const clubMask = maskGfx.createGeometryMask();
 
     for (const obj of this.masonClubEffects) {
@@ -5030,6 +5442,8 @@ export class GameScene extends Phaser.Scene {
     this.masonRavePhase = "cutscene_1";
     this.physics.pause();
     this.game.canvas.style.pointerEvents = "none";
+
+    // Keep rave music playing through cutscenes — it stops on Mason death
 
     // Switch player to breathing-idle
     const idleKey = getAnimKey(this.characterDef.id, "breathing-idle", this.player.currentDir);
@@ -5075,6 +5489,7 @@ export class GameScene extends Phaser.Scene {
         if (this.masonRavePhase === "cutscene_1") {
           // Activate zombies — they stop dancing and attack
           this.masonRavePhase = "zombie_fight";
+          this.postCutsceneImmunity = 1500; // 1.5s immunity — player is in the middle of the horde
           for (const z of this.masonRaveZombies) {
             if (z.active && !z.dying) {
               z.stopDancing();
@@ -5157,6 +5572,549 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  // ─── Kyle Intro Cutscene ───
+
+  private readonly KYLE_EXTERIOR_DIALOGUE = [
+    "Move! Get away from the door!",
+    "I'm Kyle. Been holed up here since this started. Come on, I got what you need inside.",
+  ];
+
+  private readonly KYLE_INTERIOR_DIALOGUE = [
+    "Here — you know how to use one of these? Take what you need off those tables too.",
+    "There's music coming from Mason's estate up the road. Someone's alive up there.",
+  ];
+
+  private triggerKyleIntroCutscene() {
+    if (this.kyleIntroTriggered) return;
+    if (this.kyleCSPlayerPath.length === 0 || this.kyleCSZombiePath.length === 0 || this.kyleCSKylePath.length === 0) return;
+    this.kyleIntroTriggered = true;
+    this.kyleIntroPhase = "run_to_door";
+
+    // Silent wave end — force-destroy all existing enemies, reset wave manager
+    const toDestroy = this.enemies.getChildren().slice();
+    for (const obj of toDestroy) {
+      const e = obj as Enemy;
+      e.setActive(false);
+      e.setVisible(false);
+      e.body?.setVelocity(0, 0);
+      e.destroy();
+    }
+    (this.waveManager as any).enemiesToSpawn = 0;
+    (this.waveManager as any).enemiesAlive = 0;
+
+    // Letterbox
+    hudState.update({ letterboxActive: true });
+
+    // Disable player input — we control movement
+    this.player.cutsceneControlled = true;
+
+    // Shift camera south — Rudy's sign near top edge, more viewport for zombie chase
+    this.cameras.main.setFollowOffset(0, -40);
+
+    // Reset waypoint state
+    this.kyleCSZombieWaypoint = 0;
+    this.kyleCSKyleWaypoint = 0;
+    this.kyleCSKyleStarted = false;
+    this.kyleCSPlayerAtDoor = false;
+    this.kyleCSPlayerDoorTimer = 0;
+
+    // Freeze waves — no spawning during cutscene or while inside Rudy's
+    this.waveManager.setFrozen(true);
+
+    // Creepy bass underneath the cutscene SFX — hits on the first bass pump, loops until interior fade
+    this.audio.stopTheme("themeMain", 1000);
+    this.audio.stopTheme("themeIntense", 1000);
+    this.audio.startTheme("theme-creepybass", "themeCreepybass", 0.3, true, 300);
+
+    // Player runs straight from current position to the door (last player waypoint)
+    const doorPt = this.kyleCSPlayerPath[this.kyleCSPlayerPath.length - 1];
+    // Force running animation regardless of current movement state
+    this.player.currentDir = "south";  // reset so moveActorToWaypoint detects a "change"
+    this.moveActorToWaypoint(this.player, doorPt, 130);
+
+    // Running footsteps while player sprints to door
+    if (this.cache.audio.exists("sfx-running-grass")) {
+      this.kyleCSRunningSound = this.sound.add("sfx-running-grass", { volume: 0.25, loop: true });
+      this.kyleCSRunningSound.play();
+    }
+
+    // Zombie spawns later — after player has been banging for 1s
+    this.kyleScriptedZombie = null;
+  }
+
+  private updateKyleIntroCutscene(delta: number) {
+    if (this.kyleIntroPhase === "") return;
+
+    if (this.kyleIntroPhase === "run_to_door") {
+      const doorPt = this.kyleCSPlayerPath[this.kyleCSPlayerPath.length - 1];
+
+      // Player runs straight to door
+      if (!this.kyleCSPlayerAtDoor) {
+        const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, doorPt.x, doorPt.y);
+        if (dist < 8) {
+          // Arrived at door — bang on it
+          this.kyleCSPlayerAtDoor = true;
+          this.kyleCSPlayerDoorTimer = 0;
+          // Stop running footsteps, start door bashing
+          if (this.kyleCSRunningSound?.isPlaying) this.kyleCSRunningSound.stop();
+          this.kyleCSRunningSound = null;
+          this.audio.playSound("sfx-door-bash", 0.5);
+          this.time.delayedCall(700, () => {
+            this.sound.stopByKey("sfx-door-bash");
+            this.audio.playSound("sfx-door-bash", 0.5);
+          });
+          this.player.setPosition(doorPt.x, doorPt.y);
+          this.player.body.setVelocity(0, 0);
+          this.player.currentDir = "north";
+          const bangKey = getAnimKey(this.characterDef.id, "banging-door", "north");
+          const idleKey = getAnimKey(this.characterDef.id, "breathing-idle", "north");
+          if (this.anims.exists(bangKey)) {
+            this.player.play({ key: bangKey, repeat: -1 });
+          } else if (this.anims.exists(idleKey)) {
+            this.player.play(idleKey, true);
+          }
+        } else {
+          this.moveActorToWaypoint(this.player, doorPt, 130);
+        }
+      }
+
+      // Player at door — count banging time
+      if (this.kyleCSPlayerAtDoor) {
+        this.kyleCSPlayerDoorTimer += delta;
+        this.player.body.setVelocity(0, 0);
+
+        // After 1s of banging alone — spawn zombie
+        if (!this.kyleScriptedZombie && this.kyleCSPlayerDoorTimer >= 1000) {
+          const zSpawn = this.kyleCSZombiePath[0];
+          const zombie = new Enemy(this, zSpawn.x, zSpawn.y, "basic", 1, 1, "run");
+          this.enemies.add(zombie);
+          zombie.fleeing = false;
+          zombie.bossCutscene = true;
+          this.kyleScriptedZombie = zombie;
+          // Zombie groan on spawn
+          this.audio.playSound("sfx-groan9", 0.4);
+          this.kyleCSZombieWaypoint = 1;
+          this.moveZombieToWaypoint(this.kyleCSZombiePath[1]);
+        }
+      }
+
+      // Advance zombie along waypoints (if spawned)
+      if (this.kyleScriptedZombie?.active) {
+        this.advanceZombieWaypoint(delta);
+      }
+
+      // Kyle spawns late — zombie visible on screen, Kyle rushes out just in time
+      if (!this.kyleCSKyleStarted && this.kyleScriptedZombie && this.kyleCSPlayerDoorTimer >= 2800) {
+        this.kyleCSKyleStarted = true;
+        this.spawnKyleNpcCutscene();
+      }
+
+      // Zombie reaches final waypoint → Kyle shoots (only if Kyle is spawned)
+      const zombieFinal = this.kyleCSZombiePath[this.kyleCSZombiePath.length - 1];
+      if (this.kyleScriptedZombie?.active && this.kyleNpc && zombieFinal) {
+        const distToFinal = Phaser.Math.Distance.Between(
+          this.kyleScriptedZombie.x, this.kyleScriptedZombie.y,
+          zombieFinal.x, zombieFinal.y
+        );
+        if (distToFinal < 12) {
+          this.kyleIntroPhase = "kyle_shoots";
+          this.kyleScriptedZombie.body.setVelocity(0, 0);
+          this.kyleShootZombie();
+        }
+      }
+      return;
+    }
+
+    // Other phases (dialogue) are event-driven, not per-frame
+  }
+
+  /** Move an actor toward a waypoint, updating running animation */
+  private moveActorToWaypoint(actor: Phaser.GameObjects.Sprite & { body: any; currentDir?: string }, target: { x: number; y: number }, speed: number) {
+    const angle = Phaser.Math.Angle.Between(actor.x, actor.y, target.x, target.y);
+    actor.body.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
+    const dir = angleToDirection(angle) as any;
+    if (dir !== (actor as any).currentDir) {
+      (actor as any).currentDir = dir;
+      // Determine sprite id — player or zombie
+      const isPlayer = actor === this.player;
+      const spriteId = isPlayer ? this.characterDef.id : "creepyzombie";
+      const runAnim = isPlayer ? "running-6-frames" : "scary-sprint";
+      const runKey = getAnimKey(spriteId, runAnim, dir);
+      if (this.anims.exists(runKey)) actor.play(runKey, true);
+    }
+  }
+
+  /** Advance zombie along its waypoint path, holding at final point until player banged 2s */
+  private advanceZombieWaypoint(_delta: number) {
+    const z = this.kyleScriptedZombie;
+    if (!z?.active) return;
+    const target = this.kyleCSZombiePath[this.kyleCSZombieWaypoint];
+    if (!target) return;
+    const dist = Phaser.Math.Distance.Between(z.x, z.y, target.x, target.y);
+    if (dist < 8) {
+      z.setPosition(target.x, target.y);
+      const isFinalPoint = this.kyleCSZombieWaypoint === this.kyleCSZombiePath.length - 1;
+      // Hold at final waypoint (kill zone) until player has been banging for 2s
+      if (isFinalPoint && (!this.kyleCSPlayerAtDoor || this.kyleCSPlayerDoorTimer < 2000)) {
+        z.body.setVelocity(0, 0);
+        return; // don't advance yet — Kyle will shoot when timer is up
+      }
+      this.kyleCSZombieWaypoint++;
+      const next = this.kyleCSZombiePath[this.kyleCSZombieWaypoint];
+      if (next) {
+        this.moveZombieToWaypoint(next);
+      } else {
+        z.body.setVelocity(0, 0);
+      }
+    }
+  }
+
+  /** Set zombie velocity toward a waypoint */
+  private moveZombieToWaypoint(target: { x: number; y: number }) {
+    const z = this.kyleScriptedZombie;
+    if (!z?.active) return;
+    const angle = Phaser.Math.Angle.Between(z.x, z.y, target.x, target.y);
+    const speed = 90;
+    z.body.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
+    const dir = angleToDirection(angle) as any;
+    const sprintKey = getAnimKey("creepyzombie", "scary-sprint", dir);
+    const runKey = getAnimKey("creepyzombie", "running-8-frames", dir);
+    const animKey = this.anims.exists(sprintKey) ? sprintKey : runKey;
+    if (this.anims.exists(animKey) && z.anims.currentAnim?.key !== animKey) {
+      z.play(animKey, true);
+    }
+  }
+
+  private spawnKyleNpcCutscene() {
+    const spawn = this.kyleCSKylePath[0];
+    if (!spawn) return;
+    // Create Kyle NPC sprite
+    const frameKey = "kyle-breathing-idle-east-0";
+    const texKey = this.textures.exists(frameKey) ? frameKey : "kyle-breathing-idle-south-east-0";
+    const kyle = this.add.sprite(spawn.x, spawn.y, texKey).setDepth(15).setScale(0.34);
+    this.physics.add.existing(kyle, false);
+    const kyleBody = kyle.body as Phaser.Physics.Arcade.Body;
+    kyleBody.setImmovable(true);
+    kyleBody.setSize(32, 40);
+    kyleBody.setOffset((kyle.width - 32) / 2, kyle.height - 40);
+    this.physics.add.collider(this.player, kyle);
+    this.kyleNpc = kyle;
+
+    // Kyle walks along his waypoints via chained tweens
+    this.kyleCSKyleWaypoint = 1;
+    this.chainKyleWalk();
+  }
+
+  /** Chain Kyle's walk tweens along his waypoint path */
+  private chainKyleWalk() {
+    const kyle = this.kyleNpc;
+    if (!kyle) return;
+    const target = this.kyleCSKylePath[this.kyleCSKyleWaypoint];
+    if (!target) {
+      // Reached final waypoint — face east (toward zombie)
+      const idleKey = getAnimKey("kyle", "breathing-idle", "east");
+      if (this.anims.exists(idleKey)) kyle.play(idleKey, true);
+      return;
+    }
+
+    const angle = Phaser.Math.Angle.Between(kyle.x, kyle.y, target.x, target.y);
+    const dir = angleToDirection(angle) as any;
+    const walkKey = getAnimKey("kyle", "walk", dir);
+    if (this.anims.exists(walkKey)) kyle.play(walkKey, true);
+
+    const dist = Phaser.Math.Distance.Between(kyle.x, kyle.y, target.x, target.y);
+    const duration = (dist / 150) * 1000; // ~150px/sec — fast, urgent rush
+
+    this.tweens.add({
+      targets: kyle,
+      x: target.x,
+      y: target.y,
+      duration,
+      ease: "Linear",
+      onComplete: () => {
+        this.kyleCSKyleWaypoint++;
+        this.chainKyleWalk();
+      },
+    });
+  }
+
+  private kyleShootZombie() {
+    // Stop zombie
+    if (this.kyleScriptedZombie?.active) {
+      this.kyleScriptedZombie.body.setVelocity(0, 0);
+    }
+
+    // Kyle faces east toward zombie and shoots — slow frameRate so the animation is visible
+    if (this.kyleNpc) {
+      const shootKey = getAnimKey("kyle", "shooting-shotgun", "east");
+      if (this.anims.exists(shootKey)) {
+        this.kyleNpc.play({ key: shootKey, frameRate: 4 });
+      }
+    }
+
+    // Delay SFX slightly so it syncs with the mid-frame of the shoot animation
+    this.time.delayedCall(200, () => {
+      this.audio.playSound("sfx-shotgun", 0.6);
+    });
+    if (this.kyleNpc) {
+      const flash = this.add.circle(this.kyleNpc.x + 20, this.kyleNpc.y, 8, 0xffdd44, 0.9).setDepth(16);
+      this.tweens.add({ targets: flash, alpha: 0, scaleX: 2, scaleY: 2, duration: 150, onComplete: () => flash.destroy() });
+    }
+
+    // Camera shake for impact
+    this.cameras.main.shake(150, 0.008);
+
+    // Play zombie death animation + blood splatter east
+    this.time.delayedCall(150, () => {
+      if (this.kyleScriptedZombie?.active) {
+        this.kyleScriptedZombie.body.setVelocity(0, 0);
+
+        // Blood splatter to the east (away from Kyle's shot)
+        this.spawnBloodSplat(this.kyleScriptedZombie.x + 10, this.kyleScriptedZombie.y, "kill", "basic");
+
+        // Play gunshot death animation — facing west (toward Kyle)
+        const deathKey = getAnimKey("creepyzombie", "gunshot-death", "west");
+        const fallbackKey = getAnimKey("creepyzombie", "falling-back-death", "west");
+        if (this.anims.exists(deathKey)) {
+          this.kyleScriptedZombie.play(deathKey, false);
+        } else if (this.anims.exists(fallbackKey)) {
+          this.kyleScriptedZombie.play(fallbackKey, false);
+        }
+        // Destroy after death animation plays
+        this.time.delayedCall(1200, () => {
+          if (this.kyleScriptedZombie?.active) this.kyleScriptedZombie.destroy();
+        });
+      }
+
+      // Brief pause, then start exterior dialogue
+      this.time.delayedCall(800, () => {
+        this.kyleIntroPhase = "exterior_dialogue";
+        this.kyleDialogueIndex = 0;
+        this.physics.pause();
+
+        // Kyle faces south-east (toward player area)
+        if (this.kyleNpc) {
+          const idleKey = getAnimKey("kyle", "breathing-idle", "east");
+          if (this.anims.exists(idleKey)) this.kyleNpc.play(idleKey, true);
+        }
+
+        // Player stops banging, faces south-east toward Kyle
+        this.player.currentDir = "south-west";
+        const pIdleKey = getAnimKey(this.characterDef.id, "breathing-idle", "south-west");
+        if (this.anims.exists(pIdleKey)) this.player.play(pIdleKey, true);
+
+        hudState.update({
+          kyleDialogueActive: true,
+          kyleDialogueSpeaker: "KYLE",
+          kyleDialogueQuote: this.KYLE_EXTERIOR_DIALOGUE[0],
+        });
+      });
+    });
+  }
+
+  private advanceKyleDialogue() {
+    if (this.kyleIntroPhase === "exterior_dialogue") {
+      this.kyleDialogueIndex++;
+      if (this.kyleDialogueIndex < this.KYLE_EXTERIOR_DIALOGUE.length) {
+        // Show next exterior line
+        hudState.update({
+          kyleDialogueQuote: this.KYLE_EXTERIOR_DIALOGUE[this.kyleDialogueIndex],
+        });
+      } else {
+        // Exterior dialogue done — fade to interior
+        hudState.update({ kyleDialogueActive: false });
+        this.kyleIntroPhase = "fade_to_interior";
+        this.fadeToKyleInterior();
+      }
+      return;
+    }
+
+    if (this.kyleIntroPhase === "interior_dialogue") {
+      this.kyleDialogueIndex++;
+      if (this.kyleDialogueIndex < this.KYLE_INTERIOR_DIALOGUE.length) {
+        // Show next interior line
+        const line = this.KYLE_INTERIOR_DIALOGUE[this.kyleDialogueIndex];
+        hudState.update({ kyleDialogueQuote: line });
+
+        // Give pistol on first interior line advance (after "you know how to use one of these" line)
+        if (this.kyleDialogueIndex === 1) {
+          this.givePlayerPistol();
+        }
+      } else {
+        // Interior dialogue done — cutscene complete
+        this.endKyleIntroCutscene();
+      }
+      return;
+    }
+  }
+
+  private fadeToKyleInterior() {
+    if (!this.cameras?.main) return;
+    // Creepy bass fades out with the screen, room tone fades in
+    this.audio.stopTheme("themeCreepybass", 400);
+    this.audio.startRoomTone();
+    this.cameras.main.fadeOut(400, 0, 0, 0);
+    this.cameras.main.once("camerafadeoutcomplete", () => {
+      // Position player and Kyle in center of Rudy's, facing each other
+      const playerX = 80 * 32 + 16;
+      const playerY = 55 * 32 + 16;
+      const kyleX = 80 * 32 + 16;
+      const kyleY = 53 * 32 + 16;
+
+      this.player.setPosition(playerX, playerY);
+      this.cameras.main.setFollowOffset(0, 0);
+      this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
+
+      // Kyle faces south (toward player)
+      if (this.kyleNpc) {
+        this.kyleNpc.setPosition(kyleX, kyleY);
+        const idleKey = getAnimKey("kyle", "breathing-idle", "south");
+        if (this.anims.exists(idleKey)) this.kyleNpc.play(idleKey, true);
+      }
+
+      // Handle interior visibility
+      this.playerInsideBuilding = true;
+      this.setOutdoorLayersVisible(false);
+
+      // Force-hide roof layer — updateRoofVisibility doesn't run during cutscene
+      if (this.roofLayer) {
+        this.roofLayer.setAlpha(0);
+        this.roofVisible = false;
+      }
+
+      // Force room occluder to redraw for Rudy's interior zone
+      this.currentZoneName = null; // reset so updateRoomVisibility detects the change
+
+      // Player faces north (toward Kyle)
+      this.player.currentDir = "north";
+      const pIdleKey = getAnimKey(this.characterDef.id, "breathing-idle", "north");
+      if (this.anims.exists(pIdleKey)) this.player.play(pIdleKey, true);
+
+      // Fade in
+      this.cameras.main.fadeIn(400, 0, 0, 0);
+      this.cameras.main.once("camerafadeincomplete", () => {
+        // Start interior dialogue
+        this.kyleIntroPhase = "interior_dialogue";
+        this.kyleDialogueIndex = 0;
+        hudState.update({
+          kyleDialogueActive: true,
+          kyleDialogueSpeaker: "KYLE",
+          kyleDialogueQuote: this.KYLE_INTERIOR_DIALOGUE[0],
+        });
+      });
+    });
+  }
+
+  private givePlayerPistol() {
+    this.hasWeapon = true;
+    const pistolDef = BALANCE.weapons.pistol;
+    this.weaponAmmo = {
+      pistol: { mag: pistolDef.magazineSize, reserve: pistolDef.magazineSize * 2 },
+    };
+    this.activeWeapon = "pistol";
+    this.activeSlot = 1;
+    this.showWeaponMessage("PISTOL ACQUIRED", "#44dd44");
+    this.audio.playSound("sfx-reload-complete", 0.5);
+  }
+
+  private endKyleIntroCutscene() {
+    hudState.update({ kyleDialogueActive: false });
+
+    // Complete the investigate objective, set search tables objective
+    this.completeObjective("investigate_rudys");
+
+    // Retract letterbox — camera already follows player from fadeToKyleInterior
+    hudState.update({ letterboxActive: false });
+    this.time.delayedCall(500, () => {
+      this.kyleIntroPhase = "done";
+      this.player.cutsceneControlled = false;
+      this.physics.resume();
+      this.startKylePacing();
+    });
+  }
+
+  // ─── Kyle NPC Pacing ───
+
+  // Points of interest inside Rudy's (tile coords → px) for Kyle to wander between
+  private readonly KYLE_PACE_POINTS = [
+    { x: 78 * 32 + 16, y: 53 * 32 + 16 },  // near cabinets (north-west)
+    { x: 82 * 32 + 16, y: 53 * 32 + 16 },  // near cabinets (north-east)
+    { x: 78 * 32 + 16, y: 56 * 32 + 16 },  // near desks (south-west)
+    { x: 82 * 32 + 16, y: 56 * 32 + 16 },  // near desks (south-east)
+    { x: 80 * 32 + 16, y: 54 * 32 + 16 },  // center of room
+  ];
+
+  private startKylePacing() {
+    this.kylePacing = true;
+    this.pickKylePaceTarget();
+  }
+
+  private pickKylePaceTarget() {
+    if (!this.kyleNpc || !this.kylePacing) return;
+    // Pick a random point that isn't too close to current position
+    const points = this.KYLE_PACE_POINTS.filter(p => {
+      const dist = Phaser.Math.Distance.Between(this.kyleNpc!.x, this.kyleNpc!.y, p.x, p.y);
+      return dist > 48;
+    });
+    if (points.length === 0) return;
+    this.kylePaceTarget = points[Math.floor(Math.random() * points.length)];
+  }
+
+  private updateKylePacing() {
+    if (!this.kylePacing || !this.kyleNpc || !this.kylePaceTarget) return;
+    if (this.kyleIntroActive) return; // don't pace during cutscene
+
+    const kyle = this.kyleNpc;
+    const target = this.kylePaceTarget;
+    const dist = Phaser.Math.Distance.Between(kyle.x, kyle.y, target.x, target.y);
+
+    if (dist < 8) {
+      // Arrived — idle for a few seconds, then pick new target
+      const body = kyle.body as Phaser.Physics.Arcade.Body;
+      body.setVelocity(0, 0);
+      this.kylePaceTarget = null;
+
+      // Play idle animation facing current direction
+      const dir: Direction = (kyle.getData("lastDir") as Direction) || "south";
+      const idleKey = getAnimKey("kyle", "breathing-idle", dir);
+      if (this.anims.exists(idleKey)) kyle.play(idleKey, true);
+
+      // Wait 3-6 seconds before next move
+      const waitMs = 3000 + Math.random() * 3000;
+      this.time.delayedCall(waitMs, () => this.pickKylePaceTarget());
+      return;
+    }
+
+    // Walk toward target
+    const angle = Phaser.Math.Angle.Between(kyle.x, kyle.y, target.x, target.y);
+    const speed = 30;
+    const body = kyle.body as Phaser.Physics.Arcade.Body;
+    body.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
+
+    // Determine direction and play walk animation
+    const deg = Phaser.Math.RadToDeg(angle);
+    const dir = this.angleToDir8(deg);
+    const prevDir = kyle.getData("lastDir") as string;
+    if (dir !== prevDir) {
+      kyle.setData("lastDir", dir);
+      const walkKey = getAnimKey("kyle", "walk", dir);
+      if (this.anims.exists(walkKey)) kyle.play(walkKey, true);
+    }
+  }
+
+  private angleToDir8(deg: number): Direction {
+    // Normalize to 0-360
+    const a = ((deg % 360) + 360) % 360;
+    if (a >= 337.5 || a < 22.5) return "east";
+    if (a >= 22.5 && a < 67.5) return "south-east";
+    if (a >= 67.5 && a < 112.5) return "south";
+    if (a >= 112.5 && a < 157.5) return "south-west";
+    if (a >= 157.5 && a < 202.5) return "west";
+    if (a >= 202.5 && a < 247.5) return "north-west";
+    if (a >= 247.5 && a < 292.5) return "north";
+    return "north-east";
+  }
+
   // Fixed spawn positions per encounter (tile coords × 32, centered in tile)
   private readonly SCARYBOI_SPAWN: Record<"gate" | "library" | "estate", { x: number; y: number }> = {
     gate:    { x: 20 * 32 + 16, y: 35 * 32 + 16 },
@@ -5199,6 +6157,10 @@ export class GameScene extends Phaser.Scene {
     if (enc === "estate") this.scaryboiEstateTriggered = true;
 
     const { x: spawnX, y: spawnY } = this.SCARYBOI_SPAWN[enc];
+
+    // Proximity fade already started creepybass — just clear the flag
+    this.scaryboiProximityFade = false;
+    this.audio.startTheme("theme-creepybass", "themeCreepybass", 0.2, false, 1500);
 
     // Every encounter gets a cutscene — first has backflip, subsequent are shorter
     const isFirst = !this.waveManager.hasSeenScaryboi();
@@ -5307,6 +6269,11 @@ export class GameScene extends Phaser.Scene {
     this.scaryboiDismissing = true;
     this.scaryboiBannerReady = false;
 
+    // Fade out creepy bass, switch to intense theme for the fight
+    this.audio.stopTheme("themeCreepybass", 1000);
+    this.audio.stopTheme("themeMain", 500);
+    this.audio.startTheme("theme-intense", "themeIntense", 0.25, true, 1500);
+
     // Hide React banner immediately
     hudState.update({ scaryboiIntroActive: false });
     this.game.canvas.style.pointerEvents = "auto";
@@ -5362,7 +6329,7 @@ export class GameScene extends Phaser.Scene {
         this.activeWeapon = "rpg";
         this.activeSlot = this.weapons.indexOf("rpg") + 1;
         this.showWeaponMessage("RPG", "#ffdd44");
-        this.playSound("sfx-reload-complete", 0.5);
+        this.audio.playSound("sfx-reload-complete", 0.5);
         pickup.destroy();
         this.events.off("update", checkPickup);
       }
@@ -5382,14 +6349,15 @@ export class GameScene extends Phaser.Scene {
       );
 
       if (dist < this.doorPromptDist) {
+        const displayName = door.label.toLowerCase().includes("gate") ? "Gate" : "Door";
         if (door.locked) {
-          const label = isPublicBuild() ? "LOCKED" : `${door.label} — Locked`;
+          const label = isPublicBuild() ? "LOCKED" : `${displayName} — Locked`;
           this.setActivePrompt(label, door.zone.x, door.zone.y - 14, false);
         } else {
           const effectiveCost = door.paid ? 0 : door.cost;
           const canAfford = this.currency >= effectiveCost;
           const costText = effectiveCost > 0 ? ` — $${effectiveCost}` : "";
-          const label = `E  ${door.label}${costText}`;
+          const label = `E  ${displayName}${costText}`;
           this.setActivePrompt(label, door.zone.x, door.zone.y - 14, canAfford);
         }
       }
@@ -5426,9 +6394,10 @@ export class GameScene extends Phaser.Scene {
           this.getDoorLayer(t.layer)?.removeTileAt(t.col, t.row);
           this.pathfinder.setWalkable(t.col, t.row, true);
         }
-        this.showWeaponMessage(`${door.label} OPENED`, "#44dd44");
-        this.playSound("sfx-door-open", 0.5);
-        this.playSound("sfx-purchase", 0.4);
+        const displayName = door.label.toLowerCase().includes("gate") ? "Gate" : "Door";
+        this.showWeaponMessage(`${displayName} Opened`, "#44dd44");
+        this.audio.playSound("sfx-door-open", 0.5);
+        this.audio.playSound("sfx-buy", 0.4);
         // Notify WaveManager when gate1 opens (triggers gate SCARYBOI encounter)
         if (door.label === "gate1") {
           this.waveManager.notifyGateOpened();
@@ -5459,11 +6428,10 @@ export class GameScene extends Phaser.Scene {
     const enemyObj = enemy as any;
     const bashDamage = enemyObj.enemyType === "boss" ? 25 : enemyObj.enemyType === "fast" ? 5 : 10;
     door.health -= bashDamage;
-    this.playSound("sfx-door-bash", 0.4);
+    this.audio.playSound("sfx-hit-classic", 0.4);
 
     if (door.health > 0) {
-      const pct = Math.round((door.health / door.maxHealth) * 100);
-      this.showWeaponMessage(`${door.label} — ${pct}%`, "#ff6666");
+      // Silent — no percentage display
     } else {
       this.breakDoor(door);
     }
@@ -5490,12 +6458,12 @@ export class GameScene extends Phaser.Scene {
       door.promptText = undefined;
     }
 
-    this.showWeaponMessage(`${door.label} DESTROYED`, "#ff4444");
+    const displayName = door.label.toLowerCase().includes("gate") ? "Gate" : "Door";
+    this.showWeaponMessage(`${displayName} Destroyed`, "#ff4444");
     if (door.label === "gate1") {
       this.waveManager.notifyGateOpened();
     }
-    this.playSound("sfx-door-bash", 0.5);
-    this.playSound("sfx-fence-break", 0.3);
+    this.audio.playSound("sfx-fence-break", 0.5);
   }
 
   // ─── Generator + Machines (power system) ───
@@ -5559,10 +6527,10 @@ export class GameScene extends Phaser.Scene {
 
     this.showWeaponMessage("POWER ON", "#44dd44");
     // Generator power-on sequence: switch click → spark → electrical buzz
-    this.playSound("sfx-gen-switch", 0.6);
-    this.time.delayedCall(200, () => this.playSound("sfx-gen-spark", 0.5));
+    this.audio.playSound("sfx-gen-switch", 0.6);
+    this.time.delayedCall(200, () => this.audio.playSound("sfx-gen-spark", 0.5));
     this.time.delayedCall(500, () => {
-      this.playSound("sfx-gen-buzz", 0.4);
+      this.audio.playSound("sfx-gen-buzz", 0.4);
       // Persistent low hum while generator runs
       this.sound.play("sfx-gen-hum", { loop: true, volume: 0.08 });
     });
@@ -5590,7 +6558,7 @@ export class GameScene extends Phaser.Scene {
       // Purchase
       this.currency -= machine.cost;
       machine.purchased = true;
-      this.playSound("sfx-purchase", 0.5);
+      this.audio.playSound("sfx-buy", 0.5);
 
       // Apply perk
       if (machine.machineType === "zyn") {
@@ -5607,11 +6575,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private openShop() {
+    if (this.intermissionLocked) return; // shop locked after 30s expired
     this.shopOpen = true;
     this.shopNavCol = 0;
     this.shopNavRow = 0;
     this.shopSelectedIndex = this.shopGrid[0]?.[0] ?? 0;
-    this.waveManager.setFrozen(true);
     this.player.body?.setVelocity(0, 0);
     this.pushShopData();
     this.updateHUD();
@@ -5619,44 +6587,116 @@ export class GameScene extends Phaser.Scene {
 
   private closeShop() {
     this.shopOpen = false;
-    this.waveManager.setFrozen(false);
+    this.updateHUD();
+  }
 
-    // During intermission, closing the shop starts the next wave
-    if (this.waveManager.state === "intermission") {
-      if (this.skipWaveConfirm) {
-        // User checked "don't remind me" — start immediately
-        this.waveManager.advanceWave();
+  private startWaveCountdown() {
+    this.waveStartTimer = 3000;
+    hudState.update({ waveStartCountdown: 3 });
+  }
+
+  private updateWaveStartTimer(delta: number) {
+    if (this.waveStartTimer < 0) return;
+    this.waveStartTimer -= delta;
+    const secs = Math.ceil(this.waveStartTimer / 1000);
+    if (this.waveStartTimer <= 0) {
+      this.waveStartTimer = -1;
+      hudState.update({ waveStartCountdown: -1 });
+      this.waveManager.advanceWave();
+    } else {
+      hudState.update({ waveStartCountdown: secs });
+    }
+  }
+
+  private updateIntermissionTimer(delta: number) {
+    if (this.intermissionTimer <= 0) return;
+    if (this.waveManager.state !== "intermission") return;
+
+    this.intermissionTimer -= delta;
+    const secs = Math.max(0, Math.ceil(this.intermissionTimer / 1000));
+    hudState.update({ intermissionTimer: secs });
+
+    if (this.intermissionTimer <= 0) {
+      this.intermissionTimer = 0;
+      hudState.update({ intermissionTimer: 0 });
+
+      if (this.audio.roomTone?.isPlaying) {
+        // Player is inside Rudy's — lock shop and desks
+        this.intermissionLocked = true;
+        if (this.shopOpen) this.closeShop();
+        this.showWeaponMessage("TIME'S UP — GET OUTSIDE", "#ff4444");
       } else {
-        // Show confirmation dialog
-        hudState.update({ waveStartConfirmActive: true });
+        // Player is outside — start wave countdown
+        this.intermissionTimer = -1;
+        this.intermissionLocked = false;
+        hudState.update({ intermissionTimer: -1 });
+        this.startWaveCountdown();
       }
     }
+  }
 
-    this.updateHUD();
+  private skipIntermission() {
+    if (this.intermissionTimer <= 0) return;
+    if (this.waveManager.state !== "intermission") return;
+
+    this.intermissionTimer = -1;
+    this.intermissionLocked = false;
+    hudState.update({ intermissionTimer: -1 });
+    this.startWaveCountdown();
+  }
+
+  // ─── Kyle NPC Shop Interaction ───
+
+  private updateKyleShopPrompt() {
+    if (!this.kyleNpc || !this.kylePacing) return;
+    if (this.intermissionLocked) return;
+    if (this.waveManager.state !== "intermission") return;
+
+    const dist = Phaser.Math.Distance.Between(
+      this.player.x, this.player.y, this.kyleNpc.x, this.kyleNpc.y
+    );
+    if (dist < this.interactDist) {
+      this.setActivePrompt("E  Shop", this.kyleNpc.x, this.kyleNpc.y - 14);
+    }
+  }
+
+  private tryInteractKyle(): boolean {
+    if (!this.kyleNpc || !this.kylePacing) return false;
+    if (this.intermissionLocked) return false;
+    if (this.waveManager.state !== "intermission" && !this.devMode) return false;
+
+    const dist = Phaser.Math.Distance.Between(
+      this.player.x, this.player.y, this.kyleNpc.x, this.kyleNpc.y
+    );
+    if (dist >= this.interactDist) return false;
+
+    this.openShop();
+    return true;
   }
 
   private buyItem(index: number) {
     const item = BALANCE.shop.items[index];
     const price = this.getItemPrice(index);
     if (this.currency < price) {
-      this.playSound("sfx-error", 0.3);
+      this.audio.playSound("sfx-error", 0.3);
       return;
     }
 
     const itemId = item.id;
 
     switch (itemId) {
-      case "firstaid": {
-        if (this.player.stats.health >= this.player.stats.maxHealth) return;
+      case "first_aid": {
+        if (this.bandageCount >= BALANCE.bandage.maxStack) {
+          this.showWeaponMessage("BANDAGES FULL", "#ff4444");
+          return;
+        }
         this.currency -= price;
-        this.player.stats.health = Math.min(
-          this.player.stats.maxHealth,
-          this.player.stats.health + 50
-        );
+        this.bandageCount++;
+        this.assignConsumableSlot("bandage");
+        this.showWeaponMessage("+1 BANDAGE", "#44dd44");
         break;
       }
-      case "shotgun":
-      case "smg": {
+      case "shotgun": {
         const weaponDef = BALANCE.weapons[itemId as keyof typeof BALANCE.weapons];
         // Already own this weapon — refill ammo
         if (this.weapons.includes(itemId)) {
@@ -5681,7 +6721,7 @@ export class GameScene extends Phaser.Scene {
         this.showWeaponMessage(weaponDef.name.toUpperCase(), "#44dd44");
         const wpId = itemId as string;
         const reloadSfx = wpId === "shotgun" ? "sfx-reload-shotgun" : wpId === "assault_rifle" ? "sfx-reload-rifle" : "sfx-reload-complete";
-        this.playSound(reloadSfx, 0.5);
+        this.audio.playSound(reloadSfx, 0.5);
         break;
       }
       case "ammo_light": {
@@ -5738,6 +6778,7 @@ export class GameScene extends Phaser.Scene {
         }
         this.currency -= price;
         this.trapInventory.set(trapType, current + 1);
+        this.assignConsumableSlot("mine");
         break;
       }
       case "grenade": {
@@ -5745,11 +6786,12 @@ export class GameScene extends Phaser.Scene {
         this.currency -= price;
         this.grenadeCount++;
         this.player.grenadeCount = this.grenadeCount;
+        this.assignConsumableSlot("grenade");
         break;
       }
     }
 
-    this.playSound("sfx-buy", 0.4);
+    this.audio.playSound("sfx-buy", 0.4);
     this.pushShopData();
     this.updateHUD();
 
@@ -5808,7 +6850,7 @@ export class GameScene extends Phaser.Scene {
     let countdownKey = 0;
     if (countdownSecs >= 1 && countdownSecs <= 5 && countdownSecs !== this.lastCountdownVal) {
       countdownKey = Date.now();
-      this.playSound("sfx-countdown-tick", 0.3);
+      this.audio.playSound("sfx-countdown-tick", 0.3);
     }
     this.lastCountdownVal = countdownSecs;
 
@@ -5822,7 +6864,7 @@ export class GameScene extends Phaser.Scene {
       level: this.levelingSystem.level,
       activeSlot: this.activeSlot,
       equippedWeapon: this.hasWeapon ? this.activeWeapon : null,
-      activeItemType: this.isWeaponSlot(this.activeSlot) ? "weapon" : this.activeSlot === this.barricadeSlot ? "barricade" : this.activeSlot === this.mineSlot ? "mine" : null,
+      activeItemType: this.isWeaponSlot(this.activeSlot) ? "weapon" : null,
       ammo: this.currentAmmo?.mag ?? 0,
       maxAmmo: this.currentWeaponDef?.magazineSize ?? 0,
       reserveAmmo: this.currentAmmo?.reserve ?? 0,
@@ -5830,6 +6872,7 @@ export class GameScene extends Phaser.Scene {
       barricadeCount: this.trapInventory.get("barricade" as TrapType) ?? 0,
       mineCount: this.trapInventory.get("landmine" as TrapType) ?? 0,
       grenadeCount: this.grenadeCount,
+      bandageCount: this.bandageCount,
       abilityName: this.characterDef.ability.name,
       abilityCooldown: this.abilityCooldownTimer > 0 ? this.abilityCooldownTimer / 1000 : 0,
       abilityMaxCooldown: this.characterDef.ability.cooldown,
@@ -5844,12 +6887,13 @@ export class GameScene extends Phaser.Scene {
       characterName: this.characterDef.name,
       characterId: this.characterDef.id,
       hudVisible: true,
+      cutsceneActive: this.scaryboiIntroActive || this.masonCutsceneActive || this.axePickupActive || this.masonRavePhase === "rave_setup" || this.kyleIntroActive,
       currentObjective: this.getCurrentObjective(),
       shopOpen: this.shopOpen,
       paused: this.paused,
       gameOver: this.gameOver,
       settingsOpen: this.settingsOpen,
-      sfxVolume: this.sfxVolume,
+      sfxVolume: this.audio.sfxVolume,
       zoomEnabled: this.zoomEnabled,
       statsOpen: this.statsOpen,
       // Stats data (computed when inventory or stats is open)
@@ -5879,6 +6923,8 @@ export class GameScene extends Phaser.Scene {
         statsXpNeeded: this.levelingSystem.xpToNextLevel(),
         statsClassName: this.characterDef.className,
       } : {}),
+      consumableSlots: this.buildConsumableSlots(),
+      consumableActiveSlot: this.consumableActiveFlash,
     });
   }
 
@@ -5890,7 +6936,7 @@ export class GameScene extends Phaser.Scene {
     this.levelUpActive = true;
     this.waveManager.setFrozen(true);
     this.player.body?.setVelocity(0, 0);
-    this.playSound("sfx-level-up", 0.5);
+    this.audio.playSound("sfx-level-up", 0.5);
     hudState.update({ levelUpActive: true, levelUpLevel: level, levelUpOptions: options });
     // Open inventory screen to show buff choices alongside stats
     if (!this.inventoryOpen) {
@@ -5920,7 +6966,7 @@ export class GameScene extends Phaser.Scene {
 
     this.levelUpActive = false;
     this.waveManager.setFrozen(false);
-    this.playSound("sfx-buff-confirm", 0.4);
+    this.audio.playSound("sfx-buff-confirm", 0.4);
     hudState.update({ levelUpActive: false });
     // Close inventory screen after buff selection
     this.dismissInventory();
@@ -5937,10 +6983,7 @@ export class GameScene extends Phaser.Scene {
       // Re-arm LevelingSystem so selectBuff() won't bail out
       this.levelingSystem.setPending(next.options);
       this.showLevelUpUI(next.level, next.options);
-    } else {
-      // Always open shop after level-ups resolve (don't gate on state —
-      // the intermission auto-timer could have expired during level-up picks)
-      this.openShop();
     }
+    // No auto shop — player visits Kyle in Rudy's during intermission
   }
 }

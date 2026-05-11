@@ -76,15 +76,14 @@ export const BALANCE = {
   // Shop
   shop: {
     items: [
-      { id: "firstaid", name: "First Aid Kit", desc: "Heal 50 HP", basePrice: 60 },
+      { id: "first_aid", name: "Bandage", desc: "Heal 25 HP", basePrice: 50 },
       { id: "ammo_light", name: "Light Ammo", desc: "+2 clips (pistol & SMG)", basePrice: 75 },
       { id: "ammo_shotgun", name: "Shotgun Shells", desc: "+2 shotgun clips", basePrice: 80 },
       { id: "ammo_heavy", name: "Heavy Ammo", desc: "+2 assault rifle mags", basePrice: 100 },
       { id: "landmine", name: "Landmine", desc: "AoE explosion on contact", basePrice: 40 },
       { id: "grenade", name: "Grenade", desc: "Throwable explosive (max 3)", basePrice: 60 },
-      // Weapons at the bottom
+      // Weapons — shotgun + SMG removed from shop (accessed elsewhere)
       { id: "shotgun", name: "Shotgun", desc: "8 shells, spread", basePrice: 350 },
-      { id: "smg", name: "SMG", desc: "50 rounds, rapid fire", basePrice: 500 },
     ],
   },
 
@@ -184,15 +183,15 @@ export const BALANCE = {
     damageMultiplier: 1.3,
     reloadSpeedMultiplier: 0.7,
     ammoBonus: 1.25,
-    critBonus: 0.03,
+    critBonus: 0,
     generalistMultiplier: 1.1,
-    generalistCritBonus: 0.02,
+    generalistCritBonus: 0,
   },
 
   // Critical hits
   crit: {
     damageMultiplier: 4.0,
-    critPerLevel: 0.005, // +0.5% crit per level
+    critPerLevel: 0, // disabled — headshots from buffs only
     weaponCrit: {
       pistol: 0,
       shotgun: 0,
@@ -236,10 +235,31 @@ export const BALANCE = {
     fuseMs: 200,           // delay after landing before detonation
     arcPeakPx: 25,         // fake parabolic height offset
     throwLockMs: 400,      // player locked from shooting during throw animation
-    startCount: 1,         // grenades at game start
+    startCount: 0,         // grenades at game start
     maxCount: 3,           // max carry
     shopPrice: 60,
     aimThresholdMs: 150,   // hold time before aiming line appears
+  },
+
+  // Bandages
+  bandage: {
+    healAmount: 25,
+    maxStack: 5,
+    deskGiveCount: 3,    // how many the med desk gives
+  },
+
+  // Rudy's desks
+  desks: {
+    interactRange: 60,   // px
+    restockInterval: 5,  // restock every N waves (wave 6, 11, 16, ...)
+    ammoDesk: {
+      pistolRounds: 8,   // 1 mag
+      shotgunShells: 6,  // 3 clips of 2
+    },
+    equipmentDesk: {
+      grenades: 1,
+      landmines: 1,
+    },
   },
 
   // Speed cap
@@ -271,9 +291,9 @@ export const BALANCE = {
         elite:    { name: "Speed III",  desc: "+22 speed",  flat: 22, minLevel: 9 },
       },
       luck: {
-        basic:    { name: "Luck",             desc: "+3% crit",   flatCrit: 0.03, minLevel: 1 },
-        advanced: { name: "Luck II",          desc: "+6% crit",   flatCrit: 0.06, minLevel: 5 },
-        elite:    { name: "Luck III",         desc: "+10% crit",  flatCrit: 0.10, minLevel: 9 },
+        basic:    { name: "Luck",             desc: "+2% headshot",   flatCrit: 0.02, minLevel: 1 },
+        advanced: { name: "Luck II",          desc: "+4% headshot",   flatCrit: 0.04, minLevel: 5 },
+        elite:    { name: "Luck III",         desc: "+6% headshot",  flatCrit: 0.06, minLevel: 9 },
       },
       scavenger: {
         basic:    { name: "Scavenger",       desc: "+$5 per kill",   killBonus: 5, minLevel: 1 },
@@ -304,8 +324,8 @@ export const BALANCE = {
       runSpeed: 120,       // sprint at player aggressively
       knockbackResist: 0.8,
       attacks: {
-        punchCombo: { damage: 40, range: 95,  cooldown: 900,  knockback: 120 }, // range covers collision separation floor (~84px)
-        fireball:   { damage: 15, range: 400, cooldown: 2000, projectileSpeed: 300 }, // frequent ranged pressure
+        punchCombo: { damage: 40, range: 70,  cooldown: 900,  knockback: 120 },
+        fireball:   { damage: 10, range: 400, cooldown: 2000, projectileSpeed: 300 },
       },
       backflipCooldown: 2000, // faster disengage-reengage loop
     },
@@ -316,7 +336,7 @@ export const BALANCE = {
       attacks: {
         leadJab:     { damage: 20,  range: 65,  cooldown: 500  },
         fireBreath:  { damage: 55,  range: 120, cooldown: 3500, coneAngle: 60 },  // phase 2 only
-        jumpAndLand: { range: 300, cooldown: 3500, landRadius: 80, stunDuration: 800 },  // stuns, no damage
+        jumpAndLand: { range: 300, cooldown: 3500, landRadius: 100, stunDuration: 800 },  // stuns, no damage
         boomBox:     { damage: 30,  range: 250, cooldown: 5000 },  // phase 1+
       },
     },

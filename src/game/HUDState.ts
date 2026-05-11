@@ -43,7 +43,7 @@ export interface HUDData {
   // Hotbar
   activeSlot: number;
   equippedWeapon: string | null;
-  activeItemType: string | null; // "weapon" | "barricade" | "mine" | null
+  activeItemType: string | null; // "weapon" | "barricade" | "mine" | "bandage" | null
   ammo: number;
   maxAmmo: number;
   reserveAmmo: number;
@@ -51,6 +51,7 @@ export interface HUDData {
   barricadeCount: number;
   mineCount: number;
   grenadeCount: number;
+  bandageCount: number;
 
   // Ability
   abilityName: string;
@@ -109,6 +110,7 @@ export interface HUDData {
   // Settings
   settingsOpen: boolean;
   sfxVolume: number;
+  musicVolume: number;
   zoomEnabled: boolean;
 
   // Level-up
@@ -117,7 +119,7 @@ export interface HUDData {
   levelUpOptions: BuffOption[];
 
   // Game over
-  gameOverPhase: "" | "death" | "entry" | "leaderboard";
+  gameOverPhase: "" | "death" | "victory" | "entry" | "leaderboard";
   gameOverWave: number;
   gameOverKills: number;
   gameOverCharName: string;
@@ -160,8 +162,11 @@ export interface HUDData {
   scaryboiQuoteTimings: { startMs: number; durationMs: number }[]; // per-quote timing for voice sync
   scaryboiVoSrc: string;         // encounter-specific VO audio path (empty = no VO)
 
-  // Wave start confirmation
-  waveStartConfirmActive: boolean;
+  // Wave start countdown (3-2-1 center screen)
+  waveStartCountdown: number; // -1 = inactive, 3/2/1 = counting
+
+  // Intermission timer (subtle side display)
+  intermissionTimer: number; // -1 = inactive, seconds remaining
 
   // Objective tracker
   currentObjective: string | null;
@@ -186,6 +191,14 @@ export interface HUDData {
   // Axe pickup overlay
   axePickupActive: boolean;
 
+  // Kyle dialogue (intro cutscene + shop NPC)
+  kyleDialogueActive: boolean;
+  kyleDialogueSpeaker: string;
+  kyleDialogueQuote: string;
+
+  // Cutscene active — hides all gameplay HUD (health, objectives, hotbar, minimap, wave, etc.)
+  cutsceneActive: boolean;
+
   // Interaction prompt (React-rendered)
   interactionPrompt: {
     label: string;
@@ -199,6 +212,10 @@ export interface HUDData {
   inventoryOpen: boolean;
   inventorySlots: InventorySlot[];
   inventoryHasAxe: boolean;
+
+  // Consumable hotbar (1-4 keys, left side vertical)
+  consumableSlots: ConsumableSlot[];   // up to 6 slots; first 4 = hotbar
+  consumableActiveSlot: number;        // -1 = none active (flash/highlight), index of slot being used
 }
 
 export interface InventorySlot {
@@ -206,6 +223,13 @@ export interface InventorySlot {
   name: string;
   icon: string;
   count?: number;   // for stackable items like ammo
+}
+
+export interface ConsumableSlot {
+  type: string;     // "grenade" | "bandage" | "mine" | "barricade" | "" (empty)
+  count: number;
+  icon: string;
+  name: string;
 }
 
 const DEFAULT_STATE: HUDData = {
@@ -225,6 +249,7 @@ const DEFAULT_STATE: HUDData = {
   barricadeCount: 0,
   mineCount: 0,
   grenadeCount: 0,
+  bandageCount: 0,
   abilityName: "",
   abilityCooldown: 0,
   abilityMaxCooldown: 0,
@@ -259,6 +284,7 @@ const DEFAULT_STATE: HUDData = {
   zoomVisible: false,
   settingsOpen: false,
   sfxVolume: 0.5,
+  musicVolume: 0.5,
   zoomEnabled: false,
   levelUpActive: false,
   levelUpLevel: 1,
@@ -284,7 +310,8 @@ const DEFAULT_STATE: HUDData = {
   scaryboiQuotes: [],
   scaryboiQuoteTimings: [],
   scaryboiVoSrc: "",
-  waveStartConfirmActive: false,
+  waveStartCountdown: -1,
+  intermissionTimer: -1,
   currentObjective: null,
   letterboxActive: false,
   gameMessage: "",
@@ -296,10 +323,16 @@ const DEFAULT_STATE: HUDData = {
   loadingScreenVisible: false,
   loadingScreenCharId: "",
   axePickupActive: false,
+  kyleDialogueActive: false,
+  kyleDialogueSpeaker: "",
+  kyleDialogueQuote: "",
+  cutsceneActive: false,
   interactionPrompt: null,
   inventoryOpen: false,
   inventorySlots: [],
   inventoryHasAxe: false,
+  consumableSlots: [],
+  consumableActiveSlot: -1,
 };
 
 type Listener = () => void;
@@ -354,6 +387,10 @@ class HUDStateStore {
   private masonDialogueAction: ActionHandler | null = null;
   registerMasonDialogueAction(handler: ActionHandler) { this.masonDialogueAction = handler; }
   dispatchMasonDialogueAction(action: string, payload?: any) { this.masonDialogueAction?.(action, payload); }
+
+  private kyleDialogueAction: ActionHandler | null = null;
+  registerKyleDialogueAction(handler: ActionHandler) { this.kyleDialogueAction = handler; }
+  dispatchKyleDialogueAction(action: string, payload?: any) { this.kyleDialogueAction?.(action, payload); }
 
   private inventoryAction: ActionHandler | null = null;
   registerInventoryAction(handler: ActionHandler) { this.inventoryAction = handler; }

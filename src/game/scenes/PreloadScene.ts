@@ -41,7 +41,8 @@ export class PreloadScene extends Phaser.Scene {
     // Load animation frames for characters that have them
     for (const [charId, anims] of Object.entries(CHARACTER_ANIMATIONS)) {
       for (const anim of anims) {
-        for (const dir of DIRECTIONS) {
+        const dirs = anim.dirs ?? DIRECTIONS;
+        for (const dir of dirs) {
           for (let f = 0; f < anim.frames; f++) {
             const key = getFrameKey(charId, anim.type, dir, f);
             const path = `/assets/sprites/${charId}/${anim.type}/${dir}/frame_${String(f).padStart(3, "0")}.png`;
@@ -120,6 +121,9 @@ export class PreloadScene extends Phaser.Scene {
     this.load.image("ts-sprite-0001", "/assets/tilesets/Sprite-0001.png");
     this.load.image("ts-grass-pavement-rick-0002", "/assets/tilesets/grass-pavement-rick-0002.png");
     this.load.image("ts-sprite-0003", "/assets/tilesets/Sprite-0003.png");
+    this.load.image("ts-fancy-mansion-furnitureset", "/assets/tilesets/_new-assets/fancy-mansion-furniture/fancy_mansion_furnitureset.png");
+    this.load.image("ts-fancy-mansion-room-door-tiles", "/assets/tilesets/_new-assets/fancy-mansion-furniture/fancy_mansion_room_door_tiles.png");
+    this.load.image("ts-interiors-tilesets", "/assets/tilesets/_new-assets/epic-rpg-interiors/Interiors_tilesets.png");
     // DJ gear props (spawned as sprites, not tiles — mixed tile heights break Phaser rendering)
     this.load.image("prop-dj-table", "/assets/sprites/props/dj-table.png");
     this.load.image("prop-pa-speaker", "/assets/sprites/props/pa-speaker.png");
@@ -308,9 +312,6 @@ export class PreloadScene extends Phaser.Scene {
     for (let i = 1; i <= 12; i++) {
       this.load.audio(`sfx-groan${i}`, `/assets/audio/enemies/groans/zombie-groan-${i}.wav`);
     }
-    // Horror stingers (wave transitions)
-    this.load.audio("sfx-horror1", "/assets/audio/enemies/horror-fx-1.wav");
-    this.load.audio("sfx-horror2", "/assets/audio/enemies/horror-fx-2.wav");
     // Traps
     this.load.audio("sfx-explosion", "/assets/audio/traps/explosion.wav");
     this.load.audio("sfx-trap-place", "/assets/audio/traps/trap-place.wav");
@@ -324,16 +325,22 @@ export class PreloadScene extends Phaser.Scene {
     for (let i = 1; i <= 6; i++) {
       this.load.audio(`sfx-step-grass${i}`, `/assets/audio/footsteps/footstep-grass-${i}.ogg`);
     }
+    this.load.audio("sfx-running-grass", "/assets/audio/footsteps/running-grass.mp3");
     for (let i = 1; i <= 6; i++) {
       this.load.audio(`sfx-step-gravel${i}`, `/assets/audio/footsteps/footstep-gravel-${i}.ogg`);
     }
     for (let i = 1; i <= 5; i++) {
       this.load.audio(`sfx-step-wood${i}`, `/assets/audio/footsteps/footstep-wood-${i}.ogg`);
     }
+    for (const n of [1, 4, 5, 7]) {
+      this.load.audio(`sfx-step-dog${n}`, `/assets/audio/footsteps/dog/footstep-dog-${n}.ogg`);
+    }
+    this.load.audio("sfx-bandage-use", "/assets/audio/sfx-bandage-use.ogg");
     // Ambient
     this.load.audio("sfx-ambient-birds", "/assets/audio/ambient/forest-birds.wav");
     this.load.audio("sfx-ambient-rain", "/assets/audio/ambient/forest-rain.wav");
     this.load.audio("sfx-creepy-whisper", "/assets/audio/ambient/creepy-whisper.wav");
+    this.load.audio("sfx-room-tone", "/assets/audio/ambient/room-tone.mp3");
     // Voice lines
     this.load.audio("sfx-voice1", "/assets/audio/voice/voice-line-liam-1.mp3");
     this.load.audio("sfx-voice2", "/assets/audio/voice/voice-line-liam-2.mp3");
@@ -377,6 +384,7 @@ export class PreloadScene extends Phaser.Scene {
     this.load.audio("sfx-fire-loop", "/assets/audio/boss/fire-breath-loop.mp3");
     this.load.audio("sfx-fire-crackle", "/assets/audio/boss/fire-crackle.mp3");
     this.load.audio("sfx-phase2-transition", "/assets/audio/boss/phase2-transition.mp3");
+    this.load.audio("sfx-mason-rave-music", "/assets/audio/boss/mason-rave-music.mp3");
     // Environment
     this.load.audio("sfx-gen-spark", "/assets/audio/ambient/generator-spark.mp3");
     this.load.audio("sfx-gen-buzz", "/assets/audio/ambient/generator-buzz.mp3");
@@ -384,13 +392,19 @@ export class PreloadScene extends Phaser.Scene {
     this.load.audio("sfx-gen-hum", "/assets/audio/ambient/generator-hum.mp3");
     this.load.audio("sfx-door-bash", "/assets/audio/enemies/door-bash.mp3");
     this.load.audio("sfx-fence-break", "/assets/audio/ambient/fence-break.ogg");
+    // Theme music
+    this.load.audio("theme-main", "/assets/audio/theme_main.mp3");
+    this.load.audio("theme-intense", "/assets/audio/theme_intense.mp3");
+    this.load.audio("theme-creepybass", "/assets/audio/theme_creepybass.mp3");
+    this.load.audio("theme-outro", "/assets/audio/theme_outro.mp3");
   }
 
   async create() {
     // Register animations (skip directions with missing frame textures)
     for (const [charId, anims] of Object.entries(CHARACTER_ANIMATIONS)) {
       for (const anim of anims) {
-        for (const dir of DIRECTIONS) {
+        const dirs = anim.dirs ?? DIRECTIONS;
+        for (const dir of dirs) {
           const animKey = getAnimKey(charId, anim.type, dir);
           const frames: Phaser.Types.Animations.AnimationFrame[] = [];
 

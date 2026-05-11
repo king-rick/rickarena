@@ -27,6 +27,49 @@ const TAGLINE =
 
 let introPlayed = false;
 
+// Module-level menu music — plays once (no loop), fades on character select
+let menuMusicEl: HTMLAudioElement | null = null;
+
+function startMenuMusic() {
+  if (menuMusicEl) return;
+  try {
+    const a = new Audio("/assets/audio/theme_full.mp3");
+    a.volume = 0;
+    menuMusicEl = a;
+    void a.play().catch(() => {});
+    const t0 = performance.now();
+    const fadeMs = 5000;
+    const targetVol = 0.35;
+    const tick = (now: number) => {
+      if (!menuMusicEl) return;
+      const t = Math.min(1, (now - t0) / fadeMs);
+      try { a.volume = Math.min(1, Math.max(0, t * targetVol)); } catch {}
+      if (t < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  } catch {}
+}
+
+export function fadeOutMenuMusic(durationMs = 1500) {
+  const a = menuMusicEl;
+  menuMusicEl = null;
+  if (!a) return;
+  const startVol = a.volume;
+  const t0 = performance.now();
+  const tick = (now: number) => {
+    const t = Math.min(1, (now - t0) / durationMs);
+    try { a.volume = Math.max(0, startVol * (1 - t)); } catch {}
+    if (t < 1) {
+      requestAnimationFrame(tick);
+    } else {
+      a.pause();
+      a.src = "";
+    }
+  };
+  requestAnimationFrame(tick);
+}
+
+
 interface Props {
   canvasRect: CanvasRect;
 }
@@ -40,7 +83,9 @@ export const MainMenu = memo(function MainMenu({ canvasRect }: Props) {
 
   const MENU_ITEMS = ["play", "controls", "leaderboard"] as const;
 
-  const handlePlay = useCallback(() => hudState.dispatchMainMenuAction("play"), []);
+  const handlePlay = useCallback(() => {
+    hudState.dispatchMainMenuAction("play");
+  }, []);
 
   const activateItem = useCallback((item: string) => {
     menuClick();
@@ -223,6 +268,10 @@ function IntroScreen({ canvasRect, onComplete }: { canvasRect: CanvasRect; onCom
     hudState.subscribe,
     () => hudState.getField("assetsReady")
   );
+
+  // Start menu music on intro mount
+  useEffect(() => { startMenuMusic(); }, []);
+
   // Step 1: Fade text in after a brief pause in darkness
   useEffect(() => {
     const t = setTimeout(() => setTextVisible(true), 800);

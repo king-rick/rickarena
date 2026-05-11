@@ -11,6 +11,7 @@ export const PauseMenu = memo(function PauseMenu() {
   const settingsOpen = useSyncExternalStore(hudState.subscribe, () => hudState.getField("settingsOpen"));
   const statsOpen = useSyncExternalStore(hudState.subscribe, () => hudState.getField("statsOpen"));
   const sfxVolume = useSyncExternalStore(hudState.subscribe, () => hudState.getField("sfxVolume"));
+  const musicVolume = useSyncExternalStore(hudState.subscribe, () => hudState.getField("musicVolume"));
   const zoomEnabled = useSyncExternalStore(hudState.subscribe, () => hudState.getField("zoomEnabled"));
   const [controlsOpen, setControlsOpen] = useState(false);
 
@@ -47,7 +48,7 @@ export const PauseMenu = memo(function PauseMenu() {
       <div className="absolute inset-0" style={{ background: "rgba(0, 0, 0, 0.82)", pointerEvents: "none" }} />
 
       {settingsOpen ? (
-        <SettingsPanel sfxVolume={sfxVolume} zoomEnabled={zoomEnabled} />
+        <SettingsPanel sfxVolume={sfxVolume} musicVolume={musicVolume} zoomEnabled={zoomEnabled} />
       ) : controlsOpen ? (
         <ControlsFullPanel onBack={() => setControlsOpen(false)} />
       ) : (
@@ -199,9 +200,13 @@ function ControlsFullPanel({ onBack }: { onBack: () => void }) {
   );
 }
 
-function SettingsPanel({ sfxVolume, zoomEnabled }: { sfxVolume: number; zoomEnabled: boolean }) {
+function SettingsPanel({ sfxVolume, musicVolume, zoomEnabled }: { sfxVolume: number; musicVolume: number; zoomEnabled: boolean }) {
   const handleVolume = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     hudState.dispatchPauseAction("setVolume", parseFloat(e.target.value));
+  }, []);
+
+  const handleMusicVolume = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    hudState.dispatchPauseAction("setMusicVolume", parseFloat(e.target.value));
   }, []);
 
   const handleZoom = useCallback(() => {
@@ -253,6 +258,30 @@ function SettingsPanel({ sfxVolume, zoomEnabled }: { sfxVolume: number; zoomEnab
         step="0.01"
         value={sfxVolume}
         onChange={handleVolume}
+        className="relative"
+        style={{
+          width: "100%",
+          height: 12,
+          marginBottom: 24,
+          accentColor: "#ff2244",
+          cursor: "pointer",
+        }}
+      />
+
+      {/* Music Volume */}
+      <div className="relative flex items-center justify-between" style={{ marginBottom: 12 }}>
+        <span style={{ fontFamily: BODY, fontSize: 26, color: "#cccccc" }}>Music Volume</span>
+        <span style={{ fontFamily: BODY, fontSize: 26, color: "#ffffff" }}>
+          {Math.round(musicVolume * 100)}
+        </span>
+      </div>
+      <input
+        type="range"
+        min="0"
+        max="1"
+        step="0.01"
+        value={musicVolume}
+        onChange={handleMusicVolume}
         className="relative"
         style={{
           width: "100%",

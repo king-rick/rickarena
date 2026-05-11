@@ -5,6 +5,7 @@ import { hudState } from "@/game/HUDState";
 
 const DISMISS_MS = 400;
 const SPEED_MULT = 0.82; // slightly faster than 1:1 voice sync
+const VO_RATE = 1.2; // SCARYBOI speaks 1.2x faster
 
 export function ScaryboiIntro() {
   const [visible, setVisible] = useState(false);
@@ -50,7 +51,7 @@ export function ScaryboiIntro() {
     const t = timings[quoteIndex];
     const chars = (quotes[quoteIndex] ?? "").length;
     if (chars <= 0) return 35;
-    return Math.max(15, Math.floor((t.durationMs * SPEED_MULT) / chars));
+    return Math.max(15, Math.floor((t.durationMs * SPEED_MULT) / (chars * VO_RATE)));
   }, [timings, quoteIndex, quotes]);
 
   // Reset typewriter when quote changes
@@ -67,7 +68,7 @@ export function ScaryboiIntro() {
     if (!visible || typewriterStarted) return;
 
     if (quoteIndex === 0 && timings.length > 0 && timings[0]) {
-      const delay = timings[0].startMs;
+      const delay = timings[0].startMs / VO_RATE;
       const t = window.setTimeout(() => setTypewriterStarted(true), delay);
       return () => clearTimeout(t);
     } else {
@@ -94,7 +95,7 @@ export function ScaryboiIntro() {
 
     const timers: number[] = [];
     for (let i = 1; i < timings.length; i++) {
-      const t = window.setTimeout(() => setQuoteIndex(i), timings[i].startMs);
+      const t = window.setTimeout(() => setQuoteIndex(i), timings[i].startMs / VO_RATE);
       timers.push(t);
     }
 
@@ -112,6 +113,7 @@ export function ScaryboiIntro() {
     if (!visible || !voSrc) return;
     const a = new Audio(voSrc);
     a.volume = sfxVolume;
+    a.playbackRate = 1.2;
     audioRef.current = a;
     a.addEventListener("ended", () => setAudioEnded(true));
     void a.play().catch(() => {});

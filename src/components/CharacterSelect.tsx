@@ -3,6 +3,7 @@
 import { memo, useSyncExternalStore, useEffect, useState, useCallback } from "react";
 import { hudState } from "@/game/HUDState";
 import { CHARACTERS } from "@/game/data/characters";
+import { fadeOutMenuMusic } from "./MainMenu";
 import type { CanvasRect } from "./Game";
 
 interface Props {
@@ -54,7 +55,7 @@ export const CharacterSelect = memo(function CharacterSelect({ canvasRect }: Pro
     setTimeout(() => setTransitioning(false), 200);
   }, [transitioning]);
 
-  const handleStart = useCallback(() => { menuClick(); hudState.dispatchMenuAction("start"); }, []);
+  const handleStart = useCallback(() => { menuClick(); fadeOutMenuMusic(); hudState.dispatchMenuAction("start"); }, []);
   const handleBack = useCallback(() => { menuClick(); hudState.dispatchMenuAction("back"); }, []);
 
   useEffect(() => {

@@ -44,7 +44,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   grenadeCount = 0;
   throwingGrenade = false;
 
-  currentDir: Direction = "south";
+  currentDir: Direction = "north";
   private currentAnim: PlayerAnim = "idle";
   private lastStaminaUse = 0;
   private burnoutTimer = 0;
@@ -60,6 +60,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private holdingShoot = false; // true for auto weapons holding last frame
   private locked = false; // true during hurt/death — blocks all input
   private sprinting = false;
+  cutsceneControlled = false; // true during cutscenes — disables player input, game controls movement
   private sprintKey!: Phaser.Input.Keyboard.Key;
 
   /** True while punch animation is active — grants i-frames */
@@ -100,12 +101,12 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     // Collision body: covers torso area for solid enemy separation
     this.body.setSize(36, 40);
     this.body.setOffset(46, 76);
-    this.setScale(0.25);
+    this.setScale(0.30);
     this.setDepth(5);
 
-    // Start with idle animation if available
+    // Start with idle animation if available — face north toward door
     if (this.hasIdleAnim) {
-      this.play(getAnimKey(characterId, "breathing-idle", "south"));
+      this.play(getAnimKey(characterId, "breathing-idle", "north"));
     }
 
     if (scene.input.keyboard) {
@@ -151,8 +152,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       }
     }
 
-    // Skip movement when locked (hurt/death)
-    if (this.locked) return;
+    // Skip movement when locked (hurt/death) or cutscene-controlled
+    if (this.locked || this.cutsceneControlled) return;
 
     // Movement
     const left = this.cursors?.left.isDown || this.wasd?.A.isDown;

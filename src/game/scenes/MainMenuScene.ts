@@ -5,7 +5,6 @@ import { hudState } from "../HUDState";
 export class MainMenuScene extends Phaser.Scene {
   private selectedIndex = 0;
   private phase: "title" | "charSelect" = "title";
-
   constructor() {
     super({ key: "MainMenu" });
   }
@@ -20,6 +19,8 @@ export class MainMenuScene extends Phaser.Scene {
     const bg = this.add.graphics();
     bg.fillStyle(0x080810, 1);
     bg.fillRect(0, 0, width, height);
+
+    // Menu music is managed by React (HTML Audio) — starts in IntroScreen, fades out on PLAY
 
     // Assets are loaded — signal React and show main menu
     hudState.update({
@@ -59,7 +60,7 @@ export class MainMenuScene extends Phaser.Scene {
 
   private startGame() {
     const charId = CHARACTERS[this.selectedIndex].id;
-    this.sound.play("sfx-character-select", { volume: 0.6 });
+    try { this.sound?.play("sfx-character-select", { volume: 0.6 }); } catch {}
     hudState.update({ menuVisible: false, mainMenuVisible: false });
     // Show character loading screen for 2 seconds, then start game
     hudState.update({

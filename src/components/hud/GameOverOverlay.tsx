@@ -18,6 +18,8 @@ export const GameOverOverlay = memo(function GameOverOverlay() {
 
   if (!gameOver || !phase) return null;
 
+  const isVictory = phase === "victory" || (phase !== "death" && wave >= 999);
+
   return (
     <div
       className="absolute inset-0 pointer-events-auto"
@@ -29,33 +31,75 @@ export const GameOverOverlay = memo(function GameOverOverlay() {
         src="/assets/sprites/ui/tiles/splash-graveyard.png"
         alt=""
         className="absolute inset-0"
-        style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.25, filter: "saturate(0.5) hue-rotate(200deg)" }}
+        style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.25, filter: isVictory ? "saturate(0.5) hue-rotate(80deg)" : "saturate(0.5) hue-rotate(200deg)" }}
       />
 
       <div className="relative flex flex-col items-center justify-center" style={{ height: "100%" }}>
-        {/* Death header — always visible */}
-        <span
-          style={{
-            fontFamily: DISPLAY,
-            fontSize: 100,
-            color: "#cc2233",
-            textShadow: "0 0 30px rgba(204, 34, 51, 0.6), 0 4px 12px rgba(0, 0, 0, 0.8)",
-            animation: "fade-in 0.8s ease-in",
-          }}
-        >
-          YOU DIED
-        </span>
-        <span
-          style={{
-            fontFamily: BODY,
-            fontSize: 36,
-            color: "#cccccc",
-            marginTop: 12,
-            animation: "fade-in 0.8s ease-in",
-          }}
-        >
-          Wave {wave} | {kills} kills
-        </span>
+        {phase === "victory" ? (
+          <>
+            <span
+              style={{
+                fontFamily: DISPLAY,
+                fontSize: 100,
+                color: "#ffcc00",
+                textShadow: "0 0 30px rgba(255, 204, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.8)",
+                animation: "fade-in 0.8s ease-in",
+              }}
+            >
+              YOU WON
+            </span>
+            <span
+              style={{
+                fontFamily: BODY,
+                fontSize: 24,
+                color: "#cccccc",
+                marginTop: 24,
+                maxWidth: 600,
+                textAlign: "center",
+                lineHeight: 1.5,
+                animation: "fade-in 1.5s ease-in",
+              }}
+            >
+              You defeated DJ BigBaby and crashed his zombie rave before he could corrupt the townsfolk with his sinister beats.
+            </span>
+            <span
+              style={{
+                fontFamily: BODY,
+                fontSize: 36,
+                color: "#cccccc",
+                marginTop: 24,
+                animation: "fade-in 2s ease-in",
+              }}
+            >
+              {kills} kills
+            </span>
+          </>
+        ) : (
+          <>
+            <span
+              style={{
+                fontFamily: DISPLAY,
+                fontSize: 100,
+                color: "#cc2233",
+                textShadow: "0 0 30px rgba(204, 34, 51, 0.6), 0 4px 12px rgba(0, 0, 0, 0.8)",
+                animation: "fade-in 0.8s ease-in",
+              }}
+            >
+              YOU DIED
+            </span>
+            <span
+              style={{
+                fontFamily: BODY,
+                fontSize: 36,
+                color: "#cccccc",
+                marginTop: 12,
+                animation: "fade-in 0.8s ease-in",
+              }}
+            >
+              Wave {wave} | {kills} kills
+            </span>
+          </>
+        )}
 
         {/* Phase-specific content */}
         {phase === "entry" && <NameEntry />}

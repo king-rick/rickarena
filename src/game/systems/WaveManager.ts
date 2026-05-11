@@ -139,6 +139,8 @@ export class WaveManager {
   }
 
   update(delta: number) {
+    if (this.frozen) return;
+
     // Maintain persistent dog pack (always running, even during intermission)
     this.updateDogs(delta);
 
