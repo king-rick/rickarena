@@ -73,6 +73,9 @@ export class PreloadScene extends Phaser.Scene {
     // Generator + machine props (on/off states)
     this.load.image("generator-on", "/assets/sprites/generator.png");
     this.load.image("generator-off", "/assets/sprites/generator-off.png");
+    // Shop open/closed signs
+    this.load.image("sign-open", "/assets/sprites/props/sign-open.png");
+    this.load.image("sign-closed", "/assets/sprites/props/sign-closed.png");
     this.load.image("machine-zyn-on", "/assets/sprites/machine-zyn.png");
     this.load.image("machine-zyn-off", "/assets/sprites/machine-zyn-off.png");
     this.load.image("machine-keg-on", "/assets/sprites/machine-keg.png");
@@ -335,7 +338,11 @@ export class PreloadScene extends Phaser.Scene {
     for (const n of [1, 4, 5, 7]) {
       this.load.audio(`sfx-step-dog${n}`, `/assets/audio/footsteps/dog/footstep-dog-${n}.ogg`);
     }
-    this.load.audio("sfx-bandage-use", "/assets/audio/sfx-bandage-use.ogg");
+    this.load.audio("sfx-bandage-use", "/assets/audio/sfx-bandage-use.mp3");
+    // Car alarm horns (DUH DUH DUH pattern)
+    this.load.audio("sfx-car-alarm-horn-1", "/assets/audio/sfx-car-alarm-horn-1.mp3");
+    this.load.audio("sfx-car-alarm-horn-2", "/assets/audio/sfx-car-alarm-horn-2.mp3");
+    this.load.audio("sfx-car-alarm-horn-3", "/assets/audio/sfx-car-alarm-horn-3.mp3");
     // Ambient
     this.load.audio("sfx-ambient-birds", "/assets/audio/ambient/forest-birds.wav");
     this.load.audio("sfx-ambient-rain", "/assets/audio/ambient/forest-rain.wav");
@@ -358,6 +365,17 @@ export class PreloadScene extends Phaser.Scene {
     this.load.audio("sfx-scaryboi-taunt-jason1", "/assets/audio/voice/scaryboi/jason-taunt1.mp3");
     this.load.audio("sfx-scaryboi-taunt-jason2", "/assets/audio/voice/scaryboi/jason-taunt2.mp3");
     this.load.audio("sfx-scaryboi-taunt-jason3", "/assets/audio/voice/scaryboi/jason-taunt3.mp3");
+    // Kyle cutscene VO (real Kyle recordings)
+    this.load.audio("vo-kyle-look-out", "/assets/audio/voice/real-kyle-look-out.mp3");
+    this.load.audio("vo-kyle-almost-got-ya", "/assets/audio/voice/real-kyle-almost-got-ya.mp3");
+    this.load.audio("vo-kyle-ever-use-one", "/assets/audio/voice/real-kyle-ever-use-one.mp3");
+    this.load.audio("vo-kyle-mason-exposition-1", "/assets/audio/voice/real-kyle-mason-exposition-1.mp3");
+    this.load.audio("vo-kyle-mason-exposition-2", "/assets/audio/voice/real-kyle-mason-exposition-2.mp3");
+    this.load.audio("vo-kyle-mason-exposition-3", "/assets/audio/voice/real-kyle-mason-exposition-3.mp3");
+    this.load.audio("vo-kyle-mason-exposition-4", "/assets/audio/voice/real-kyle-mason-exposition-4.mp3");
+    this.load.audio("vo-kyle-good-luck", "/assets/audio/voice/real-kyle-good-luck.mp3");
+    this.load.audio("vo-kyle-supplies", "/assets/audio/voice/real-kyle-supplies.mp3");
+    this.load.audio("vo-kyle-zyns", "/assets/audio/voice/real-kyle-zyns.mp3");
     // Door open
     this.load.audio("sfx-door-open", "/assets/audio/ui/doorOpen_1.ogg");
     // Player feedback
@@ -424,7 +442,10 @@ export class PreloadScene extends Phaser.Scene {
             || anim.type === "running-6-frames" || anim.type === "running-8-frames"
             || anim.type === "fight-stance-idle" || anim.type === "fight-stance-idle-8-frames"
             || anim.type === "walk-6-frames" || anim.type === "running"
-            || anim.type === "electrified-stun" || anim.type === "zombie-dancing";
+            || anim.type === "electrified-stun" || anim.type === "zombie-dancing"
+            || anim.type === "crouching-stealth-pistol"
+            || anim.type === "walking-flashlight"
+            || anim.type === "walking-pistol-flashlight";
 
           let frameRate = 8;
           if (anim.type === "walk") frameRate = anim.frames <= 6 ? 13 : 10;
@@ -447,6 +468,9 @@ export class PreloadScene extends Phaser.Scene {
           else if (anim.type === "swinging-katana") frameRate = 14;
           else if (anim.type === "throw-grenade") frameRate = 10;
           else if (anim.type === "walking-shooting-pistol") frameRate = 10;
+          else if (anim.type === "crouching-stealth-pistol") frameRate = 8;
+          else if (anim.type === "walking-flashlight") frameRate = 10;
+          else if (anim.type === "walking-pistol-flashlight") frameRate = 10;
           else if (anim.type === "light-cigarette") frameRate = 6;
           else if (anim.type === "bite") frameRate = 12;
           else if (anim.type === "lunge-bite") frameRate = 12;

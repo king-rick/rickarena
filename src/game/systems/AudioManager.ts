@@ -71,16 +71,20 @@ export class AudioManager {
   // ─── Core SFX ───
 
   /** Play a one-shot SFX, scaled by master sfxVolume */
-  playSound(key: string, volume = 0.5) {
-    if (this.sfxMuted) return;
+  playSound(key: string, volume = 0.5): Phaser.Sound.BaseSound | null {
+    if (this.sfxMuted) return null;
     try {
       if (this.scene.cache.audio.exists(key) && this.scene.sound?.locked === false) {
         const final = Math.min(volume * this.sfxVolume, 0.6);
-        this.scene.sound.play(key, { volume: final });
+        const sound = this.scene.sound.add(key, { volume: final });
+        sound.play();
+        sound.once("complete", () => { try { sound.destroy(); } catch {} });
+        return sound;
       }
     } catch {
       // AudioContext closed — safe to ignore
     }
+    return null;
   }
 
   // ─── Theme Music ───

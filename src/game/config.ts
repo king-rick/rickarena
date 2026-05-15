@@ -11,6 +11,9 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
   parent: "game-container",
   backgroundColor: "#0a0a0f",
   pixelArt: true,
+  render: {
+    maxLights: 32,
+  },
   disableContextMenu: true,
   input: {
     mouse: {

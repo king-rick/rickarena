@@ -23,6 +23,9 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "shooting-rpg", frames: 9 },
     { type: "shooting-assault-rifle", frames: 4 },
     { type: "banging-door", frames: 4, dirs: ["north"] },
+    { type: "crouching-stealth-pistol", frames: 6 },
+    { type: "walking-flashlight", frames: 9 },
+    { type: "walking-pistol-flashlight", frames: 9 },
   ],
   dan: [
     { type: "walk", frames: 6 },
@@ -42,6 +45,9 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "shooting-rpg", frames: 9 },
     { type: "shooting-assault-rifle", frames: 4 },
     { type: "banging-door", frames: 4, dirs: ["north"] },
+    { type: "crouching-stealth-pistol", frames: 6 },
+    { type: "walking-flashlight", frames: 9 },
+    { type: "walking-pistol-flashlight", frames: 4 },
   ],
   mason: [
     { type: "breathing-idle", frames: 4 },
@@ -71,6 +77,9 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "shooting-rpg", frames: 9 },
     { type: "shooting-assault-rifle", frames: 4 },
     { type: "banging-door", frames: 4, dirs: ["north"] },
+    { type: "crouching-stealth-pistol", frames: 6 },
+    { type: "walking-flashlight", frames: 9 },
+    { type: "walking-pistol-flashlight", frames: 9 },
   ],
   jason: [
     { type: "walk", frames: 6 },
@@ -90,6 +99,9 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "shooting-rpg", frames: 9 },
     { type: "shooting-assault-rifle", frames: 4 },
     { type: "banging-door", frames: 4, dirs: ["north"] },
+    { type: "crouching-stealth-pistol", frames: 6 },
+    { type: "walking-flashlight", frames: 9 },
+    { type: "walking-pistol-flashlight", frames: 9 },
   ],
   creepyzombie: [
     { type: "walk", frames: 8 },

@@ -55,7 +55,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
   private healthBarGfx: Phaser.GameObjects.Graphics;
   private hitFlashTimer = 0;
-  private currentDir: Direction = "south";
+  currentDir: Direction = "south";
   private hasWalkAnim: boolean;
   private hasBiteAnim: boolean;
   private hasLungeBiteAnim: boolean;
@@ -91,6 +91,18 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private spriteId: string; // "creepyzombie", "zombiedog", or "scaryboi"
   private walkAnimType: string;
   private idleAnimType: string;
+  private speedTier: "shamble" | "jog" | "run" = "shamble";
+
+  // Detection state — unaware enemies wander, chasing enemies use normal AI
+  detectionState: "unaware" | "chasing" = "unaware";
+  private wanderAngle: number = Math.random() * Math.PI * 2;
+  private wanderTimer: number = 0;
+  private wanderPauseTimer: number = 0;
+  private wanderLastX: number = 0;
+  private wanderLastY: number = 0;
+  private wanderStuckTimer: number = 0; // accumulates ms when barely moving
+  private aggroTimer: number = 0; // ms since last seeing/hearing player — resets on detection, gives up after timeout
+  private lastKnownPlayerPos: { x: number; y: number } | null = null;
 
   // Ground-spawn state — zombie is climbing out of the ground
   spawning = false;
@@ -162,6 +174,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       // WaW-style speed tiers for walkers
       const bs = baseStats as typeof BALANCE.enemies.basic;
       const tier = speedTier ?? "shamble";
+      this.speedTier = tier;
       this.speed = tier === "run" ? bs.runSpeed : tier === "jog" ? bs.jogSpeed : bs.speed;
       this.damage = Math.floor(bs.damage * waveDamageMultiplier);
     } else {
@@ -172,6 +185,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     scene.add.existing(this);
     scene.physics.add.existing(this);
+    this.setPipeline("Light2D");
 
     this.setScale(VARIANT_SCALES[type]);
     this.setDepth(5);
@@ -216,9 +230,17 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.hasChoppedInHalf = hasAnimation(spriteId, "chopped-in-half");
     this.hasBeingShotDeath = hasAnimation(spriteId, "being-shot-death");
     this.hasGroundSpawnAnim = hasAnimation(spriteId, "ground-spawn");
+
+    // Bosses are always omniscient — skip detection entirely
+    if (isBoss || isMason) {
+      this.detectionState = "chasing";
+    }
+
     this.leapCooldown = 2000 + Math.random() * 2000; // stagger initial leap timing
     this.lastX = x;
     this.lastY = y;
+    this.wanderLastX = x;
+    this.wanderLastY = y;
     this.stuckCheckX = x;
     this.stuckCheckY = y;
     // Dogs recalc paths faster; stagger initial timer so they don't all fire on the same frame
@@ -291,6 +313,10 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     if (this.enemyType === "mason") {
       const gs = this.scene as any;
       if (gs.masonRavePhase && gs.masonRavePhase !== "boss_fight") return false;
+    }
+    // Taking damage instantly aggros (detection)
+    if (this.detectionState === "unaware") {
+      this.detectionState = "chasing";
     }
     this.health -= amount;
     this.hitFlashTimer = 100;
@@ -592,8 +618,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     // SCARYBOI encounters 1 & 2: smoke vanish instead of death animation
     if (this.enemyType === "boss") {
-      const wm = (this.scene as any).waveManager;
-      const encCount = wm?.scaryboiEncounterCount ?? 0;
+      const zsm = (this.scene as any).zoneSpawnManager;
+      const encCount = zsm?.scaryboiEncounterCount ?? 0;
       // Encounters 0 and 1 (first two): vanish in smoke, trigger flee logic
       if (encCount < 2) {
         this.fleeing = true;
@@ -601,12 +627,12 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         if (!this.playSmokeVanish()) {
           this.destroy(); // fallback if no smoke anim
         }
-        // Let WaveManager know the boss fled
-        wm?.onBossFlee?.();
-        if (wm) {
-          wm.scaryboiEncounterCount++;
-          wm.bossActive = false;
-          wm.bossEnemy = null;
+        // Let ZoneSpawnManager know the boss fled
+        zsm?.onBossFlee?.();
+        if (zsm) {
+          zsm.scaryboiEncounterCount++;
+          zsm.bossActive = false;
+          zsm.bossEnemy = null;
         }
         return;
       }
@@ -2120,24 +2146,12 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     const roamSpeed = dogStats.roamSpeed ?? 30;
     const distToPlayer = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
 
-    // Dogs go passive during intermission — force roaming, no aggro
-    const waveState = (this.scene as any).waveManager?.state;
-    if (waveState === "intermission" || waveState === "pre_game") {
-      if (this.dogState === "aggro") {
-        this.dogState = "roaming";
-        this.roamTarget = null;
-        this.pathWaypoints = [];
-        this.walkAnimType = "walk";
-      }
-      // Just roam, skip aggro checks below
-    } else {
-      // Check if player is in detection range (only during active waves)
-      if (distToPlayer < aggroRange && this.dogState !== "aggro") {
-        this.dogState = "aggro";
-        // Howl on first aggro
-        if (this.hasHowlAnim && !this.howling) {
-          this.playHowl();
-        }
+    // Check if player is in detection range
+    if (distToPlayer < aggroRange && this.dogState !== "aggro") {
+      this.dogState = "aggro";
+      // Howl on first aggro
+      if (this.hasHowlAnim && !this.howling) {
+        this.playHowl();
       }
     }
 
@@ -2266,8 +2280,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         // Use isFieldTile from scene to ensure dogs roam only on grass
         const fieldCheck = (this.scene as any).isFieldTile as ((tx: number, ty: number) => boolean) | undefined;
 
-        const wmGate = (this.scene as any).waveManager;
-        if (packTarget && !isExcludedZone(this.scene, packTarget.x, packTarget.y) && !(wmGate?.isGated?.(packTarget.x, packTarget.y))) {
+        const zsm = (this.scene as any).zoneSpawnManager;
+        if (packTarget && !isExcludedZone(this.scene, packTarget.x, packTarget.y) && !(zsm?.isGated?.(packTarget.x, packTarget.y))) {
           // Drift toward nearby dog with some randomness
           const cx = packTarget.x + (Math.random() - 0.5) * 80;
           const cy = packTarget.y + (Math.random() - 0.5) * 80;
@@ -2280,7 +2294,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
           // Random wander point — only on grass tiles, not in buildings or locked areas
           let rx: number, ry: number;
           let found = false;
-          const wmRef = (this.scene as any).waveManager;
+          const wmRef = (this.scene as any).zoneSpawnManager;
           for (let attempts = 0; attempts < 20; attempts++) {
             const tx = 5 + Math.floor(Math.random() * 50); // tiles 5-54 (surface area with margin)
             const ty = 5 + Math.floor(Math.random() * 50);
@@ -2353,6 +2367,171 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   }
 
   // ---- End dog AI ----
+
+  // ---- Detection System (Phase 4A) ----
+
+  /** Wander randomly when unaware — slow movement with direction changes and pauses */
+  private updateWander(delta: number) {
+    const det = BALANCE.detection;
+    const wanderSpeed = this.speed * det.wanderSpeed;
+
+    // Pausing — stand still and play idle
+    if (this.wanderPauseTimer > 0) {
+      this.wanderPauseTimer -= delta;
+      this.body.setVelocity(0, 0);
+      // Play idle animation
+      const idleKey = getAnimKey(this.spriteId, this.idleAnimType, this.currentDir);
+      if (this.scene.anims.exists(idleKey) && this.anims.currentAnim?.key !== idleKey) {
+        this.play(idleKey, true);
+      }
+      return;
+    }
+
+    // Timer to change direction
+    this.wanderTimer -= delta;
+    if (this.wanderTimer <= 0) {
+      // Pick a new random angle
+      this.wanderAngle = Math.random() * Math.PI * 2;
+      this.wanderTimer = det.wanderDirChangeMin + Math.random() * (det.wanderDirChangeMax - det.wanderDirChangeMin);
+
+      // Chance to pause instead
+      if (Math.random() < det.wanderPauseChance) {
+        this.wanderPauseTimer = det.wanderPauseMin + Math.random() * (det.wanderPauseMax - det.wanderPauseMin);
+        this.body.setVelocity(0, 0);
+        return;
+      }
+    }
+
+    // Stuck detection — if barely moving for 300ms, reverse direction
+    this.wanderStuckTimer += delta;
+    if (this.wanderStuckTimer >= 300) {
+      const movedDist = Phaser.Math.Distance.Between(this.x, this.y, this.wanderLastX, this.wanderLastY);
+      if (movedDist < 3) {
+        // Barely moved — pick a new random direction (biased away from current)
+        this.wanderAngle = this.wanderAngle + Math.PI + (Math.random() - 0.5) * 1.5;
+        this.wanderTimer = 400;
+      }
+      this.wanderLastX = this.x;
+      this.wanderLastY = this.y;
+      this.wanderStuckTimer = 0;
+    }
+
+    // Move in wander direction
+    const vx = Math.cos(this.wanderAngle) * wanderSpeed;
+    const vy = Math.sin(this.wanderAngle) * wanderSpeed;
+    this.body.setVelocity(vx, vy);
+
+    // Update facing direction from wander angle
+    const dirStr = angleToDirection(this.wanderAngle) as Direction;
+    if (dirStr !== this.currentDir) {
+      this.currentDir = dirStr;
+    }
+
+    // Play walk animation
+    const walkKey = getAnimKey(this.spriteId, this.walkAnimType, this.currentDir);
+    if (this.scene.anims.exists(walkKey) && this.anims.currentAnim?.key !== walkKey) {
+      this.play(walkKey, true);
+    }
+
+    // World bounds clamping — pick new direction if hitting map edges
+    const margin = 64;
+    if (this.x < margin || this.x > (this.scene as any).mapWidth - margin ||
+        this.y < margin || this.y > (this.scene as any).mapHeight - margin) {
+      // Reverse direction
+      this.wanderAngle = this.wanderAngle + Math.PI + (Math.random() - 0.5) * 1.0;
+      this.wanderTimer = 500;
+    }
+
+    // If inside an exclusion zone, reverse out
+    if (isExcludedZone(this.scene, this.x, this.y)) {
+      this.wanderAngle = this.wanderAngle + Math.PI;
+      this.wanderTimer = 500;
+    }
+  }
+
+  /** Check if this enemy can see the player — returns true if detected */
+  checkDetection(
+    player: Phaser.Physics.Arcade.Sprite & { isCrouching?: boolean },
+    flashlightActive: boolean,
+    flashlightDir: { x: number; y: number } | null
+  ): boolean {
+    if (this.detectionState === "chasing") return true;
+    if (this.dying || !this.active) return false;
+    // Bosses should already be "chasing" but safety check
+    if (this.enemyType === "boss" || this.enemyType === "mason") {
+      this.detectionState = "chasing";
+      return true;
+    }
+
+    const det = BALANCE.detection;
+    const dist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
+
+    // Apply modifiers
+    const crouchMod = player.isCrouching ? det.crouchModifier : 1.0;
+    const flashlightMod = flashlightActive ? 1.0 : det.flashlightOffModifier;
+    const effectiveVisionRange = det.zombieVisionRange * crouchMod * flashlightMod;
+
+    // 1. Vision cone check — can the enemy SEE the player?
+    if (dist <= effectiveVisionRange) {
+      // Check if player is within the enemy's facing cone
+      const angleToPlayer = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
+      const facingAngle = this.getFacingAngle();
+      let angleDiff = Math.abs(Phaser.Math.Angle.Wrap(angleToPlayer - facingAngle));
+      const halfCone = Phaser.Math.DegToRad(det.zombieVisionCone / 2);
+
+      if (angleDiff <= halfCone) {
+        this.detectionState = "chasing";
+        this.aggroTimer = 0;
+        return true;
+      }
+    }
+
+    // 2. Flashlight beam alert — if player shines flashlight at enemy
+    if (flashlightActive && flashlightDir && dist <= det.flashlightBeamAlertRange * crouchMod) {
+      const angleToEnemy = Phaser.Math.Angle.Between(player.x, player.y, this.x, this.y);
+      const flashAngle = Math.atan2(flashlightDir.y, flashlightDir.x);
+      const angleDiff = Math.abs(Phaser.Math.Angle.Wrap(angleToEnemy - flashAngle));
+      // Narrow cone — 15 degrees each side
+      if (angleDiff <= Phaser.Math.DegToRad(15)) {
+        this.detectionState = "chasing";
+        this.aggroTimer = 0;
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /** Check if this enemy hears a sound event (gunfire, sprint noise, etc.) */
+  checkSoundEvent(sourceX: number, sourceY: number, radius: number): boolean {
+    if (this.detectionState === "chasing") return true;
+    if (this.dying || !this.active) return false;
+
+    const dist = Phaser.Math.Distance.Between(this.x, this.y, sourceX, sourceY);
+    if (dist <= radius) {
+      this.detectionState = "chasing";
+      this.aggroTimer = 0;
+      return true;
+    }
+    return false;
+  }
+
+  /** Get the angle the enemy is currently facing (from its direction string) */
+  private getFacingAngle(): number {
+    switch (this.currentDir) {
+      case "east":       return 0;
+      case "south-east": return Math.PI / 4;
+      case "south":      return Math.PI / 2;
+      case "south-west": return 3 * Math.PI / 4;
+      case "west":       return Math.PI;
+      case "north-west": return -3 * Math.PI / 4;
+      case "north":      return -Math.PI / 2;
+      case "north-east": return -Math.PI / 4;
+      default:           return Math.PI / 2; // default south
+    }
+  }
+
+  // ---- End Detection System ----
 
   update(_time: number, delta: number) {
     if (!this.active || !this.body || this.dying) return;
@@ -2430,6 +2609,49 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       | undefined;
     if (!player || !player.active) return;
 
+    // Detection gate — unaware enemies wander instead of chasing
+    // (bosses always start as "chasing" in constructor, so they skip this)
+    if (this.detectionState === "unaware") {
+      this.updateWander(delta);
+      this.updateVisuals(delta);
+      return;
+    }
+
+    // Aggro timeout — basic/fast enemies give up chasing if they can't see the player
+    // Crouching makes you harder to track, being behind the zombie breaks line of sight
+    if (this.enemyType === "basic" || this.enemyType === "fast") {
+      const det = BALANCE.detection;
+      const distToPlayer = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
+      const crouchMod = (player as any).isCrouching ? 0.6 : 1.0;
+      const maintainRange = det.zombieVisionRange * 1.2 * crouchMod;
+
+      // Check if zombie can actually see the player (distance + facing direction)
+      let canSee = false;
+      if (distToPlayer <= maintainRange) {
+        const angleToPlayer = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
+        const facingAngle = this.getFacingAngle();
+        const angleDiff = Math.abs(Phaser.Math.Angle.Wrap(angleToPlayer - facingAngle));
+        // Wider cone than initial detection (200° vs 120°) — they know you're around
+        canSee = angleDiff <= Phaser.Math.DegToRad(100);
+      }
+
+      if (canSee) {
+        this.aggroTimer = 0;
+        this.lastKnownPlayerPos = { x: player.x, y: player.y };
+      } else {
+        this.aggroTimer += delta;
+        if (this.aggroTimer >= det.aggroTimeoutMs) {
+          this.detectionState = "unaware";
+          this.aggroTimer = 0;
+          this.lastKnownPlayerPos = null;
+          this.wanderTimer = 0;
+          this.updateWander(delta);
+          this.updateVisuals(delta);
+          return;
+        }
+      }
+    }
+
     // Stun countdown — don't chase while stunned (let knockback carry them)
     if (this.stunTimer > 0) {
       this.stunTimer -= delta;
@@ -2469,25 +2691,11 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     const angle = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
     const dist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
 
-    // Last 3 round-blocking enemies get aggressive — faster speed + faster path recalc
-    const wm = (this.scene as any).waveManager;
-    const remaining = wm?.getBlockingEnemies?.() ?? 99;
-    const isLastStand = remaining <= 3 && (wm?.state === "active" || wm?.state === "clearing");
-    // Room pressure: zombies move 40% faster when player is camping in a room
-    const roomBoost = wm?.playerInRoom ? 1.2 : 1.0;
-    const moveSpeed = (isLastStand ? this.speed * 1.15 : this.speed) * roomBoost;
-    const refreshRate = isLastStand || wm?.playerInRoom ? 250 : this.pathRefreshInterval;
-
-    // Last-stand zombies switch to running animation (more aggressive)
-    const hasRunning8 = hasAnimation(this.spriteId, "running-8-frames");
-    if (isLastStand && hasRunning8 && this.walkAnimType !== "running-8-frames") {
-      this.walkAnimType = "running-8-frames";
-      if (!this.biting && !this.leaping && !this.takingPunch) {
-        this.play(getAnimKey(this.spriteId, "running-8-frames", this.currentDir), true);
-      }
-    } else if (!isLastStand && this.walkAnimType === "running-8-frames" && this.enemyType === "basic") {
-      this.walkAnimType = "walk";
-    }
+    // Room pressure: zombies move 20% faster when player is camping in a room
+    const zsm = (this.scene as any).zoneSpawnManager;
+    const roomBoost = zsm?.playerInRoom ? 1.2 : 1.0;
+    const moveSpeed = this.speed * roomBoost;
+    const refreshRate = zsm?.playerInRoom ? 250 : this.pathRefreshInterval;
 
     // Stuck detection — progressive: 1s repath, 5s teleport, 8s auto-kill
     // Skip when stunned, leaping, biting, or near the player (attacking is not stuck)
@@ -2519,14 +2727,12 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
       if (this.stuckTimer >= STUCK_KILL_MS) {
         // Stuck too long even after teleport — silently remove (no cash reward)
-        const wm = (this.scene as any).waveManager;
-        wm?.onEnemyKilled?.();
         this.die("ranged");
         return;
       } else if (this.stuckTimer >= STUCK_TELEPORT_MS && !this.stuckTeleported) {
         // Second attempt: teleport near the player (with full spawn validation)
         this.stuckTeleported = true;
-        const wm = (this.scene as any).waveManager;
+        const zsm = (this.scene as any).zoneSpawnManager;
         let teleported = false;
         // Determine player's facing angle to avoid teleporting into their view
         const p = player as any;
@@ -2543,12 +2749,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
           const tpDist = 250 + Math.random() * 150;
           const tx = player.x + Math.cos(tpAngle) * tpDist;
           const ty = player.y + Math.sin(tpAngle) * tpDist;
-          if (
-            !isExcludedZone(this.scene, tx, ty) &&
-            !(wm?.isGated?.(tx, ty)) &&
-            (wm?.isCollisionFree ? wm.isCollisionFree(tx, ty) : true) &&
-            (wm?.isSpawnReachable ? wm.isSpawnReachable(tx, ty) : true)
-          ) {
+          if (zsm?.isValidPosition?.(tx, ty) ?? !isExcludedZone(this.scene, tx, ty)) {
             this.setPosition(tx, ty);
             this.pathWaypoints = [];
             this.pathRefreshTimer = 0; // recalc path immediately
@@ -2637,10 +2838,13 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.currentDir = newDir;
       if (!this.biting && !this.leaping && !this.takingPunch && !this.backflipping && !this.castingFireball && !this.beingShot && !this.howling && !this.masonBusy && !this.bossBusy) {
         // Boss/mason: play idle anim when stationary, walk anim when moving
+        // Only "run" tier zombies use running anim when chasing — keeps animation matching speed
         const isStationary = Math.abs(vx) < 5 && Math.abs(vy) < 5;
         const isBossOrMason = this.enemyType === "boss" || this.enemyType === "mason";
+        const useRunning = this.detectionState === "chasing" && this.enemyType === "basic" && this.speedTier === "run" && this.hasRunningAnim;
         if (this.hasWalkAnim) {
-          const animType = (isBossOrMason && isStationary) ? this.idleAnimType : this.walkAnimType;
+          const animType = (isBossOrMason && isStationary) ? this.idleAnimType
+            : useRunning ? "running" : this.walkAnimType;
           this.play(getAnimKey(this.spriteId, animType, newDir), true);
         } else {
           this.setTexture(`${this.spriteId}-${newDir}`);

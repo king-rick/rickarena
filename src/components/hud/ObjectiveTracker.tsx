@@ -75,6 +75,8 @@ export const ObjectiveTracker = memo(function ObjectiveTracker() {
           letterSpacing: "0.12em",
           textTransform: "uppercase",
           lineHeight: 1,
+          opacity: isIntermission ? 0 : 1,
+          transition: "opacity 400ms ease",
         }}
       >
         Objective
@@ -88,6 +90,7 @@ export const ObjectiveTracker = memo(function ObjectiveTracker() {
           letterSpacing: 1,
           lineHeight: 1.3,
           marginTop: 2,
+          animation: isIntermission ? "obj-text-flash 1s ease-in-out infinite" : "none",
         }}
       >
         {displayText}
@@ -111,6 +114,10 @@ export const ObjectiveTracker = memo(function ObjectiveTracker() {
         @keyframes obj-urgent {
           0%, 100% { box-shadow: 0 0 8px rgba(0, 0, 0, 0.6), 0 0 6px rgba(255, 34, 68, 0.3); border-color: rgba(255, 34, 68, 0.5); filter: brightness(1); }
           50% { box-shadow: 0 0 20px rgba(255, 34, 68, 0.7), 0 0 40px rgba(255, 34, 68, 0.35), 0 0 8px rgba(0, 0, 0, 0.6); border-color: rgba(255, 68, 100, 0.9); filter: brightness(1.15); }
+        }
+        @keyframes obj-text-flash {
+          0%, 100% { color: #e8e0e0; }
+          50% { color: rgba(255, 80, 80, 1); text-shadow: 0 0 8px rgba(255, 34, 68, 0.6), 0 1px 2px rgba(0, 0, 0, 0.9); }
         }
       `}</style>
     </div>

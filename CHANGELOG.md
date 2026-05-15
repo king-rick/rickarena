@@ -1,5 +1,335 @@
 # RickArena Changelog
 
+## 2026-05-13 — Stealth System, Silent Kill, HUD Overhaul (Stealth Phase 4C)
+
+### Stealth Detection Tuning
+- **Crouch + no flashlight = near invisible**: detection range drops to ~8px (crouch 0.15x, flashlight-off 0.35x)
+- **Flashlight beam narrowed**: alert cone 30°→15° each side, range 200→120px — less accidental aggro
+- **Vision cone checks**: enemies only detect/maintain aggro within forward facing cone
+- **Aggro timeout**: enemies lose interest after 4s if they can't see you (vision cone + distance check)
+- **Stealth barometer smoothing**: rises fast on detection, drains over ~1-2s when safe. Resets clean after Kyle cutscene.
+
+### New: Silent Kill Mechanic
+- Press **E from behind** an unaware basic zombie within 50px for instant silent kill
+- Only works on basic zombies (not dogs/bosses), must be unaware
+- Player must be in zombie's blind spot (>120° from facing) AND facing toward it
+- Shows "E  Silent Kill" interaction prompt when in position
+- No noise emitted — doesn't alert nearby enemies
+- Normal kill rewards (currency, XP, blood splat) still apply
+
+### HUD Layout Overhaul
+- **Stealth bar**: vertical→horizontal, 6 segments (green→amber→red), placed directly above Hotbar
+- **Status labels**: "HIDDEN" (green) / "DETECTED" (amber) / "EXPOSED" (red) next to stealth bar
+- **Pulsing red glow** on stealth bar when EXPOSED
+- **TopStats** (kills + cash): moved above stealth bar
+- **Survival timer**: moved to top-right corner, font 16→22px
+- **Notifications**: right-aligned, slide in/out from right edge
+- **ConsumableHotbar**: fixed slot order (bandage=1, grenade=2, mine=3), smaller cells (48px), bigger key numbers
+- **Bottom-left stack** (top→bottom): ConsumableHotbar → TopStats → StealthBarometer → Hotbar
+
+### Minimap
+- Zoom increased from 3x→5x — tighter view around player
+
+### Wandering Zombie Fixes
+- **Stuck detection**: 300ms position sampling — if zombie moves <3px while walking, picks new random direction
+- Prevents zombies walking in place against walls/collision tiles
+
+### Bug Fixes
+- Kyle ambient VO restricted to Rudy's zone only (was playing during SCARYBOI cutscene)
+- Stealth bar no longer stuck high after Kyle cutscene (reset on first Rudy's exit)
+- Car/dumpster interactions gated until after Kyle cutscene + first Rudy's exit
+- Theme music starts on first Rudy's exit via `_explorationThemeStarted` flag
+- Gunfire only alerts existing enemies (no surge spawns from shooting)
+
+---
+
+## 2026-05-13 — Proximity Spawning & Stealth HUD (Stealth Phase 4B+)
+
+### Wave System Removed → Proximity Spawning
+- **No more waves/intermissions** — replaced with player-centric proximity spawning
+- Enemies spawn in a ring around the player (350-550px), despawn when >900px away and unaware
+- **Ambient population**: maintains ~10 zombies near the player at all times
+- **Noise surge system**: loud actions (gunfire, sprint, car alarms) trigger extra alerted spawns converging on noise
+- **Despawn sweep**: unaware enemies far from player silently removed every 2s
+- Global enemy cap: 40. Dog cap: 5.
+
+### New: ZoneSpawnManager (~470 lines) — Proximity Model
+- `spawnNearPlayer()` — ring spawning with collision/exclusion/gated validation
+- `triggerNoiseSurge()` — queued spawns over time, alerted state, converge on noise origin
+- `triggerSprintSurge()` / `triggerCarAlarmSurge()` — convenience wrappers with cooldowns
+- `despawnFarEnemies()` — removes unaware enemies beyond despawn radius
+- `countNearby()` — proximity population check
+- SCARYBOI encounter system ported from WaveManager (same logic, new home)
+- Dog tracking with global cap
+
+### Stealth HUD
+- **StealthBarometer** — 6-segment vertical threat meter (green→amber→red), pulsing red glow when exposed (>=70%)
+- Driven by `stealthLevel` (0-1) computed in GameScene from nearby chasing enemies
+- Added to HUDOverlay bottom-left stack above ConsumableHotbar
+
+### Detection Enhancement
+- **Aggro timeout**: enemies lose interest after 4s without seeing player (`aggroTimeoutMs` in balance.ts)
+- Reverts from "chasing" back to "unaware" — enables stealth escape gameplay
+
+### Economy Simplification
+- Removed wave bonuses, interest, price inflation
+- Flat shop prices (no `waveScale`)
+- Kill rewards unchanged
+
+### HUD Updates
+- **Survival timer** replaces wave counter (M:SS format, bottom-left)
+- Game over screen shows time survived instead of wave number
+- Leaderboard column: "TIME" replaces "WAVE"
+- Removed: WaveAnnouncement, WaveStartCountdown, IntermissionTimer, IntermissionOverlay
+- DevPanel: removed "Jump to Wave", relabeled "Zone Spawning"
+
+### Level-Up Uncapped
+- Removed 1-per-wave level-up cap — can now level freely from XP
+
+### Balance Config
+- New `BALANCE.spawning` block: ambientCount, ambientRadius, spawnRingMin/Max, spawnStaggerMs, despawnDistance, despawnCheckMs, globalCap, surge settings
+- `detection.aggroTimeoutMs: 4000` — chase timeout
+
+### Files Changed
+- `ZoneSpawnManager.ts` — NEW: proximity spawn system + noise surges + despawn
+- `GameScene.ts` — waveManager→zoneSpawnManager, timeSurvived, stealthLevel computation, car alarm surge wiring, sprint surge wiring
+- `Enemy.ts` — all waveManager refs→zoneSpawnManager, aggro timeout (chasing→unaware), removed dog intermission passive
+- `LevelingSystem.ts` — removed wave level cap
+- `balance.ts` — new `spawning` block, `detection.aggroTimeoutMs`
+- `HUDOverlay.tsx` — StealthBarometer component, stripped wave components
+- `HUDState.ts` — `stealthLevel` field
+- `WaveInfo.tsx` — repurposed as survival timer (M:SS)
+- `GameOverOverlay.tsx` — time format for death screen + leaderboard
+- `DevPanel.tsx` — removed wave jump, relabeled spawning section
+
+### Rollback
+- WaveManager.ts kept (constructed but never updated) — revert by re-wiring `this.waveManager.update()` in GameScene
+
+---
+
+## 2026-05-11g — Enemy Detection System (Stealth Phase 4A)
+
+### Detection System
+- **Sight + Sound model** — enemies spawn "unaware" and must detect the player before chasing
+- **Vision cone**: 150px range, 120-degree cone centered on enemy facing direction
+- **Flashlight OFF modifier**: 0.7x vision range (105px effective)
+- **Crouch modifier**: 0.5x all detection ranges (vision, sound, flashlight beam)
+- **Flashlight beam alert**: enemies within 200px in flashlight cone direction get alerted (30-degree half-cone)
+- **Gunfire sound**: 300px radius — shooting alerts nearby enemies
+- **Sprint sound**: 150px radius, emitted every 500ms while sprinting
+- **Damage aggro**: taking any damage immediately flips enemy to "chasing"
+- **Bosses omniscient**: SCARYBOI and Mason always start in "chasing" state (skip detection)
+
+### Wander Behavior
+- Unaware enemies wander randomly at 30% base speed
+- Direction changes every 1-4 seconds with 20% chance of 2-5 second pauses
+- World bounds clamping + exclusion zone avoidance
+- Walk/idle animations play during wander
+
+### Files Changed
+- `Enemy.ts` — `detectionState`, `updateWander()`, `checkDetection()`, `checkSoundEvent()`, `getFacingAngle()`, detection gate in `update()`, damage→aggro in `takeDamage()`
+- `GameScene.ts` — `updateEnemyDetection()`, `emitSoundEvent()`, gunfire sound emission in `fireWeapon()`, `sprintSoundTimer` property
+- `balance.ts` — `detection` config block (16 tunable parameters)
+
+---
+
+## 2026-05-11f — Darkness & Enemy Visibility (Stealth Phase 3)
+
+### Ambient Darkness
+- **Darker ambient**: 0x4d4d4d (30%) → 0x3a3a3a (~23% brightness / ~77% darkness)
+
+### Enemy Visibility System
+- **Distance-based alpha fade** — enemies fade in/out based on proximity to light sources
+- **Light sources**: player (flashlight ON: 120-280px, OFF: 80-180px), landmark lights, triggered lights
+- **Min alpha 0.35** — enemies never fully invisible, just hard to see in darkness
+- **Skip logic** — dying, bossCutscene, fleeing enemies excluded (don't fight alpha tweens)
+
+### Light2D Pipeline Coverage
+- Added Light2D to: roof layer, vfxMarksLayer, Kyle NPC, generator, chests, machines, PA speakers, DJ table
+- All world objects now respond to ambient darkness and light sources
+
+### Files Changed
+- `GameScene.ts` — `updateEnemyVisibility()`, `visAlpha()` helper, ambient color, Light2D additions
+
+---
+
+## 2026-05-11e — Flashlight Animations + Crouch Template Upgrade (Stealth Phase 2a)
+
+### Flashlight Walk Animations (Rick)
+- **`walking-flashlight`** — 9 frames, 8 dirs, 10fps. Plays when flashlight ON + moving + any weapon except pistol (or no weapon)
+- **`walking-pistol-flashlight`** — 9 frames, 8 dirs, 10fps. Plays when flashlight ON + moving + pistol equipped
+- **Idle = breathing-idle** — stopping while flashlight on reverts to normal breathing-idle (no static flashlight frame)
+- **Shoot interrupts cleanly** — shooting plays normal weapon anim, then returns to flashlight walk if still moving
+- **Priority chain**: crouch > flashlight > sprint > walk
+- **Crouch overrides flashlight** — crouching + flashlight = crouching-stealth-pistol (no flashlight variant)
+- **GameScene syncs** `flashlightOn` and `equippedWeapon` to Player each frame before `update()`
+- **Refactored** `resumeMovementAnim()` and `resumeIdleAnim()` helpers — all return-to-idle/walk paths (shoot complete, hold release, punch complete, reload cancel, ability restore) now respect flashlight state
+
+### Crouch Template Upgrade (All Characters)
+- **Dan, PJ, Jason** — regenerated `crouching-stealth-pistol` via PixelLab `crouched-walking` template. All now 6 frames × 8 dirs (consistent with Rick). Replaced old custom anims (Dan 9f, PJ 4f, Jason 9f).
+
+### Files Changed
+- `animations.ts` — registered `walking-flashlight` + `walking-pistol-flashlight` for Rick. Updated Dan/PJ/Jason crouch to 6 frames.
+- `PreloadScene.ts` — added both flashlight anims to looping list, 10fps frame rate
+- `Player.ts` — added `flashlightOn`/`equippedWeapon` properties, `hasFlashlightAnim`/`hasPistolFlashlightAnim` checks, `getFlashlightWalkAnim()`, `resumeMovementAnim()`, `resumeIdleAnim()` helpers. Updated animation selection + all anim-complete return paths.
+- `GameScene.ts` — syncs flashlight + weapon state to Player before update()
+
+---
+
+## 2026-05-11d — Crouch Mechanic (Stealth Phase 1)
+
+### Crouch System
+- **C key toggle** — crouching is a toggle, not hold. Persists until C pressed again or sprint cancels it.
+- **Half speed** (0.5x multiplier) while crouched
+- **Sprint/crouch mutual exclusion** — sprint cancels crouch, crouch cancels sprint. Shift blocked while crouched.
+- **Crouch walk animation** — uses `crouching-stealth-pistol` anim while crouched + moving
+- **Crouched idle frame** — stops moving while crouched: freezes on frame 0 of crouch anim (stays low). Pressing C while standing still immediately drops to crouched frame.
+- **Uncrouch** — pressing C again instantly returns to breathing-idle
+- **Blocked during locked/cutscene states**
+- **HUD sync** — `crouching` field added to HUDState for future UI indicators
+
+### Animation Assets (PixelLab)
+- **All 4 characters** — `crouching-stealth-pistol` regenerated via PixelLab `crouched-walking` template. 6 frames × 8 dirs each.
+- **4 animation sets on disk** for all 4 characters:
+  - `crouching-stealth-pistol` — wired into game
+  - `walking-shotgun` — on disk, not wired
+  - `walking-pistol-flashlight` — wired (Rick only, Phase 2a)
+  - `walking-flashlight` — wired (Rick only, Phase 2a)
+
+### Files Changed
+- `animations.ts` — registered `crouching-stealth-pistol` per character (all 6 frames)
+- `PreloadScene.ts` — added to looping anims list, 8fps frame rate
+- `Player.ts` — C key toggle, speed multiplier, crouch walk anim, crouched idle frame, import `getFrameKey`
+- `HUDState.ts` — added `crouching: boolean` field
+- `GameScene.ts` — syncs `crouching` to HUD
+
+---
+
+## 2026-05-11c — Lighting Tuning, Stealth System Design
+
+### Lighting Changes
+- **Streetlamp flicker overhaul**: Lamps now mostly OFF — dark for 4-7 seconds, then a stuttery 1.5-2.5 second flicker burst with rapid on/off pulses (30% dark gaps mid-burst, varying brightness). Each lamp staggered randomly so they don't sync.
+- **Ambient darkness increased**: Map darkness raised from 60% (`0x666666`) to 70% (`0x4d4d4d`) — darker, moodier atmosphere for the horror pivot.
+
+### Design (Not Yet Implemented)
+- Full stealth/horror conversion plan written covering 6 phases:
+  - Phase 1: Crouch mechanic (C key toggle, half speed, silent)
+  - Phase 2: Enemy AI state machine (idle/wander/investigate/aggro)
+  - Phase 3: Detection system (noise events, flashlight beam detection, stealth kills)
+  - Phase 4: Zone-based ambient enemy spawning (Tiled spawn_zones layer)
+  - Phase 5: Wave system removal (extract EncounterManager, delete wave UI)
+  - Phase 6: Shop/economy rework (Rudy's always accessible, safe zone)
+- GameScene decomposition planned: DetectionManager, CombatManager, ZoneSpawnManager, EncounterManager (following AudioManager pattern)
+- Plan saved at `.claude/plans/giggly-dazzling-sparkle.md`
+
+---
+
+## 2026-05-11b — Kyle VO, Auto-Advance Dialogue, Neon Sign Rework, New Animations
+
+### Kyle Voice-Over (ElevenLabs)
+- 5 Kyle VO lines generated via ElevenLabs TTS API (podcast host voice `qqoyXwpgHsRd2dWRNj8S`)
+- `vo-kyle-look-out` — urgent zombie warning ("Look out!")
+- `vo-kyle-almost-got-ya` — sarcastic post-save ("That thing almost got ya there, huh guy?")
+- `vo-kyle-ever-use-one-v3` — pistol handoff ("You ever use one of these before?") — harder tone
+- `vo-kyle-mason-exposition` — Mason/zombie backstory monologue
+- `vo-kyle-good-luck` — farewell with Zyns joke
+- All loaded in PreloadScene, played via AudioManager at 0.7 volume
+
+### Kyle Cutscene Dialogue Rework
+- Dialogue text rewritten to match generated VOs (VOs are source of truth)
+- Exterior dialogue: 2 lines (auto-advance "Look out!" + manual "almost got ya")
+- Interior dialogue: 8 lines — pistol handoff, Mason exposition (split across multiple cards), farewell
+- Fat exposition walls broken into separate flowing cards
+
+### Auto-Advance Dialogue System
+- `kyleDialogueManual` field added to HUDState — controls Continue button visibility
+- Lines with `autoMs` property auto-advance after specified delay (tied to VO duration)
+- Lines without `autoMs` require manual Space/Enter/click to advance
+- Only 2 manual advance points: end of exterior dialogue, end of interior dialogue
+- `kyleAutoAdvanceTimer` managed in GameScene — cancelled on manual advance or phase change
+- KyleDialogue.tsx: Continue button conditionally rendered, Space/Enter handler gated on `manual`
+
+### Bandage Sound Effect
+- `sfx-bandage-use.mp3` generated via ElevenLabs sound generation API
+- Wired into AudioManager, plays on bandage consumption
+
+### Rudy's Neon Sign Rework
+- Killed all ambient storefront glow (rudysLight zeroed: radius 0, intensity 0, black)
+- Neon sign changed from white stroke to deep orange filled polygon (`0xcc4400` outer, `0xe55500` mid, `0xff6600` core)
+- Creepy motel flicker: starts dark, power-up sequence (off→on→off→on→hold), then random double-flick dropouts every 3-7s
+- No longer brightens storefront on power-on
+
+### Car Alarm SFX
+- 3 car alarm variations generated via ElevenLabs: `sfx-car-alarm-1.mp3`, `sfx-car-alarm-2.mp3`, `sfx-car-alarm-3.mp3`
+- On disk, not yet wired into gameplay
+
+### New Character Animations (PixelLab — on disk, not yet wired)
+- **crouching-stealth-pistol** — all 4 characters (rick, dan, pj, jason), 8 directions
+- **walking-shotgun** — all 4 characters, 8 directions
+- **walking-pistol-flashlight** — all 4 characters, 8 directions
+- **walking-flashlight** — all 4 characters, 8 directions
+- Downloaded from PixelLab API, extracted to `public/assets/sprites/{character}/{animation}/`
+- Pending: registration in `animations.ts` + game code wiring
+
+## 2026-05-11a — Light2D System, Flashlight, Landmark Lights, UI Overhaul
+
+### Light2D Darkness System (New)
+- Phaser Light2D pipeline enabled across all visual layers: ground, walls, props, floor, foliage, overhangs
+- 60% ambient darkness outdoors (`0x666666` ambient color)
+- Light2D pipeline on player, all enemies (zombies, dogs, bosses, Mason), and projectiles — they respond to darkness and lighting
+- `maxLights` increased to 32 in game config (default 10 was causing lights to cull based on proximity)
+
+### Player Flashlight (New)
+- 3-point cone beam: soft ambient at player, mid-beam 70px ahead, far-beam 140px ahead (warm yellow `0xffe08a`)
+- Beam direction follows player facing (up/down/left/right)
+- Diffuse edges — larger radii with lower intensities to avoid visible circle boundaries
+- Auto-disables indoors (detected via roomTone audio playing)
+- **F key toggle** — player can turn flashlight on/off (stealth prep)
+- Flashlight widget added to bottom hotbar: SVG flashlight icon with beam cone, warm glow when on, dims to gray when off, "F" key label
+
+### Muzzle Flash Light (New)
+- 60ms point light burst (radius 200, warm yellow, intensity 1.2) at muzzle position when firing any weapon
+- Illuminates nearby enemies and terrain — great visual feedback in darkness
+
+### Rudy's Lighting System
+- **Storefront light**: warm flickering glow (`0xffcc66`, radius 300) on the building exterior
+- **Interior fluorescent lights**: two harsh cold-white lights (`0xe8e8f0`, `0xdde0e8`) with eerie strobe flicker and random violent blackouts (pre-power)
+- **Generator power-on upgrade**: interior lights transition to pure white (`0xffffff`) at intensity 2.0 with 2x radius — room looks normally lit, no more red tint issue
+- **Neon sign** ("Rudys" lettering): driven by Tiled `landmarks` object layer polygon — 3-layer Graphics stroke (black outline + orange glow + bright core) with creepy motel flicker and random dropouts
+
+### Landmark Lighting System (New)
+- Tiled `landmarks` object layer drives all map lighting — no more hardcoded coordinates
+- Objects with `type: neon_sign` render polygon-traced neon glow with configurable color, radius, intensity, flicker
+- Objects with `type: streetlamp` or `type: light` create Light2D point lights
+- Custom properties: `color` (hex), `radius`, `intensity`, `flicker` (neon/candle/fluorescent/steady), `trigger` (deferred activation)
+- **Flicker types**: `neon` (stepped pulse + random dropout), `candle` (warm wobble + random flutter dips + 30% double-flicker), `fluorescent` (harsh strobe), `steady` (static)
+- **Triggered lights**: lights with `trigger` property start off, activated via `fireLandmarkTrigger()` (ready for car alarm interaction)
+- **Traffic light cycling**: auto-groups `traffic{N}_{green|yellow|red}` landmarks, cycles green 5s → yellow 1.5s → red 5s
+
+### Shop Open/Closed Sign (New)
+- CLOSED sign (red text) and OPEN sign (green text) generated via PixelLab API, placed at tile 46,31
+- CLOSED during waves — tinted dark (`0x888888`) to blend with darkness, on Light2D pipeline
+- OPEN during intermission — full brightness with green Light2D glow (radius 80, `0x44ff44`)
+- Swaps automatically on intermission start/end, skip, and timer expiry
+
+### Flashlight Toggle UI
+- New widget in bottom hotbar panel next to Q ability, separated by divider
+- SVG icon: flashlight body + lens head + beam cone (visible when on)
+- Warm yellow glow effect when on, dims to gray when off
+- "F" key label with matching color transitions
+
+### E Key Rework
+- E now only cycles between guns (no fists). If only one gun, E does nothing
+- Left click always punches, right click always shoots
+- F key repurposed from fire-weapon to flashlight toggle (fire still works via right-click)
+
+### HUDState Changes
+- Added `flashlightOn: boolean` field (default `true`)
+- Added to default state and main HUD update loop
+
+### Config Changes
+- `render.maxLights: 32` added to Phaser game config (fixes Light2D culling when >10 lights active)
+
 ## 2026-05-10e — Consumable Hotbar System, Audio Fixes, UX Polish
 
 ### Consumable Hotbar (New System)

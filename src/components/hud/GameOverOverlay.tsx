@@ -20,6 +20,13 @@ export const GameOverOverlay = memo(function GameOverOverlay() {
 
   const isVictory = phase === "victory" || (phase !== "death" && wave >= 999);
 
+  // wave field now holds survival seconds — format as M:SS
+  const survivalTime = (() => {
+    const m = Math.floor(wave / 60);
+    const s = wave % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  })();
+
   return (
     <div
       className="absolute inset-0 pointer-events-auto"
@@ -96,7 +103,7 @@ export const GameOverOverlay = memo(function GameOverOverlay() {
                 animation: "fade-in 0.8s ease-in",
               }}
             >
-              Wave {wave} | {kills} kills
+              {survivalTime} | {kills} kills
             </span>
           </>
         )}
@@ -223,7 +230,7 @@ function LeaderboardDisplay({
         <span style={{ ...colStyle, width: 50, color: "#999999" }}>#</span>
         <span style={{ ...colStyle, flex: 1, color: "#999999" }}>NAME</span>
         <span style={{ ...colStyle, width: 80, textAlign: "right", color: "#999999" }}>KILLS</span>
-        <span style={{ ...colStyle, width: 80, textAlign: "right", color: "#999999" }}>WAVE</span>
+        <span style={{ ...colStyle, width: 80, textAlign: "right", color: "#999999" }}>TIME</span>
       </div>
 
       <div style={{ width: 500, height: 1, background: "rgba(102, 102, 102, 0.5)", marginBottom: 8 }} />
@@ -256,7 +263,7 @@ function LeaderboardDisplay({
                 {entry.kills}
               </span>
               <span style={{ ...colStyle, width: 80, textAlign: "right", color: isHl ? "#ffcc00" : "#cccccc", fontSize: isHl ? 22 : 20 }}>
-                {entry.wave}
+                {`${Math.floor(entry.wave / 60)}:${(entry.wave % 60).toString().padStart(2, "0")}`}
               </span>
             </div>
           );

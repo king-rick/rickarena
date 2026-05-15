@@ -174,10 +174,8 @@ export interface HUDData {
   // Letterbox (cinematic black bars)
   letterboxActive: boolean;
 
-  // Game messages (centered screen toast)
-  gameMessage: string;
-  gameMessageKey: number;
-  gameMessageColor: string;
+  // Notification toasts (left-side stacking)
+  notifications: Array<{ id: number; text: string; color: string }>;
 
   // MASON cinematics
   masonDialogueActive: boolean;
@@ -195,9 +193,12 @@ export interface HUDData {
   kyleDialogueActive: boolean;
   kyleDialogueSpeaker: string;
   kyleDialogueQuote: string;
+  kyleDialogueManual: boolean; // true = show Continue button, false = auto-advancing
+  kyleDialogueCanAdvance: boolean; // true = VO finished, Continue button visible
 
   // Cutscene active — hides all gameplay HUD (health, objectives, hotbar, minimap, wave, etc.)
   cutsceneActive: boolean;
+  kyleCutsceneActive: boolean; // skip button visibility
 
   // Interaction prompt (React-rendered)
   interactionPrompt: {
@@ -216,6 +217,16 @@ export interface HUDData {
   // Consumable hotbar (1-4 keys, left side vertical)
   consumableSlots: ConsumableSlot[];   // up to 6 slots; first 4 = hotbar
   consumableActiveSlot: number;        // -1 = none active (flash/highlight), index of slot being used
+
+  // Flashlight
+  flashlightOn: boolean;
+
+  // Crouch
+  crouching: boolean;
+
+  // Stealth barometer — 0.0 (invisible) to 1.0 (fully exposed)
+  stealthLevel: number;
+  stealthLabel: string; // "HIDDEN" | "DETECTED" | "EXPOSED"
 }
 
 export interface InventorySlot {
@@ -314,9 +325,7 @@ const DEFAULT_STATE: HUDData = {
   intermissionTimer: -1,
   currentObjective: null,
   letterboxActive: false,
-  gameMessage: "",
-  gameMessageKey: 0,
-  gameMessageColor: "",
+  notifications: [],
   masonDialogueActive: false,
   masonDialogueQuote: "",
   loadingProgress: 0,
@@ -326,13 +335,20 @@ const DEFAULT_STATE: HUDData = {
   kyleDialogueActive: false,
   kyleDialogueSpeaker: "",
   kyleDialogueQuote: "",
+  kyleDialogueManual: true,
+  kyleDialogueCanAdvance: false,
   cutsceneActive: false,
+  kyleCutsceneActive: false,
   interactionPrompt: null,
   inventoryOpen: false,
   inventorySlots: [],
   inventoryHasAxe: false,
   consumableSlots: [],
   consumableActiveSlot: -1,
+  flashlightOn: true,
+  crouching: false,
+  stealthLevel: 0,
+  stealthLabel: "HIDDEN",
 };
 
 type Listener = () => void;

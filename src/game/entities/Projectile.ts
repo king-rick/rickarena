@@ -54,6 +54,7 @@ export class Projectile extends Phaser.Physics.Arcade.Image {
 
     this.setDepth(50);
     this.setRotation(angle);
+    this.setPipeline("Light2D");
     if (weaponType === "rpg") {
       this.setScale(0.15);
     } else if (isGun) {

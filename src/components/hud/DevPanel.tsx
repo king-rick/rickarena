@@ -19,7 +19,6 @@ export const DevPanel = memo(function DevPanel() {
   const spawningDisabled = useSyncExternalStore(hudState.subscribe, () => hudState.getField("devSpawningDisabled"));
 
   const [spawnCounts, setSpawnCounts] = useState<Record<string, number>>({ basic: 1, fast: 1, boss: 1, mason: 1 });
-  const [jumpWave, setJumpWave] = useState(1);
 
   // Close on Escape
   useEffect(() => {
@@ -70,44 +69,13 @@ export const DevPanel = memo(function DevPanel() {
 
       {/* Current state */}
       <div style={{ marginBottom: 12, color: "#999", fontSize: 12 }}>
-        Current Wave: {wave}
+        Time: {Math.floor(wave / 60)}:{(wave % 60).toString().padStart(2, "0")}
       </div>
 
       <Divider />
 
-      {/* Jump to Wave */}
-      <Section title="JUMP TO WAVE">
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <input
-            type="number"
-            min={1}
-            max={99}
-            value={jumpWave}
-            onChange={(e) => setJumpWave(Math.max(1, parseInt(e.target.value) || 1))}
-            style={{
-              width: 60,
-              padding: "4px 8px",
-              background: "#1a1a2e",
-              border: "1px solid #444",
-              borderRadius: 4,
-              color: "#fff",
-              fontFamily: BODY,
-              fontSize: 14,
-              textAlign: "center",
-            }}
-          />
-          <DevButton
-            label="GO"
-            color="#ff00ff"
-            onClick={() => hudState.dispatchDevAction("jumpToWave", jumpWave)}
-          />
-        </div>
-      </Section>
-
-      <Divider />
-
       {/* Toggle spawning */}
-      <Section title="WAVE SPAWNING">
+      <Section title="ZONE SPAWNING">
         <DevButton
           label={spawningDisabled ? "ENABLE SPAWNING" : "DISABLE SPAWNING"}
           color={spawningDisabled ? "#55cc55" : "#cc5555"}

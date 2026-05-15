@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useSyncExternalStore } from "react";
 import { hudState } from "@/game/HUDState";
 
-const DISMISS_MS = 350;
+const DISMISS_MS = 300;
 
 export function KyleDialogue() {
   const [visible, setVisible] = useState(false);
@@ -17,6 +17,14 @@ export function KyleDialogue() {
     hudState.subscribe,
     () => hudState.getField("kyleDialogueQuote")
   );
+  const canAdvance = useSyncExternalStore(
+    hudState.subscribe,
+    () => hudState.getField("kyleDialogueCanAdvance")
+  );
+  const manual = useSyncExternalStore(
+    hudState.subscribe,
+    () => hudState.getField("kyleDialogueManual")
+  );
 
   useEffect(() => {
     setDismissing(false);
@@ -26,15 +34,15 @@ export function KyleDialogue() {
   }, [quote]);
 
   const handleAdvance = useCallback(() => {
+    if (!canAdvance) return;
     if (dismissing) return;
     setDismissing(true);
     setTimeout(() => {
       hudState.dispatchKyleDialogueAction("advance");
       setDismissing(false);
     }, DISMISS_MS);
-  }, [dismissing]);
+  }, [dismissing, canAdvance]);
 
-  // Space key to advance
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.code === "Space" || e.code === "Enter") {
@@ -46,96 +54,70 @@ export function KyleDialogue() {
     return () => window.removeEventListener("keydown", onKey);
   }, [handleAdvance]);
 
-  const translateY = dismissing ? "100%" : visible ? "0%" : "100%";
   const opacity = dismissing ? 0 : visible ? 1 : 0;
-  const transition = dismissing
-    ? `transform ${DISMISS_MS}ms ease-in, opacity ${DISMISS_MS}ms ease-in`
-    : "transform 400ms cubic-bezier(0.16, 1, 0.3, 1), opacity 300ms ease-out";
 
   return (
     <div
+      onClick={handleAdvance}
       style={{
         position: "absolute",
         bottom: 0,
         left: 0,
         right: 0,
-        background: "linear-gradient(to top, rgba(0,0,0,0.97) 0%, rgba(5,10,15,0.90) 100%)",
-        borderTop: "2px solid rgba(65,140,200,0.6)",
-        padding: "18px 48px 22px",
+        background: "linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.3) 60%, transparent 100%)",
+        padding: "40px 0 28px",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        gap: 8,
-        transform: `translateY(${translateY})`,
+        gap: 4,
         opacity,
-        transition,
+        transition: `opacity ${dismissing ? DISMISS_MS : 300}ms ease`,
         zIndex: 100,
-        pointerEvents: "auto",
+        pointerEvents: manual && canAdvance ? "auto" : "none",
+        cursor: manual && canAdvance ? "pointer" : "default",
       }}
     >
-      {/* Speaker name */}
-      <div style={{
+      {/* Speaker */}
+      <span style={{
         fontFamily: "var(--font-special-elite), 'Special Elite', serif",
-        fontSize: "clamp(16px, 2.2vw, 28px)",
-        letterSpacing: "0.35em",
+        fontSize: "clamp(11px, 1.4vw, 15px)",
+        letterSpacing: "0.3em",
         color: "#4a9eda",
+        textShadow: "0 0 10px rgba(65,140,200,0.7), 0 0 20px rgba(65,140,200,0.3)",
         textTransform: "uppercase",
-        textShadow: "0 0 14px rgba(65,140,200,0.8), 0 0 30px rgba(65,140,200,0.3)",
       }}>
         {speaker}
-      </div>
+      </span>
 
       {/* Quote */}
-      <div style={{
+      <span style={{
         fontFamily: "var(--font-special-elite), 'Special Elite', serif",
-        fontSize: "clamp(13px, 1.6vw, 20px)",
-        color: "rgba(210, 220, 230, 0.92)",
+        fontSize: "clamp(15px, 1.8vw, 22px)",
+        color: "rgba(255,255,255,0.92)",
         textAlign: "center",
         fontStyle: "italic",
-        maxWidth: 560,
-        lineHeight: 1.65,
-        textShadow: "0 1px 6px rgba(0,0,0,1)",
+        maxWidth: 600,
+        lineHeight: 1.6,
+        textShadow: "0 2px 8px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,1)",
+        padding: "0 24px",
       }}>
         &quot;{quote}&quot;
-      </div>
+      </span>
 
-      {/* Continue button */}
-      <button
-        type="button"
-        onClick={handleAdvance}
-        style={{
-          marginTop: 8,
-          background: "transparent",
-          border: "1px solid rgba(65,140,200,0.45)",
-          color: "rgba(170,200,220,0.82)",
+      {/* Advance hint */}
+      {manual && canAdvance && (
+        <span style={{
           fontFamily: "var(--font-special-elite), 'Special Elite', serif",
-          fontSize: "clamp(9px, 1vw, 12px)",
-          letterSpacing: "0.22em",
-          padding: "6px 20px",
-          cursor: "pointer",
-          textTransform: "uppercase",
+          fontSize: "clamp(9px, 0.9vw, 11px)",
+          color: "rgba(255,255,255,0.3)",
+          letterSpacing: "0.2em",
+          marginTop: 6,
           opacity: visible && !dismissing ? 1 : 0,
-          transition: visible && !dismissing
-            ? "opacity 400ms ease-out 400ms, background 150ms, color 150ms, border-color 150ms"
-            : "opacity 200ms ease-out",
-        }}
-        onMouseEnter={(e) => {
-          const el = e.currentTarget;
-          el.style.background = "rgba(65,140,200,0.18)";
-          el.style.color = "#fff";
-          el.style.borderColor = "rgba(100,170,230,0.9)";
-          el.style.textShadow = "0 0 12px rgba(100,170,230,0.7)";
-        }}
-        onMouseLeave={(e) => {
-          const el = e.currentTarget;
-          el.style.background = "transparent";
-          el.style.color = "rgba(170,200,220,0.82)";
-          el.style.borderColor = "rgba(65,140,200,0.45)";
-          el.style.textShadow = "none";
-        }}
-      >
-        Continue &nbsp;&middot;&nbsp; [ SPACE ]
-      </button>
+          transition: "opacity 500ms ease 600ms",
+        }}>
+          [ SPACE ]
+        </span>
+      )}
     </div>
   );
 }

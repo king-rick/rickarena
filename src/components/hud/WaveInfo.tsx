@@ -1,61 +1,32 @@
 "use client";
 
-import { memo, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { memo, useSyncExternalStore } from "react";
 import { hudState } from "@/game/HUDState";
 
 const DISPLAY = "ChainsawCarnage, HorrorPixel, monospace";
 
-const toRoman = (n: number): string => {
-  const vals = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1];
-  const syms = ["M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"];
-  let result = "";
-  for (let i = 0; i < vals.length; i++) {
-    while (n >= vals[i]) { result += syms[i]; n -= vals[i]; }
-  }
-  return result;
+/** Formats seconds into M:SS */
+const fmtTime = (totalSeconds: number): string => {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
 };
 
 export const WaveInfo = memo(function WaveInfo() {
-  const wave = useSyncExternalStore(hudState.subscribe, () => hudState.getField("wave"));
-  const state = useSyncExternalStore(hudState.subscribe, () => hudState.getField("waveState"));
-  const [visible, setVisible] = useState(true);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const prevStateRef = useRef(state);
-
-  // Show wave text when wave state changes, fade after 5s
-  useEffect(() => {
-    if (state !== prevStateRef.current) {
-      prevStateRef.current = state;
-      setVisible(true);
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setVisible(false), 10000);
-    }
-  }, [state, wave]);
-
-  // Initial mount — show then fade
-  useEffect(() => {
-    timerRef.current = setTimeout(() => setVisible(false), 10000);
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, []);
-
-  const isCleared = state === "intermission";
-  const color = isCleared ? "#ffffff" : "#ff2244";
+  // wave field now holds survival seconds
+  const survivalSecs = useSyncExternalStore(hudState.subscribe, () => hudState.getField("wave"));
 
   return (
     <span
       style={{
         fontFamily: DISPLAY,
-        fontSize: 16,
-        color,
+        fontSize: 22,
+        color: "#ff2244",
         letterSpacing: "0.08em",
-        textShadow: isCleared
-          ? "0 0 6px rgba(255, 255, 255, 0.4)"
-          : "0 0 6px rgba(255, 34, 68, 0.4)",
-        opacity: visible ? 1 : 0,
-        transition: "opacity 800ms ease, color 300ms ease, text-shadow 300ms ease",
+        textShadow: "0 0 6px rgba(255, 34, 68, 0.4), 0 1px 3px rgba(0, 0, 0, 0.9)",
       }}
     >
-      {isCleared ? `WAVE ${toRoman(wave)} CLEAR` : `WAVE ${toRoman(wave)}`}
+      {fmtTime(survivalSecs)}
     </span>
   );
 });

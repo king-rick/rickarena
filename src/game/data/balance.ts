@@ -262,6 +262,43 @@ export const BALANCE = {
     },
   },
 
+  // Detection — sight + sound system (Phase 4A)
+  detection: {
+    zombieVisionRange: 150,          // px — max distance enemies can see the player
+    zombieVisionCone: 120,           // degrees — total cone (60 each side of facing)
+    gunfireSoundRadius: 300,         // px — enemies within this hear gunshots
+    sprintSoundRadius: 150,          // px — enemies within this hear sprinting
+    sprintSoundInterval: 500,        // ms between sprint noise emissions
+    crouchModifier: 0.15,            // multiply all detection ranges when player crouches (nearly invisible)
+    flashlightOffModifier: 0.35,     // multiply vision range when flashlight is off (very hard to see)
+    flashlightBeamAlertRange: 120,   // px — enemies in flashlight beam cone get alerted
+    wanderSpeed: 0.3,                // fraction of base speed for unaware wandering
+    wanderDirChangeMin: 1000,        // ms min before picking new wander direction
+    wanderDirChangeMax: 4000,        // ms max
+    wanderPauseChance: 0.2,          // probability of pausing when changing direction
+    wanderPauseMin: 2000,            // ms min pause duration
+    wanderPauseMax: 5000,            // ms max pause duration
+    aggroTimeoutMs: 4000,            // ms without seeing player before giving up chase
+  },
+
+  // Proximity spawning — player-centric zombie population
+  spawning: {
+    ambientCount: 10,                // target zombies alive near the player
+    ambientRadius: 600,              // px — zombies within this count toward ambient
+    spawnRingMin: 350,               // px — min distance from player for new spawns (off-screen)
+    spawnRingMax: 550,               // px — max distance from player for new spawns
+    spawnStaggerMs: 600,             // ms between individual spawns
+    despawnDistance: 900,             // px — unaware zombies further than this despawn
+    despawnCheckMs: 2000,            // ms between despawn sweeps
+    globalCap: 40,                   // hard cap on total alive enemies
+    // Noise surge spawning — only car alarm spawns extras
+    sprintSurge: 1,                  // extra zombies spawned from sustained sprinting
+    sprintSurgeCooldownMs: 5000,     // min ms between sprint surges
+    carAlarmSurge: 5,                // extra zombies from car alarm
+    carAlarmSurgeMs: 4000,           // spawn them over this duration
+    surgeSpawnAlerted: true,         // surge spawns start in "chasing" state
+  },
+
   // Speed cap
   maxSpeedMultiplier: 1.5,
 

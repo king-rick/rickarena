@@ -27,6 +27,7 @@ export const Hotbar = memo(function Hotbar() {
   const activeItemType = useSyncExternalStore(hudState.subscribe, () => hudState.getField("activeItemType"));
   const abilityCooldown = useSyncExternalStore(hudState.subscribe, () => hudState.getField("abilityCooldown"));
   const abilityMaxCooldown = useSyncExternalStore(hudState.subscribe, () => hudState.getField("abilityMaxCooldown"));
+  const flashlightOn = useSyncExternalStore(hudState.subscribe, () => hudState.getField("flashlightOn"));
 
   const icon = getActiveIcon(activeItemType, equippedWeapon);
 
@@ -111,6 +112,40 @@ export const Hotbar = memo(function Hotbar() {
           letterSpacing: 1,
         }}>
           Q
+        </span>
+      </div>
+
+      {/* Divider */}
+      <div style={{ width: 1, alignSelf: "stretch", background: "linear-gradient(180deg, transparent, rgba(255, 34, 68, 0.3), transparent)" }} />
+
+      {/* Flashlight toggle */}
+      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        <svg width="28" height="28" viewBox="0 0 28 28" style={{
+          filter: flashlightOn
+            ? "drop-shadow(0 0 4px rgba(255, 224, 138, 0.8)) drop-shadow(0 0 8px rgba(255, 200, 80, 0.4))"
+            : "none",
+          transition: "filter 150ms ease",
+        }}>
+          {/* Flashlight body — horizontal, pointing right */}
+          <rect x="4" y="10" width="12" height="8" rx="1" fill={flashlightOn ? "#ccb866" : "#555"} />
+          {/* Lens head */}
+          <rect x="15" y="8" width="4" height="12" rx="1" fill={flashlightOn ? "#ffe08a" : "#666"} />
+          {/* Beam cone when on */}
+          {flashlightOn && (
+            <polygon points="19,9 28,4 28,24 19,19" fill="rgba(255, 224, 138, 0.35)" />
+          )}
+          {/* Button detail */}
+          <rect x="8" y="10" width="3" height="2" rx="0.5" fill={flashlightOn ? "#aa9944" : "#444"} />
+        </svg>
+        <span style={{
+          fontFamily: DISPLAY,
+          fontSize: 13,
+          color: flashlightOn ? "#ffe08a" : "#555",
+          textShadow: flashlightOn ? "0 0 4px rgba(255, 224, 138, 0.5)" : "none",
+          letterSpacing: 1,
+          transition: "color 150ms ease",
+        }}>
+          F
         </span>
       </div>
 

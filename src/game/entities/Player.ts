@@ -1,10 +1,10 @@
 import Phaser from "phaser";
 import { Direction, DIRECTIONS } from "../data/characters";
 import { BALANCE } from "../data/balance";
-import { hasAnimation, getAnimKey } from "../data/animations";
+import { hasAnimation, getAnimKey, getFrameKey } from "../data/animations";
 
 export type Facing = "down" | "up" | "left" | "right";
-type PlayerAnim = "walk" | "running-6-frames" | "breathing-idle" | "idle" | "cross-punch" | "taking-punch" | "falling-back-death" | "shooting-pistol" | "shooting-shotgun" | "shooting-smg" | "high-kick" | "swinging-katana" | "throw-grenade" | "walking-shooting-pistol" | "reloading-pistol" | "reloading-shotgun" | "reloading-smg" | "light-cigarette";
+type PlayerAnim = "walk" | "running-6-frames" | "breathing-idle" | "idle" | "cross-punch" | "taking-punch" | "falling-back-death" | "shooting-pistol" | "shooting-shotgun" | "shooting-smg" | "high-kick" | "swinging-katana" | "throw-grenade" | "walking-shooting-pistol" | "reloading-pistol" | "reloading-shotgun" | "reloading-smg" | "light-cigarette" | "crouching-stealth-pistol" | "walking-flashlight" | "walking-pistol-flashlight";
 
 export interface PlayerStats {
   speed: number;
@@ -41,6 +41,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   facing: Facing = "down";
   burnedOut = false;
   invincible = false;
+  crouching = false;
+  flashlightOn = false;
+  equippedWeapon: string | null = null; // set by GameScene each frame
   grenadeCount = 0;
   throwingGrenade = false;
 
@@ -55,6 +58,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private hasHurtAnim: boolean;
   private hasDeathAnim: boolean;
   private hasWalkShootPistolAnim: boolean;
+  private hasCrouchAnim: boolean;
+  private hasFlashlightAnim: boolean;
+  private hasPistolFlashlightAnim: boolean;
   private punching = false;
   private shooting = false; // true during shoot animation — doesn't block movement
   private holdingShoot = false; // true for auto weapons holding last frame
@@ -62,11 +68,14 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private sprinting = false;
   cutsceneControlled = false; // true during cutscenes — disables player input, game controls movement
   private sprintKey!: Phaser.Input.Keyboard.Key;
+  private crouchKey!: Phaser.Input.Keyboard.Key;
 
   /** True while punch animation is active — grants i-frames */
   get isPunching(): boolean { return this.punching; }
   /** True while player is actively sprinting */
   get isSprinting(): boolean { return this.sprinting; }
+  /** True while player is crouching */
+  get isCrouching(): boolean { return this.crouching; }
 
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd!: {
@@ -94,6 +103,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.hasHurtAnim = hasAnimation(characterId, "taking-punch");
     this.hasDeathAnim = hasAnimation(characterId, "falling-back-death");
     this.hasWalkShootPistolAnim = hasAnimation(characterId, "walking-shooting-pistol");
+    this.hasCrouchAnim = hasAnimation(characterId, "crouching-stealth-pistol");
+    this.hasFlashlightAnim = hasAnimation(characterId, "walking-flashlight");
+    this.hasPistolFlashlightAnim = hasAnimation(characterId, "walking-pistol-flashlight");
 
     scene.add.existing(this);
     scene.physics.add.existing(this);
@@ -118,6 +130,27 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
         D: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
       };
       this.sprintKey = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
+      this.crouchKey = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.C);
+      this.crouchKey.on("down", () => {
+        if (this.locked || this.cutsceneControlled) return;
+        this.crouching = !this.crouching;
+        if (this.crouching) {
+          this.sprinting = false;
+          // Immediately show crouched frame if not moving/shooting/punching
+          if (!this.punching && !this.shooting && this.hasCrouchAnim) {
+            this.currentAnim = "crouching-stealth-pistol";
+            const crouchKey = getFrameKey(this.characterId, "crouching-stealth-pistol", this.currentDir, 0);
+            if (this.scene.textures.exists(crouchKey)) {
+              this.stop();
+              this.setTexture(crouchKey);
+            }
+          }
+        } else if (!this.punching && !this.shooting) {
+          // Uncrouch — return to appropriate idle
+          this.currentAnim = "idle";
+          this.resumeIdleAnim();
+        }
+      });
     }
   }
 
@@ -178,8 +211,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     const isMoving = vx !== 0 || vy !== 0;
 
     // Sprint: hold shift while moving, drains stamina
-    const wantsSprint = this.sprintKey?.isDown && isMoving && !this.burnedOut;
+    const wantsSprint = this.sprintKey?.isDown && isMoving && !this.burnedOut && !this.crouching;
     this.sprinting = wantsSprint && this.stats.stamina > 0;
+    if (this.sprinting) this.crouching = false;
 
     if (this.sprinting) {
       this.stats.stamina = Math.max(0, this.stats.stamina - BALANCE.stamina.sprintCostPerSecond * (delta / 1000));
@@ -192,7 +226,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       }
     }
 
-    const speedMult = this.burnedOut ? BALANCE.burnout.speedMultiplier : this.sprinting ? 1.6 : 1;
+    const speedMult = this.burnedOut ? BALANCE.burnout.speedMultiplier : this.sprinting ? 1.6 : this.crouching ? 0.5 : 1;
     const speed = this.stats.speed * speedMult;
 
     this.body.setVelocity(vx * speed, vy * speed);
@@ -212,14 +246,22 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       // Don't interrupt punch or shooting animation with walk/idle/run
       if (!this.punching && !this.shooting) {
         const dirChanged = dir !== this.currentDir;
-        const wantedAnim = this.sprinting && this.hasRunAnim ? "running-6-frames" : "walk";
+        const wantedAnim = this.crouching && this.hasCrouchAnim ? "crouching-stealth-pistol"
+          : this.flashlightOn && !this.crouching ? this.getFlashlightWalkAnim()
+          : this.sprinting && this.hasRunAnim ? "running-6-frames" : "walk";
         const animChanged = this.currentAnim !== wantedAnim;
 
         if (dirChanged || animChanged) {
           this.currentDir = dir;
           this.currentAnim = wantedAnim;
 
-          if (wantedAnim === "running-6-frames" && this.hasRunAnim) {
+          if (wantedAnim === "crouching-stealth-pistol" && this.hasCrouchAnim) {
+            this.play(getAnimKey(this.characterId, "crouching-stealth-pistol", dir), true);
+          } else if (wantedAnim === "walking-pistol-flashlight" && this.hasPistolFlashlightAnim) {
+            this.play(getAnimKey(this.characterId, "walking-pistol-flashlight", dir), true);
+          } else if (wantedAnim === "walking-flashlight" && this.hasFlashlightAnim) {
+            this.play(getAnimKey(this.characterId, "walking-flashlight", dir), true);
+          } else if (wantedAnim === "running-6-frames" && this.hasRunAnim) {
             this.play(getAnimKey(this.characterId, "running-6-frames", dir), true);
           } else if (this.hasWalkAnim) {
             this.play(getAnimKey(this.characterId, "walk", dir), true);
@@ -233,17 +275,26 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       }
 
       this.currentDir = dir;
-    } else if ((this.currentAnim === "walk" || this.currentAnim === "running-6-frames") && !this.punching && !this.shooting) {
-      // Stopped moving — switch to idle
-      this.currentAnim = "idle";
-
-      if (this.hasIdleAnim) {
-        this.play(
-          getAnimKey(this.characterId, "breathing-idle", this.currentDir),
-          true
-        );
+    } else if ((this.currentAnim === "walk" || this.currentAnim === "running-6-frames" || this.currentAnim === "crouching-stealth-pistol" || this.currentAnim === "walking-flashlight" || this.currentAnim === "walking-pistol-flashlight") && !this.punching && !this.shooting) {
+      // Stopped moving — switch to idle (or crouched/flashlight still frame)
+      if (this.crouching && this.hasCrouchAnim) {
+        this.currentAnim = "crouching-stealth-pistol";
+        const crouchKey = getFrameKey(this.characterId, "crouching-stealth-pistol", this.currentDir, 0);
+        if (this.scene.textures.exists(crouchKey)) {
+          this.stop();
+          this.setTexture(crouchKey);
+        }
       } else {
-        this.setTexture(`${this.characterId}-${this.currentDir}`);
+        this.currentAnim = "idle";
+
+        if (this.hasIdleAnim) {
+          this.play(
+            getAnimKey(this.characterId, "breathing-idle", this.currentDir),
+            true
+          );
+        } else {
+          this.setTexture(`${this.characterId}-${this.currentDir}`);
+        }
       }
     }
   }
@@ -285,12 +336,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.punching = false;
     this.locked = false;
     this.currentAnim = "idle";
-
-    if (this.hasIdleAnim) {
-      this.play(getAnimKey(this.characterId, "breathing-idle", this.currentDir), true);
-    } else {
-      this.setTexture(`${this.characterId}-${this.currentDir}`);
-    }
+    this.resumeIdleAnim();
   };
 
   playPunch(onImpact?: () => void) {
@@ -483,6 +529,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   /** Release the held shoot pose (called on trigger release) */
   stopHoldShoot() {
     if (!this.holdingShoot) return;
+    if (!this.scene) return; // sprite destroyed (scene shutdown)
     this.holdingShoot = false;
     this.shooting = false;
     this.currentAnim = "idle";
@@ -491,13 +538,10 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     const vy = this.body?.velocity?.y ?? 0;
     const isMoving = Math.abs(vx) > 1 || Math.abs(vy) > 1;
 
-    if (isMoving && this.hasWalkAnim) {
-      this.currentAnim = "walk";
-      this.play(getAnimKey(this.characterId, "walk", this.currentDir), true);
-    } else if (this.hasIdleAnim) {
-      this.play(getAnimKey(this.characterId, "breathing-idle", this.currentDir), true);
+    if (isMoving) {
+      this.resumeMovementAnim();
     } else {
-      this.setTexture(`${this.characterId}-${this.currentDir}`);
+      this.resumeIdleAnim();
     }
   }
 
@@ -540,9 +584,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     if (this.currentAnim === "reloading-pistol" || this.currentAnim === "reloading-shotgun" || this.currentAnim === "reloading-smg") {
       this.shooting = false;
       this.currentAnim = "idle";
-      if (this.hasIdleAnim) {
-        this.play(getAnimKey(this.characterId, "breathing-idle", this.currentDir), true);
-      }
+      this.resumeIdleAnim();
     }
   }
 
@@ -632,10 +674,10 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       this.currentDir = savedDir;
     }
 
-    if (this.hasIdleAnim) {
-      this.play(getAnimKey(this.characterId, "breathing-idle", this.currentDir), true);
+    if (isMoving) {
+      this.resumeMovementAnim();
     } else {
-      this.setTexture(`${this.characterId}-${this.currentDir}`);
+      this.resumeIdleAnim();
     }
   }
 
@@ -666,15 +708,57 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     const vy = this.body?.velocity?.y ?? 0;
     const isMoving = Math.abs(vx) > 1 || Math.abs(vy) > 1;
 
-    if (isMoving && this.hasWalkAnim) {
+    if (isMoving) {
+      this.resumeMovementAnim();
+    } else {
+      this.resumeIdleAnim();
+    }
+  };
+
+  /** Get the appropriate flashlight walk animation based on equipped weapon */
+  private getFlashlightWalkAnim(): PlayerAnim {
+    if (this.equippedWeapon === "pistol" && this.hasPistolFlashlightAnim) {
+      return "walking-pistol-flashlight";
+    }
+    if (this.hasFlashlightAnim) return "walking-flashlight";
+    return "walk";
+  }
+
+  /** Resume the correct movement animation based on current state (flashlight/crouch/sprint/walk) */
+  private resumeMovementAnim() {
+    if (this.crouching && this.hasCrouchAnim) {
+      this.currentAnim = "crouching-stealth-pistol";
+      this.play(getAnimKey(this.characterId, "crouching-stealth-pistol", this.currentDir), true);
+    } else if (this.flashlightOn && !this.crouching) {
+      const flWalk = this.getFlashlightWalkAnim();
+      if (flWalk !== "walk") {
+        this.currentAnim = flWalk;
+        this.play(getAnimKey(this.characterId, flWalk, this.currentDir), true);
+      } else if (this.hasWalkAnim) {
+        this.currentAnim = "walk";
+        this.play(getAnimKey(this.characterId, "walk", this.currentDir), true);
+      }
+    } else if (this.hasWalkAnim) {
       this.currentAnim = "walk";
       this.play(getAnimKey(this.characterId, "walk", this.currentDir), true);
+    }
+  }
+
+  /** Resume the correct idle animation based on current state (crouch/breathing-idle) */
+  private resumeIdleAnim() {
+    if (this.crouching && this.hasCrouchAnim) {
+      this.currentAnim = "crouching-stealth-pistol";
+      const crouchKey = getFrameKey(this.characterId, "crouching-stealth-pistol", this.currentDir, 0);
+      if (this.scene.textures.exists(crouchKey)) {
+        this.stop();
+        this.setTexture(crouchKey);
+      }
     } else if (this.hasIdleAnim) {
       this.play(getAnimKey(this.characterId, "breathing-idle", this.currentDir), true);
     } else {
       this.setTexture(`${this.characterId}-${this.currentDir}`);
     }
-  };
+  }
 
   useStamina(amount: number): boolean {
     if (this.burnedOut) return false;
