@@ -1503,7 +1503,9 @@ export class GameScene extends Phaser.Scene {
 
         if (objType === "teleport") {
           const target = props?.find(p => p.name === "target")?.value ?? "";
-          if (target) {
+          // Skip unfinished teleports (no matching interior target yet)
+          const disabled = ["teleport_crackhouse_exterior", "teleport_project_exterior"];
+          if (target && !disabled.includes(obj.name!)) {
             this.teleportPoints.push({ name: obj.name!, target, x: obj.x!, y: obj.y! });
           }
         } else if (obj.name === "kyle_intro") {
