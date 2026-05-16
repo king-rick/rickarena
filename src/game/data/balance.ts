@@ -82,8 +82,7 @@ export const BALANCE = {
       { id: "ammo_heavy", name: "Heavy Ammo", desc: "+2 assault rifle mags", basePrice: 100 },
       { id: "landmine", name: "Landmine", desc: "AoE explosion on contact", basePrice: 40 },
       { id: "grenade", name: "Grenade", desc: "Throwable explosive (max 3)", basePrice: 60 },
-      // Weapons — shotgun + SMG removed from shop (accessed elsewhere)
-      { id: "shotgun", name: "Shotgun", desc: "8 shells, spread", basePrice: 350 },
+      // Weapons — shotgun (car trunk) + SMG (wired elsewhere) not in shop
     ],
   },
 
@@ -343,6 +342,7 @@ export const BALANCE = {
 
   // Enemy base stats — WaW-style scaling (exponential HP, speed tiers, flat damage)
   enemies: {
+    biteCooldownMs: 1200, // per-enemy cooldown — same zombie can't bite again for 1.2s
     basic: { hp: 33, damage: 20, speed: 60, jogSpeed: 80, runSpeed: 105 },
     fast:  {
       hp: 30, damage: 12, speed: 115, attackCooldown: 400,  // dog: fragile but fast when aggro
@@ -361,8 +361,8 @@ export const BALANCE = {
       runSpeed: 120,       // sprint at player aggressively
       knockbackResist: 0.8,
       attacks: {
-        punchCombo: { damage: 40, range: 70,  cooldown: 900,  knockback: 120 },
-        fireball:   { damage: 10, range: 400, cooldown: 2000, projectileSpeed: 300 },
+        punchCombo: { damage: 30, range: 70,  cooldown: 1100,  knockback: 120 },
+        fireball:   { damage: 8, range: 400, cooldown: 2200, projectileSpeed: 280 },
       },
       backflipCooldown: 2000, // faster disengage-reengage loop
     },

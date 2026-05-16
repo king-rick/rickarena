@@ -4,7 +4,7 @@ import { BALANCE } from "../data/balance";
 import { hasAnimation, getAnimKey, getFrameKey } from "../data/animations";
 
 export type Facing = "down" | "up" | "left" | "right";
-type PlayerAnim = "walk" | "running-6-frames" | "breathing-idle" | "idle" | "cross-punch" | "taking-punch" | "falling-back-death" | "shooting-pistol" | "shooting-shotgun" | "shooting-smg" | "high-kick" | "swinging-katana" | "throw-grenade" | "walking-shooting-pistol" | "reloading-pistol" | "reloading-shotgun" | "reloading-smg" | "light-cigarette" | "crouching-stealth-pistol" | "walking-flashlight" | "walking-pistol-flashlight";
+type PlayerAnim = "walk" | "running-6-frames" | "breathing-idle" | "idle" | "cross-punch" | "taking-punch" | "falling-back-death" | "shooting-pistol" | "shooting-shotgun" | "shooting-smg" | "high-kick" | "swinging-katana" | "throw-grenade" | "walking-shooting-pistol" | "reloading-pistol" | "reloading-shotgun" | "reloading-smg" | "light-cigarette" | "crouching-stealth-pistol" | "walking-flashlight" | "walking-pistol-flashlight" | "walking-shotgun";
 
 export interface PlayerStats {
   speed: number;
@@ -61,6 +61,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private hasCrouchAnim: boolean;
   private hasFlashlightAnim: boolean;
   private hasPistolFlashlightAnim: boolean;
+  private hasWalkShotgunAnim: boolean;
   private punching = false;
   private shooting = false; // true during shoot animation — doesn't block movement
   private holdingShoot = false; // true for auto weapons holding last frame
@@ -106,6 +107,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.hasCrouchAnim = hasAnimation(characterId, "crouching-stealth-pistol");
     this.hasFlashlightAnim = hasAnimation(characterId, "walking-flashlight");
     this.hasPistolFlashlightAnim = hasAnimation(characterId, "walking-pistol-flashlight");
+    this.hasWalkShotgunAnim = hasAnimation(characterId, "walking-shotgun");
 
     scene.add.existing(this);
     scene.physics.add.existing(this);
@@ -248,7 +250,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
         const dirChanged = dir !== this.currentDir;
         const wantedAnim = this.crouching && this.hasCrouchAnim ? "crouching-stealth-pistol"
           : this.flashlightOn && !this.crouching ? this.getFlashlightWalkAnim()
-          : this.sprinting && this.hasRunAnim ? "running-6-frames" : "walk";
+          : this.sprinting && this.hasRunAnim ? "running-6-frames"
+          : this.equippedWeapon === "shotgun" && this.hasWalkShotgunAnim ? "walking-shotgun"
+          : "walk";
         const animChanged = this.currentAnim !== wantedAnim;
 
         if (dirChanged || animChanged) {
@@ -263,6 +267,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
             this.play(getAnimKey(this.characterId, "walking-flashlight", dir), true);
           } else if (wantedAnim === "running-6-frames" && this.hasRunAnim) {
             this.play(getAnimKey(this.characterId, "running-6-frames", dir), true);
+          } else if (wantedAnim === "walking-shotgun" && this.hasWalkShotgunAnim) {
+            this.play(getAnimKey(this.characterId, "walking-shotgun", dir), true);
           } else if (this.hasWalkAnim) {
             this.play(getAnimKey(this.characterId, "walk", dir), true);
           } else {
@@ -275,7 +281,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       }
 
       this.currentDir = dir;
-    } else if ((this.currentAnim === "walk" || this.currentAnim === "running-6-frames" || this.currentAnim === "crouching-stealth-pistol" || this.currentAnim === "walking-flashlight" || this.currentAnim === "walking-pistol-flashlight") && !this.punching && !this.shooting) {
+    } else if ((this.currentAnim === "walk" || this.currentAnim === "running-6-frames" || this.currentAnim === "crouching-stealth-pistol" || this.currentAnim === "walking-flashlight" || this.currentAnim === "walking-pistol-flashlight" || this.currentAnim === "walking-shotgun") && !this.punching && !this.shooting) {
       // Stopped moving — switch to idle (or crouched/flashlight still frame)
       if (this.crouching && this.hasCrouchAnim) {
         this.currentAnim = "crouching-stealth-pistol";

@@ -445,7 +445,8 @@ export class PreloadScene extends Phaser.Scene {
             || anim.type === "electrified-stun" || anim.type === "zombie-dancing"
             || anim.type === "crouching-stealth-pistol"
             || anim.type === "walking-flashlight"
-            || anim.type === "walking-pistol-flashlight";
+            || anim.type === "walking-pistol-flashlight"
+            || anim.type === "walking-shotgun";
 
           let frameRate = 8;
           if (anim.type === "walk") frameRate = anim.frames <= 6 ? 13 : 10;
@@ -471,6 +472,7 @@ export class PreloadScene extends Phaser.Scene {
           else if (anim.type === "crouching-stealth-pistol") frameRate = 8;
           else if (anim.type === "walking-flashlight") frameRate = 10;
           else if (anim.type === "walking-pistol-flashlight") frameRate = 10;
+          else if (anim.type === "walking-shotgun") frameRate = 10;
           else if (anim.type === "light-cigarette") frameRate = 6;
           else if (anim.type === "bite") frameRate = 12;
           else if (anim.type === "lunge-bite") frameRate = 12;

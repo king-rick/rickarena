@@ -79,43 +79,6 @@ export function MasonAnnouncement() {
         &quot;{quote}&quot;
       </div>
 
-      {/* Dismiss button */}
-      <button
-        type="button"
-        onClick={handleDismiss}
-        style={{
-          marginTop: 10,
-          background: "transparent",
-          border: "1px solid rgba(124,58,237,0.55)",
-          color: "rgba(190,165,220,0.82)",
-          fontFamily: "var(--font-special-elite), 'Special Elite', serif",
-          fontSize: "clamp(9px, 1vw, 12px)",
-          letterSpacing: "0.22em",
-          padding: "6px 20px",
-          cursor: "pointer",
-          textTransform: "uppercase",
-          opacity: visible && !dismissing ? 1 : 0,
-          transition: visible && !dismissing
-            ? "opacity 400ms ease-out 500ms, background 150ms, color 150ms, border-color 150ms"
-            : "opacity 200ms ease-out",
-        }}
-        onMouseEnter={(e) => {
-          const el = e.currentTarget as HTMLElement;
-          el.style.background = "rgba(124,58,237,0.22)";
-          el.style.color = "#fff";
-          el.style.borderColor = "rgba(167,100,255,0.9)";
-          el.style.textShadow = "0 0 12px rgba(167,100,255,0.8), 0 0 24px rgba(124,58,237,0.4)";
-        }}
-        onMouseLeave={(e) => {
-          const el = e.currentTarget as HTMLElement;
-          el.style.background = "transparent";
-          el.style.color = "rgba(190,165,220,0.82)";
-          el.style.borderColor = "rgba(124,58,237,0.55)";
-          el.style.textShadow = "none";
-        }}
-      >
-        Bring it &nbsp;&middot;&nbsp; [ SPACE ]
-      </button>
     </div>
   );
 }

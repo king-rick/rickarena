@@ -50,8 +50,8 @@ export class GameScene extends Phaser.Scene {
   private pendingScaryboiSpawn: { x: number; y: number; hpPercent: number; gracePeriodMs: number; enc: string } | null = null;
   private masonRavePhase: "" | "rave_setup" | "cutscene_1" | "zombie_fight" | "dramatic_pause" | "cutscene_2" | "boss_fight" = "";
   private masonTriggered = false;
-  private stairBlockerZone?: Phaser.GameObjects.Zone;
   private masonEnemy: Enemy | null = null;
+  private masonAuraLight: Phaser.GameObjects.Light | null = null;
   private masonRaveZombies: Enemy[] = [];
   private raveCrowdRect = { x: 1387, y: 249, w: 306, h: 187 };
   private masonBannerReady = false;
@@ -142,7 +142,7 @@ export class GameScene extends Phaser.Scene {
   private bandageCount = 0;
   private rudysDesks: { name: string; x: number; y: number; stocked: boolean }[] = [];
   private deskGlows: Phaser.GameObjects.Graphics[] = [];
-  // Car interactables — 1 has SMG loot, 2 have alarms
+  // Car interactables — 1 has shotgun loot, 2 have alarms
   private cars: { name: string; x: number; y: number; opened: boolean; hasLoot: boolean; alarmKey?: string }[] = [];
   private playerLight!: Phaser.GameObjects.Light;   // small ambient around player
   private playerConeLight!: Phaser.GameObjects.Light; // mid-beam
@@ -168,6 +168,8 @@ export class GameScene extends Phaser.Scene {
   private abilityActive = false;
   // Power + Machines (CoD Zombies perk system)
   private powerOn = false;
+  private genHumSound: Phaser.Sound.BaseSound | null = null;
+  private streetlampLights: { light: Phaser.GameObjects.Light; intensity: number }[] = [];
   private generator: {
     sprite: Phaser.GameObjects.Sprite;
     x: number;
@@ -334,6 +336,7 @@ export class GameScene extends Phaser.Scene {
     this.game.canvas.style.pointerEvents = "auto";
     this.currency = 0;
     this.kills = 0;
+    this.timeSurvived = 0;
     this.lastDamageTime = 0;
     // Start empty-handed — pistol comes from Kyle
     this.activeWeapon = "pistol";
@@ -352,6 +355,9 @@ export class GameScene extends Phaser.Scene {
     this.playerInsideBuilding = true; // player spawns inside the house
     this.powerOn = false;
     this.generator = null;
+    if (this.genHumSound && (this.genHumSound as any).isPlaying) this.genHumSound.stop();
+    this.genHumSound = null;
+    this.streetlampLights = [];
     this.machines = [];
     this.reloadSpeedMultiplier = 1;
     this.armor = 0;
@@ -392,8 +398,8 @@ export class GameScene extends Phaser.Scene {
     // Mason encounter state
     this.masonRavePhase = "";
     this.masonTriggered = false;
-    this.stairBlockerZone = undefined;
     this.masonEnemy = null;
+    this.masonAuraLight = null;
     this.masonRaveZombies = [];
     this.masonBannerReady = false;
     this.masonDismissing = false;
@@ -586,14 +592,18 @@ export class GameScene extends Phaser.Scene {
         fluoro1.intensity = 0.02;
         fluoro2.intensity = 0.02;
         this.time.delayedCall(60, () => {
+          if (this.powerOn) return;
           fluoro1.intensity = 0.9;
           fluoro2.intensity = 0.6;
           this.time.delayedCall(40, () => {
+            if (this.powerOn) return;
             fluoro1.intensity = 0.02;
             fluoro2.intensity = 0.02;
             this.time.delayedCall(120, () => {
+              if (this.powerOn) return;
               fluoro1.intensity = 0.02;
               this.time.delayedCall(80, () => {
+                if (this.powerOn) return;
                 fluoro1.intensity = 0.85;
                 fluoro2.intensity = 0.5;
               });
@@ -741,12 +751,6 @@ export class GameScene extends Phaser.Scene {
 
     // Starting room chest + door — positions read from Tiled interactables after door loop
 
-    // Stair blocker — prevents going upstairs until SCARYBOI is defeated
-    // Tiles (39,18)-(39,19) are the stair trigger area; block at row 18 (2 tiles wide)
-    this.stairBlockerZone = this.add.zone(39 * 32 + 16, 18 * 32, 64, 16).setOrigin(0.5);
-    this.physics.add.existing(this.stairBlockerZone, true);
-    this.obstacles.add(this.stairBlockerZone);
-
     // Purchasable doors — read from Tiled interactables layer
     this.doors = [];
     const interactLayer = map.getObjectLayer("interactables");
@@ -845,7 +849,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Car loot randomization — 1 random car gets SMG, 2 get alarms
+    // Car loot randomization — 1 random car gets shotgun, 2 get alarms
     if (this.cars.length > 0) {
       const alarmKeys = ["sfx-car-alarm-horn-1", "sfx-car-alarm-horn-2", "sfx-car-alarm-horn-3"];
       // Fisher-Yates shuffle for unbiased randomization
@@ -1225,6 +1229,10 @@ export class GameScene extends Phaser.Scene {
       );
       pKey.on("down", () => {
         if (this.gameOver) return;
+        // ESC skips active cutscenes
+        if (this.kyleIntroActive) { this.skipKyleIntroCutscene(); return; }
+        if (this.scaryboiIntroActive) { this.skipScaryboiCutscene(); return; }
+        if (this.masonCutsceneActive) { this.skipMasonCutscene(); return; }
         if (this.shopOpen) { this.closeShop(); return; }
         if (this.inventoryOpen) { this.dismissInventory(); return; }
         if (this.statsOpen) { this.statsOpen = false; hudState.update({ statsOpen: false }); return; }
@@ -1634,14 +1642,21 @@ export class GameScene extends Phaser.Scene {
       hudState.update({ currentObjective: this.getCurrentObjective() });
     };
 
-    hudState.registerScaryboiIntroAction(() => {
-      // "Bring it" button clicked in React banner — same as pressing Space
-      this.dismissScaryboiIntro();
+    hudState.registerScaryboiIntroAction((action: string) => {
+      if (action === "skip") {
+        this.skipScaryboiCutscene();
+      } else {
+        this.dismissScaryboiIntro();
+      }
     });
 
-    // Mason dialogue callback — player dismissed the dialogue card (SPACE or click)
-    hudState.registerMasonDialogueAction(() => {
-      this.dismissMasonDialogue();
+    // Mason dialogue callback — advance/dismiss or skip cutscene
+    hudState.registerMasonDialogueAction((action: string) => {
+      if (action === "skip") {
+        this.skipMasonCutscene();
+      } else {
+        this.dismissMasonDialogue();
+      }
     });
 
     // Kyle dialogue callback — advance or skip cutscene
@@ -1813,13 +1828,17 @@ export class GameScene extends Phaser.Scene {
       this.audio.updateRaveMusicFilter(this.player.y);
     }
 
+    // Mason aura light — follows his position
+    if (this.masonAuraLight && this.masonEnemy?.active) {
+      this.masonAuraLight.x = this.masonEnemy.x;
+      this.masonAuraLight.y = this.masonEnemy.y;
+    }
+
     // Mason estate trigger — player reaches top of stairs
     if (!this.masonTriggered) {
       const ptx = Math.floor(this.player.x / 32);
       const pty = Math.floor(this.player.y / 32);
       if (
-        (ptx === 39 && pty === 18) ||
-        (ptx === 39 && pty === 19) ||
         (ptx === 39 && pty === 11) ||
         (ptx === 39 && pty === 12)
       ) {
@@ -2539,6 +2558,12 @@ export class GameScene extends Phaser.Scene {
 
     // Mason death — victory!
     if (enemy.enemyType === "mason") {
+      // Fade out toxic aura
+      if (this.masonAuraLight) {
+        const aura = this.masonAuraLight;
+        this.masonAuraLight = null;
+        this.tweens.add({ targets: aura, intensity: 0, duration: 1000, onComplete: () => this.lights.removeLight(aura) });
+      }
       this.completeObjective("defeat_bigbaby");
       this.cleanupClubAtmosphere();
       this.audio.stopRaveMusic();
@@ -3742,10 +3767,15 @@ export class GameScene extends Phaser.Scene {
 
       const now = this.time.now;
       if (now - this.lastDamageTime < 500) return;
-      this.lastDamageTime = now;
 
       const enemy = enemyObj as Enemy;
       if (enemy.isStunned()) return; // stunned enemies can't attack
+
+      // Per-enemy bite cooldown — same zombie can't chomp repeatedly
+      const biteCooldown = BALANCE.enemies.biteCooldownMs ?? 1200;
+      if (now - enemy.lastBiteTime < biteCooldown) return;
+      enemy.lastBiteTime = now;
+      this.lastDamageTime = now;
       let incomingDmg = enemy.getEffectiveDamage();
       // Keg perk: armor absorbs damage before HP
       if (this.armor > 0) {
@@ -4200,13 +4230,21 @@ export class GameScene extends Phaser.Scene {
         continue; // no flicker until triggered
       }
 
+      // Track streetlamps for power-on activation
+      if (objType === "streetlamp") {
+        this.streetlampLights.push({ light, intensity: parsedIntensity });
+      }
+
       if (flicker === "candle") {
         // Mostly OFF — occasional 2s flicker burst after ~5s dark
+        // Once power is on, flicker cycle stops and lights stay steady
         light.intensity = 0;
         const flickerCycle = () => {
+          if (this.powerOn) return; // power on — stop flickering
           // Dark phase: 4-7 seconds off
           const darkTime = 4000 + Math.random() * 3000;
           this.time.delayedCall(darkTime, () => {
+            if (this.powerOn) return;
             // Flicker ON phase: rapid stuttery pulses for ~2s
             const flickerDuration = 1500 + Math.random() * 1000;
             const startTime = this.time.now;
@@ -4214,6 +4252,7 @@ export class GameScene extends Phaser.Scene {
               delay: 50 + Math.random() * 80,
               loop: true,
               callback: () => {
+                if (this.powerOn) { flickerEvent.remove(); return; }
                 const elapsed = this.time.now - startTime;
                 if (elapsed >= flickerDuration) {
                   // Flicker phase done — go dark again
@@ -4377,7 +4416,7 @@ export class GameScene extends Phaser.Scene {
     if (!lights) return;
     for (const light of lights) {
       const target = (light as any)._triggerIntensity ?? 0.8;
-      light.intensity = target;
+      this.tweens.add({ targets: light, intensity: target, duration: 1500, ease: "Sine.easeOut" });
     }
     this.triggeredLights.delete(trigger);
   }
@@ -5025,9 +5064,9 @@ export class GameScene extends Phaser.Scene {
       car.opened = true;
 
       if (car.hasLoot) {
-        // Silent SMG loot — 1 magazine loaded
-        this.addWeapon("smg", { mag: BALANCE.weapons.smg.magazineSize, reserve: 0 });
-        this.showWeaponMessage("FOUND SMG", "#44dd44");
+        // Shotgun loot — 1 magazine loaded
+        this.addWeapon("shotgun", { mag: BALANCE.weapons.shotgun.magazineSize, reserve: 0 });
+        this.showWeaponMessage("FOUND SHOTGUN", "#44dd44");
         this.audio.playSound("sfx-buy", 0.4);
       } else {
         // Car alarm — flash lights + play SFX
@@ -5436,12 +5475,6 @@ export class GameScene extends Phaser.Scene {
       if (gate2 && gate2.locked) gate2.locked = false;
     }
 
-    // Remove stair blocker when SCARYBOI is defeated — allows access to rave
-    if (id === "defeat_scaryboi" && this.stairBlockerZone) {
-      this.obstacles.remove(this.stairBlockerZone);
-      this.stairBlockerZone.destroy();
-      this.stairBlockerZone = undefined;
-    }
   }
 
   private tryStartingDoor(): boolean {
@@ -5677,6 +5710,9 @@ export class GameScene extends Phaser.Scene {
     const masonIdleKey = getAnimKey("mason", "breathing-idle", "south");
     if (this.anims.exists(masonIdleKey)) mason.play(masonIdleKey, true);
     this.masonEnemy = mason;
+
+    // Toxic green aura — follows Mason everywhere
+    this.masonAuraLight = this.lights.addLight(mason.x, mason.y, 180, 0x44ff44, 0.6);
 
     // Spawn dancing zombies within the rave_crowd rect from Tiled (zones_navigation)
     this.masonRaveZombies = [];
@@ -5923,6 +5959,13 @@ export class GameScene extends Phaser.Scene {
     if (newZone === this.currentZoneName) return;
     console.log(`[RoomVisibility] Zone: ${this.currentZoneName} -> ${newZone}, zones=${this.visibilityZones.length}`);
 
+    // Generator hum — only audible inside north_building
+    if (this.genHumSound && (this.genHumSound as any).isPlaying) {
+      const targetVol = newZone === "north_building" ? 0.08 : 0;
+      this.tweens.killTweensOf(this.genHumSound);
+      this.tweens.add({ targets: this.genHumSound, volume: targetVol, duration: 400 });
+    }
+
     this.currentZoneName = newZone;
     if (newZone === null) {
       // Player is outdoors — no room occluder needed
@@ -6026,6 +6069,19 @@ export class GameScene extends Phaser.Scene {
         sweepEndX: zoneCenterX, sweepEndY: zoneMinY + (zoneMaxY - zoneMinY) * 0.55,
         color: 0x00bfff, radius: 45, duration: 3400, delay: 700,
       },
+      // South wall — fixtures right on the bottom edge
+      {
+        fixtureX: zoneMinX + (zoneMaxX - zoneMinX) * 0.3, fixtureY: zoneMaxY, texture: "prop-spotlight-red",
+        sweepStartX: zoneMinX + (zoneMaxX - zoneMinX) * 0.2, sweepStartY: zoneMaxY - 64,
+        sweepEndX: zoneCenterX - 32, sweepEndY: zoneCenterY + 32,
+        color: 0xff1493, radius: 45, duration: 3700, delay: 500,
+      },
+      {
+        fixtureX: zoneMinX + (zoneMaxX - zoneMinX) * 0.7, fixtureY: zoneMaxY, texture: "prop-spotlight-purple",
+        sweepStartX: zoneMinX + (zoneMaxX - zoneMinX) * 0.8, sweepStartY: zoneMaxY - 64,
+        sweepEndX: zoneCenterX + 32, sweepEndY: zoneCenterY + 48,
+        color: 0x9b30ff, radius: 45, duration: 4100, delay: 800,
+      },
     ];
 
     for (const f of fixtures) {
@@ -6077,6 +6133,9 @@ export class GameScene extends Phaser.Scene {
       // East wall (pointing left)
       { x: zoneMaxX - 16, y: zoneMinY + (zoneMaxY - zoneMinY) * 0.25, color: 0x00bfff, baseAngle: -90, angleFrom: -30, angleTo: 20, duration: 3400 },
       { x: zoneMaxX - 16, y: zoneMinY + (zoneMaxY - zoneMinY) * 0.6, color: 0xff2200, baseAngle: -90, angleFrom: 15, angleTo: -30, duration: 3900 },
+      // South wall (pointing up into the room) — right on the bottom edge
+      { x: zoneMinX + (zoneMaxX - zoneMinX) * 0.3, y: zoneMaxY, color: 0xff1493, baseAngle: 180, angleFrom: -25, angleTo: 30, duration: 3700 },
+      { x: zoneMinX + (zoneMaxX - zoneMinX) * 0.7, y: zoneMaxY, color: 0x9b30ff, baseAngle: 180, angleFrom: 20, angleTo: -25, duration: 4100 },
     ];
 
     for (const beam of beams) {
@@ -6126,6 +6185,42 @@ export class GameScene extends Phaser.Scene {
       ease: "Sine.easeInOut",
     });
     this.masonClubEffects.push(djGlow);
+
+    // DJ booth Light2D — actually illuminates sprites near Mason's booth
+    const djLight2d = this.lights.addLight(djX, djY, 200, 0x7c3aed, 0.3);
+    this.tweens.add({
+      targets: djLight2d,
+      intensity: { from: 0.2, to: 0.4 },
+      duration: 2000,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+    });
+
+    // E. Dance floor Light2D wash — pulsing colored lights that illuminate sprites/tiles
+    const floorLights: { x: number; y: number; color: number; radius: number; dur: number }[] = [
+      // Left dance floor — magenta pulse
+      { x: zoneMinX + (zoneMaxX - zoneMinX) * 0.25, y: zoneCenterY, color: 0xff1493, radius: 160, dur: 3200 },
+      // Right dance floor — cyan pulse
+      { x: zoneMinX + (zoneMaxX - zoneMinX) * 0.75, y: zoneCenterY, color: 0x00bfff, radius: 160, dur: 3800 },
+      // Center dance floor — purple wash
+      { x: zoneCenterX, y: zoneCenterY + 48, color: 0x9b30ff, radius: 200, dur: 4000 },
+      // South area — right on the bottom edge
+      { x: zoneCenterX - 64, y: zoneMaxY - 32, color: 0xff2200, radius: 140, dur: 3500 },
+      { x: zoneCenterX + 80, y: zoneMaxY - 32, color: 0x8b00ff, radius: 140, dur: 2900 },
+    ];
+    for (const fl of floorLights) {
+      const light = this.lights.addLight(fl.x, fl.y, fl.radius, fl.color, 0.15);
+      this.tweens.add({
+        targets: light,
+        intensity: { from: 0.1, to: 0.25 },
+        duration: fl.dur,
+        yoyo: true,
+        repeat: -1,
+        ease: "Sine.easeInOut",
+        delay: Math.random() * 1000,
+      });
+    }
 
     // F. Fog/haze particles — subtle atmospheric smoke, contained to ballroom
     if (!this.textures.exists("club-fog-particle")) {
@@ -6267,6 +6362,44 @@ export class GameScene extends Phaser.Scene {
   private retractMasonLetterbox(onComplete: () => void) {
     hudState.update({ letterboxActive: false });
     this.time.delayedCall(500, onComplete);
+  }
+
+  /** Skip Mason cutscene immediately (ESC key) — works for both cutscene_1 and cutscene_2 */
+  private skipMasonCutscene() {
+    if (!this.masonCutsceneActive) return;
+    const wasPhase = this.masonRavePhase;
+
+    // Clear React UI
+    hudState.update({ masonDialogueActive: false, letterboxActive: false });
+    this.game.canvas.style.pointerEvents = "auto";
+
+    // Resume physics and camera
+    this.cameras.main.stopFollow();
+    this.cameras.main.resetFX();
+    this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
+    this.physics.resume();
+
+    this.masonDismissing = false;
+    this.masonBannerReady = false;
+
+    if (wasPhase === "cutscene_1") {
+      // Activate zombies — they stop dancing and attack
+      this.masonRavePhase = "zombie_fight";
+      this.postCutsceneImmunity = 1500;
+      for (const z of this.masonRaveZombies) {
+        if (z.active && !z.dying) {
+          z.stopDancing();
+          z.body.setImmovable(false);
+        }
+      }
+      this.showWeaponMessage("KILL THE ZOMBIES!", "#ff4444");
+    } else if (wasPhase === "cutscene_2") {
+      // Mason jumps in to fight
+      this.masonRavePhase = "boss_fight";
+      if (this.masonEnemy?.active) {
+        this.playMasonJumpEntry(this.masonEnemy);
+      }
+    }
   }
 
   /** All rave zombies dead — brief dramatic pause, then player walks north */
@@ -6688,9 +6821,10 @@ export class GameScene extends Phaser.Scene {
         } else if (this.anims.exists(fallbackKey)) {
           this.kyleScriptedZombie.play(fallbackKey, false);
         }
-        // Destroy after death animation plays
+        // Remove from enemies group and destroy after death animation
         const zombieRef = this.kyleScriptedZombie;
         this.kyleScriptedZombie = null;
+        this.enemies.remove(zombieRef, false, false);
         this.time.delayedCall(1200, () => {
           if (zombieRef?.active) zombieRef.destroy();
         });
@@ -6935,7 +7069,11 @@ export class GameScene extends Phaser.Scene {
     this.kyleCSRunningSound = null;
 
     // Destroy scripted zombie if still alive
-    if (this.kyleScriptedZombie?.active) this.kyleScriptedZombie.destroy();
+    if (this.kyleScriptedZombie) {
+      this.enemies.remove(this.kyleScriptedZombie, false, false);
+      if (this.kyleScriptedZombie.active) this.kyleScriptedZombie.destroy();
+      this.kyleScriptedZombie = null;
+    }
 
     // Position player and Kyle inside Rudy's
     const playerX = 80 * 32 + 16;
@@ -7201,8 +7339,8 @@ export class GameScene extends Phaser.Scene {
     const idleKey = getAnimKey(this.characterDef.id, "breathing-idle", this.player.currentDir);
     if (this.anims.exists(idleKey)) this.player.play(idleKey, true);
 
-    // Letterbox bars (React)
-    hudState.update({ letterboxActive: true });
+    // Show Skip Cutscene button immediately (quotes/VO load later in onBannerReady)
+    hudState.update({ scaryboiIntroActive: true, letterboxActive: true });
 
     // After bars settle (500ms CSS transition), spawn boss in cutscene mode
     this.time.delayedCall(500, () => {
@@ -7271,6 +7409,37 @@ export class GameScene extends Phaser.Scene {
       }
       this.scaryboiCutsceneBoss = null;
     });
+  }
+
+  /** Skip SCARYBOI cutscene immediately (ESC key) */
+  private skipScaryboiCutscene() {
+    if (!this.scaryboiIntroActive) return;
+
+    // Clear React UI
+    hudState.update({ scaryboiIntroActive: false, letterboxActive: false });
+    this.game.canvas.style.pointerEvents = "auto";
+
+    // Stop any SCARYBOI VO playing in React (HTML Audio cleanup is handled by component unmount)
+
+    // Resume physics and end cutscene state
+    this.scaryboiIntroActive = false;
+    this.scaryboiDismissing = false;
+    this.scaryboiBannerReady = false;
+    this.physics.resume();
+
+    // Theme transition
+    this.audio.stopTheme("themeCreepybass", 500);
+    this.audio.stopTheme("themeMain", 500);
+    this.audio.startTheme("theme-intense", "themeIntense", 0.25, true, 1000);
+
+    // Start the boss encounter
+    if (this.scaryboiCutsceneBoss?.active) {
+      this.scaryboiCutsceneBoss.startEncounterAfterCutscene(
+        this.scaryboiCutsceneGracePeriodMs,
+        this.scaryboiCutsceneIsIndoor
+      );
+    }
+    this.scaryboiCutsceneBoss = null;
   }
 
   /** Spawn RPG pickup at a world position (dropped by SCARYBOI on death) */
@@ -7506,24 +7675,74 @@ export class GameScene extends Phaser.Scene {
     this.time.delayedCall(200, () => this.audio.playSound("sfx-gen-spark", 0.5));
     this.time.delayedCall(500, () => {
       this.audio.playSound("sfx-gen-buzz", 0.4);
-      // Persistent low hum while generator runs
-      this.sound.play("sfx-gen-hum", { loop: true, volume: 0.08 });
+      // Persistent low hum — only audible inside north_building (managed in update)
+      this.genHumSound = this.sound.add("sfx-gen-hum", { loop: true, volume: 0 });
+      this.genHumSound.play();
+      // Fade in if player is already in the room
+      if (this.currentZoneName === "north_building") {
+        this.tweens.add({ targets: this.genHumSound, volume: 0.08, duration: 500 });
+      }
     });
     this.completeObjective("power_on");
 
-    // Brighten Rudy's interior lights — power restored, looks like normal full lighting
+    // Brighten Rudy's interior lights — power restored, cold white fluorescent
+    // Keep intensity low to avoid Light2D color overflow (two overlapping lights)
     for (const light of this.rudysInteriorLights) {
       this.tweens.killTweensOf(light);
-      light.color.set(0xffffff); // pure white — no color tint
-      light.radius = light.radius * 2;
+      light.color.set(0xc8d0e0); // cold blue-white — convenience store at 2am
       this.tweens.add({
         targets: light,
-        intensity: 2.0,
+        intensity: 0.35,
         duration: 1000,
         ease: "Sine.easeOut",
       });
     }
-    // Storefront light stays off — neon sign is the only exterior light
+
+    // Generator glow — warm light around the generator
+    if (this.generator) {
+      const genGlow = this.lights.addLight(this.generator.x, this.generator.y, 120, 0xffaa44, 0);
+      this.tweens.add({ targets: genGlow, intensity: 0.6, duration: 1000, ease: "Sine.easeOut" });
+    }
+
+    // Zyn machine glow — cool blue/purple vending machine light
+    for (const machine of this.machines) {
+      if (machine.machineType === "zyn") {
+        const zynGlow = this.lights.addLight(machine.x, machine.y, 100, 0x66ccff, 0);
+        this.tweens.add({ targets: zynGlow, intensity: 0.5, duration: 1000, ease: "Sine.easeOut" });
+      }
+    }
+
+    // Streetlamps — stop flickering, fade to steady
+    for (const sl of this.streetlampLights) {
+      this.tweens.killTweensOf(sl.light);
+      this.tweens.add({
+        targets: sl.light,
+        intensity: sl.intensity,
+        duration: 1500,
+        ease: "Sine.easeOut",
+      });
+    }
+
+    // Rudy's exterior window glow — icy blue light spilling out through windows
+    const rudysExtX = 80 * 32 + 16; // center of Rudy's
+    const rudysExtY = 57 * 32;      // near the front/south side of the building
+    const windowGlow = this.lights.addLight(rudysExtX, rudysExtY, 200, 0x8ec8e8, 0);
+    this.tweens.add({ targets: windowGlow, intensity: 0.5, duration: 2000, ease: "Sine.easeOut" });
+
+    // Activate all power_on triggered lights (candles in rooms)
+    this.fireLandmarkTrigger("power_on");
+
+    // Room lighting — north building, library, estate lower hall get dim ambient light on power-on
+    // (Not the club — that has its own rave atmosphere)
+    const roomLights: { x: number; y: number; radius: number }[] = [
+      { x: 192, y: 304, radius: 300 },   // north_building
+      { x: 272, y: 1392, radius: 320 },   // library
+      { x: 1524, y: 704, radius: 350 },   // estate_lower_hall
+    ];
+    for (const rl of roomLights) {
+      const light = this.lights.addLight(rl.x, rl.y, rl.radius, 0xddc89a, 0);
+      this.tweens.add({ targets: light, intensity: 0.4, duration: 2000, ease: "Sine.easeOut" });
+    }
 
     return true;
   }
@@ -7651,6 +7870,8 @@ export class GameScene extends Phaser.Scene {
 
   private updateKyleShopPrompt() {
     if (!this.kyleNpc || !this.kylePacing) return;
+    // Don't show shop prompt until all supply desks are looted
+    if (this.rudysDesks.length > 0 && !this.rudysDesks.every(d => !d.stocked)) return;
 
     const dist = Phaser.Math.Distance.Between(
       this.player.x, this.player.y, this.kyleNpc.x, this.kyleNpc.y
@@ -7662,6 +7883,8 @@ export class GameScene extends Phaser.Scene {
 
   private tryInteractKyle(): boolean {
     if (!this.kyleNpc || !this.kylePacing) return false;
+    // Can't shop until all supply desks are looted
+    if (this.rudysDesks.length > 0 && !this.rudysDesks.every(d => !d.stocked)) return false;
 
     const dist = Phaser.Math.Distance.Between(
       this.player.x, this.player.y, this.kyleNpc.x, this.kyleNpc.y
@@ -7692,34 +7915,6 @@ export class GameScene extends Phaser.Scene {
         this.bandageCount++;
         this.assignConsumableSlot("bandage");
         this.showWeaponMessage("+1 BANDAGE", "#44dd44");
-        break;
-      }
-      case "shotgun": {
-        const weaponDef = BALANCE.weapons[itemId as keyof typeof BALANCE.weapons];
-        // Already own this weapon — refill ammo
-        if (this.weapons.includes(itemId)) {
-          const wAmmo = this.weaponAmmo[itemId];
-          if (!wAmmo) return;
-          const totalMax = weaponDef.magazineSize * weaponDef.totalClips;
-          if (wAmmo.mag + wAmmo.reserve >= totalMax) return;
-          this.currency -= price;
-          wAmmo.reserve = totalMax - wAmmo.mag;
-          break;
-        }
-        // Buy new weapon — adds to inventory
-        this.currency -= price;
-        this.addWeapon(itemId, {
-          mag: weaponDef.magazineSize,
-          reserve: weaponDef.magazineSize * (weaponDef.totalClips - 1),
-        });
-        this.activeWeapon = itemId;
-        this.activeSlot = this.weapons.indexOf(itemId) + 1;
-        this.reloading = false;
-        if (this.reloadTimer) { this.reloadTimer.destroy(); this.reloadTimer = null; }
-        this.showWeaponMessage(weaponDef.name.toUpperCase(), "#44dd44");
-        const wpId = itemId as string;
-        const reloadSfx = wpId === "shotgun" ? "sfx-reload-shotgun" : wpId === "assault_rifle" ? "sfx-reload-rifle" : "sfx-reload-complete";
-        this.audio.playSound(reloadSfx, 0.5);
         break;
       }
       case "ammo_light": {

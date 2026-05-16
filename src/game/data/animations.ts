@@ -26,6 +26,7 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "crouching-stealth-pistol", frames: 6 },
     { type: "walking-flashlight", frames: 9 },
     { type: "walking-pistol-flashlight", frames: 9 },
+    { type: "walking-shotgun", frames: 9 },
   ],
   dan: [
     { type: "walk", frames: 6 },
@@ -48,6 +49,7 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "crouching-stealth-pistol", frames: 6 },
     { type: "walking-flashlight", frames: 9 },
     { type: "walking-pistol-flashlight", frames: 4 },
+    { type: "walking-shotgun", frames: 9 },
   ],
   mason: [
     { type: "breathing-idle", frames: 4 },
@@ -80,6 +82,7 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "crouching-stealth-pistol", frames: 6 },
     { type: "walking-flashlight", frames: 9 },
     { type: "walking-pistol-flashlight", frames: 9 },
+    { type: "walking-shotgun", frames: 9 },
   ],
   jason: [
     { type: "walk", frames: 6 },
@@ -102,6 +105,7 @@ export const CHARACTER_ANIMATIONS: Record<
     { type: "crouching-stealth-pistol", frames: 6 },
     { type: "walking-flashlight", frames: 9 },
     { type: "walking-pistol-flashlight", frames: 9 },
+    { type: "walking-shotgun", frames: 9 },
   ],
   creepyzombie: [
     { type: "walk", frames: 8 },

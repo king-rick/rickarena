@@ -255,43 +255,6 @@ export function ScaryboiIntro() {
         )}
       </div>
 
-      {/* Dismiss button — visible only after audio has fully played and all text typed */}
-      <button
-        type="button"
-        onClick={handleDismiss}
-        style={{
-          marginTop: 10,
-          background: "transparent",
-          border: "1px solid rgba(160, 30, 30, 0.55)",
-          color: "rgba(195, 155, 155, 0.82)",
-          fontFamily: "var(--font-special-elite), 'Special Elite', serif",
-          fontSize: "clamp(9px, 1vw, 12px)",
-          letterSpacing: "0.22em",
-          padding: "6px 20px",
-          cursor: "pointer",
-          textTransform: "uppercase",
-          opacity: canDismiss && visible && !dismissing ? 1 : 0,
-          pointerEvents: canDismiss && visible && !dismissing ? "auto" : "none",
-          transition: canDismiss && visible && !dismissing
-            ? "opacity 300ms ease-out, background 150ms, color 150ms, border-color 150ms"
-            : "opacity 200ms ease-out",
-        }}
-        onMouseEnter={(e) => {
-          const el = e.currentTarget as HTMLElement;
-          el.style.background = "rgba(160,30,30,0.22)";
-          el.style.color = "#fff";
-          el.style.borderColor = "rgba(220,60,60,0.9)";
-        }}
-        onMouseLeave={(e) => {
-          const el = e.currentTarget as HTMLElement;
-          el.style.background = "transparent";
-          el.style.color = "rgba(195,155,155,0.82)";
-          el.style.borderColor = "rgba(160,30,30,0.55)";
-        }}
-      >
-        Bring it
-      </button>
-
       <style>{`@keyframes blink { 50% { opacity: 0; } }`}</style>
     </div>
   );

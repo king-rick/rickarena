@@ -69,6 +69,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private biting = false;
   private leaping = false;
   dying = false;
+  lastBiteTime = 0; // per-enemy bite cooldown (set by GameScene)
   fleeing = false;
   dancing = false;
   raveZombie = false;

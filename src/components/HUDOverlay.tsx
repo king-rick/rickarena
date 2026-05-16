@@ -202,6 +202,38 @@ export function HUDOverlay({ canvasRect }: Props) {
       {scaryboiIntroActive && !gameOver && (
         <div className="absolute" style={{ ...baseStyle, zIndex: 45 }}>
           <ScaryboiIntro />
+          <button
+            type="button"
+            onClick={() => hudState.dispatchScaryboiIntroAction("skip")}
+            style={{
+              position: "absolute",
+              top: 16,
+              right: 16,
+              padding: "4px 12px",
+              background: "linear-gradient(180deg, rgba(8, 4, 12, 0.6) 0%, rgba(16, 8, 16, 0.65) 100%)",
+              border: "1px solid rgba(255, 34, 68, 0.25)",
+              borderRadius: 3,
+              boxShadow: "0 0 8px rgba(0, 0, 0, 0.6), 0 0 4px rgba(255, 34, 68, 0.1)",
+              fontFamily: "ChainsawCarnage, HorrorPixel, monospace",
+              fontSize: 14,
+              color: "#e8e0e0",
+              textShadow: "0 0 4px rgba(255, 34, 68, 0.3), 0 1px 2px rgba(0, 0, 0, 0.9)",
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              cursor: "pointer",
+              pointerEvents: "auto",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "rgba(255, 34, 68, 0.7)";
+              e.currentTarget.style.boxShadow = "0 0 16px rgba(255, 34, 68, 0.5), 0 0 32px rgba(255, 34, 68, 0.25)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "rgba(255, 34, 68, 0.25)";
+              e.currentTarget.style.boxShadow = "0 0 8px rgba(0, 0, 0, 0.6), 0 0 4px rgba(255, 34, 68, 0.1)";
+            }}
+          >
+            Skip Cutscene
+          </button>
         </div>
       )}
 
@@ -209,6 +241,38 @@ export function HUDOverlay({ canvasRect }: Props) {
       {masonDialogueActive && !gameOver && (
         <div className="absolute" style={{ ...baseStyle, zIndex: 44 }}>
           <MasonAnnouncement />
+          <button
+            type="button"
+            onClick={() => hudState.dispatchMasonDialogueAction("skip")}
+            style={{
+              position: "absolute",
+              top: 16,
+              right: 16,
+              padding: "4px 12px",
+              background: "linear-gradient(180deg, rgba(8, 4, 12, 0.6) 0%, rgba(16, 8, 16, 0.65) 100%)",
+              border: "1px solid rgba(255, 34, 68, 0.25)",
+              borderRadius: 3,
+              boxShadow: "0 0 8px rgba(0, 0, 0, 0.6), 0 0 4px rgba(255, 34, 68, 0.1)",
+              fontFamily: "ChainsawCarnage, HorrorPixel, monospace",
+              fontSize: 14,
+              color: "#e8e0e0",
+              textShadow: "0 0 4px rgba(255, 34, 68, 0.3), 0 1px 2px rgba(0, 0, 0, 0.9)",
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              cursor: "pointer",
+              pointerEvents: "auto",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "rgba(255, 34, 68, 0.7)";
+              e.currentTarget.style.boxShadow = "0 0 16px rgba(255, 34, 68, 0.5), 0 0 32px rgba(255, 34, 68, 0.25)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "rgba(255, 34, 68, 0.25)";
+              e.currentTarget.style.boxShadow = "0 0 8px rgba(0, 0, 0, 0.6), 0 0 4px rgba(255, 34, 68, 0.1)";
+            }}
+          >
+            Skip Cutscene
+          </button>
         </div>
       )}
 

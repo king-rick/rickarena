@@ -1,5 +1,54 @@
 # RickArena Changelog
 
+## 2026-05-15 — Club Lighting, Balance Nerfs, Skip Cutscenes, Shotgun Car Trunk
+
+### Club Atmosphere Upgrade
+- **Light2D dance floor wash**: 5 pulsing colored lights (magenta, cyan, purple, red, violet) that actually illuminate sprites/tiles
+- **DJ booth Light2D**: pulsing purple light illuminates Mason and nearby area
+- **South wall spotlights**: 2 sweeping PointLights scanning northward from south wall
+- **South wall beams**: 2 sweeping light cone beams matching north/east/west beam style
+- All south wall fixtures positioned right on the bottom edge of the club zone
+
+### Skip Cutscene System
+- **Skip Cutscene button** added to all SCARYBOI and Mason cutscenes (top-right, matching Kyle's button style)
+- ESC key skips any active cutscene (SCARYBOI, Mason, Kyle)
+- SCARYBOI skip button appears immediately on encounter trigger (not delayed until VO starts)
+- Removed "Bring it" buttons and "ESC to skip" text from SCARYBOI/Mason dialogue cards
+
+### Balance Changes
+- **Per-enemy bite cooldown** (1.2s): same zombie can't bite repeatedly — prevents machine-gun chomping
+- **SCARYBOI nerf**: punch 40->30 dmg (cooldown 900->1100ms), fireball 10->8 dmg (cooldown 2000->2200ms, speed 300->280)
+- **Shotgun in car trunk**: random car now drops shotgun instead of SMG
+- **Shotgun + SMG removed from shop** (6 items remain: bandage, ammo x3, landmine, grenade)
+
+### Walking-Shotgun Animation
+- New `walking-shotgun` animation wired for all 4 characters (9 frames, 10fps)
+- Plays when walking with shotgun equipped (not crouching/sprinting/flashlight)
+
+### Power-On Lighting System
+- **Generator glow**: warm orange Light2D on power-on
+- **Rudy's interior**: cold blue-white fluorescent (was red from Light2D overflow), race condition fixed in blackout callbacks
+- **Rudy's exterior window glow**: icy blue light spilling through windows
+- **Zyn machine glow**: cool blue Light2D on power-on
+- **Streetlamps**: stop flickering, fade to steady on power-on
+- **Room center lights**: north_building, library, estate_lower_hall get ambient light
+- **Candle triggered lights**: `fireLandmarkTrigger("power_on")` fades in candle lights
+- **Generator hum**: zone-based audio — only audible inside north_building
+
+### Mason Boss
+- **Toxic green aura**: Light2D (0x44ff44, radius 180) follows Mason everywhere — DJ booth, cutscenes, combat
+- Aura fades out on death
+
+### Bug Fixes
+- **Timer reset**: `timeSurvived` now resets on scene restart (was persisting between games)
+- **Kyle cutscene zombie**: properly removed from enemies group + destroyed after Kyle shoots it
+- **Club phantom collision**: removed rotated collision rect (id=1326) that Phaser ignored rotation on
+- **Tiled candle objects**: bulk-fixed 19 candles (wrong property types: strings->float/int, missing # on colors)
+- **Kyle shop gating**: can't interact with Kyle until all 3 supply desks looted
+- **Staircase dead code cleanup**: removed lower staircase blocker zone references
+
+---
+
 ## 2026-05-13 — Stealth System, Silent Kill, HUD Overhaul (Stealth Phase 4C)
 
 ### Stealth Detection Tuning
