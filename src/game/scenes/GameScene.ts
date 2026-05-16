@@ -47,7 +47,7 @@ export class GameScene extends Phaser.Scene {
   private scaryboiGateTriggered = false;  // prevents re-triggering zone2 encounter
   private scaryboiLibraryTriggered = false;  // prevents re-triggering south building encounter
   private scaryboiEstateTriggered = false; // prevents re-triggering estate encounter
-  private pendingScaryboiSpawn: { x: number; y: number; hpPercent: number; gracePeriodMs: number; enc: string } | null = null;
+  private pendingScaryboiSpawn: { x: number; y: number; hpPercent: number; gracePeriodMs: number; enc: string; isFirst: boolean } | null = null;
   private masonRavePhase: "" | "rave_setup" | "cutscene_1" | "zombie_fight" | "dramatic_pause" | "cutscene_2" | "boss_fight" = "";
   private masonTriggered = false;
   private masonEnemy: Enemy | null = null;
@@ -7334,6 +7334,7 @@ export class GameScene extends Phaser.Scene {
     this.scaryboiIntroActive = true;
     this.scaryboiCutsceneGracePeriodMs = encConfig.gracePeriodMs;
     this.scaryboiCutsceneIsIndoor = enc === "library";
+    this.pendingScaryboiSpawn = { x: spawnX, y: spawnY, hpPercent: encConfig.hpPercent, gracePeriodMs: encConfig.gracePeriodMs, enc, isFirst };
     this.physics.pause();
     this.game.canvas.style.pointerEvents = "none";
 
@@ -7346,6 +7347,9 @@ export class GameScene extends Phaser.Scene {
 
     // After bars settle (500ms CSS transition), spawn boss in cutscene mode
     this.time.delayedCall(500, () => {
+      // Bail if cutscene was already skipped during the delay
+      if (!this.scaryboiIntroActive) return;
+
       const maxHp = (BALANCE.enemies.boss as any).hp as number;
       const boss = new Enemy(this, spawnX, spawnY, "boss", 1, 1);
       boss.health = Math.round(maxHp * encConfig.hpPercent);
@@ -7361,6 +7365,8 @@ export class GameScene extends Phaser.Scene {
       // Encounters 2+: short sequence (smoke → idle, no backflip)
       const cutsceneData = this.SCARYBOI_CUTSCENE_DATA[enc];
       const onBannerReady = () => {
+        // Bail if cutscene was skipped during the spawn animation
+        if (!this.scaryboiIntroActive) return;
         this.scaryboiBannerReady = true;
         hudState.update({
           scaryboiIntroActive: true,
@@ -7410,18 +7416,17 @@ export class GameScene extends Phaser.Scene {
         );
       }
       this.scaryboiCutsceneBoss = null;
+      this.pendingScaryboiSpawn = null;
     });
   }
 
-  /** Skip SCARYBOI cutscene immediately (ESC key) */
+  /** Skip SCARYBOI cutscene immediately (ESC key or Skip button) */
   private skipScaryboiCutscene() {
     if (!this.scaryboiIntroActive) return;
 
     // Clear React UI
     hudState.update({ scaryboiIntroActive: false, letterboxActive: false });
     this.game.canvas.style.pointerEvents = "auto";
-
-    // Stop any SCARYBOI VO playing in React (HTML Audio cleanup is handled by component unmount)
 
     // Resume physics and end cutscene state
     this.scaryboiIntroActive = false;
@@ -7434,14 +7439,20 @@ export class GameScene extends Phaser.Scene {
     this.audio.stopTheme("themeMain", 500);
     this.audio.startTheme("theme-intense", "themeIntense", 0.25, true, 1000);
 
-    // Start the boss encounter
+    // If boss was already spawned during cutscene, start encounter
     if (this.scaryboiCutsceneBoss?.active) {
+      this.scaryboiCutsceneBoss.bossCutscene = false;
       this.scaryboiCutsceneBoss.startEncounterAfterCutscene(
         this.scaryboiCutsceneGracePeriodMs,
         this.scaryboiCutsceneIsIndoor
       );
+      this.scaryboiCutsceneBoss = null;
+    } else if (this.pendingScaryboiSpawn) {
+      // Boss hasn't spawned yet (skipped during letterbox delay) — spawn now
+      const p = this.pendingScaryboiSpawn;
+      this.doScaryboiSpawn(p.x, p.y, p.hpPercent, p.gracePeriodMs, p.enc);
     }
-    this.scaryboiCutsceneBoss = null;
+    this.pendingScaryboiSpawn = null;
   }
 
   /** Spawn RPG pickup at a world position (dropped by SCARYBOI on death) */
